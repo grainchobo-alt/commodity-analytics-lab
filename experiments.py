@@ -148,7 +148,7 @@ def procurement_steps(progress=None, start="2008-01-01", weeks: int = 13):
         ("4 계절성·창", "가격 위치 창 2년", base_w, 1.0, "ewma", "price", "all", 504, 0.0),
         ("4 보유비용", "기준 + 보유비용 3bp/주", base_w, 1.0, "ewma", "price", "all", 252, 3.0),
     ]
-    ids = list(PR.BUY_IDS)
+    ids = PR.GRAIN_IDS                                                   # 2008~ 표본이 있는 곡물 6품목 (금속은 procurement_metals)
     cache = {}
     jobs = [(i, v) for v in V for i in ids]
     for j, (i, (stg, nm, w, k, risk, relm, sea, lb, carry)) in enumerate(jobs):
@@ -174,11 +174,55 @@ def procurement_steps(progress=None, start="2008-01-01", weeks: int = 13):
     _save("procure_steps", pd.DataFrame(out), t0, dict(시작=start, 구매기간=f"{weeks}주", 품목=len(ids), 시작간격="4주"))
 
 
+def _metal_candidates(Lr: pd.DataFrame) -> dict:
+    """철강 원료·구리의 상대가치 후보 (실제 근월물 시세의 경제적 관계). 값: (관계 시계열, 부호 +1=클수록 내 품목이 쌈)."""
+    import procurement as PR
+    g = lambda k: Lr[k].dropna()
+    I0, J0, JM, RB = g("ak:I0"), g("ak:J0"), g("ak:JM0"), g("ak:RB0")
+    return {"yf:TIO=F": {"SGX/DCE 수입 차익 (채택)": (PR.rel_series(Lr, "yf:TIO=F"), -1),
+                         "철근 고로 마진": (RB - 1.6 * I0 - 0.5 * J0, +1),
+                         "철광석/철근 가격비": (np.log(I0) - np.log(RB), -1),
+                         "철광석/점결탄 가격비": (np.log(I0) - np.log(JM), -1)},
+            "ak:JM0": {"철근 고로 마진 (채택)": (PR.rel_series(Lr, "ak:JM0"), +1),
+                       "코크스 마진": (J0 - 1.33 * JM, +1),
+                       "점결탄/코크스 가격비": (np.log(JM) - np.log(J0), -1)},
+            "yf:HG=F": {"구리/금 가격비 (채택)": (PR.rel_series(Lr, "yf:HG=F"), -1),
+                        "구리/알루미늄 가격비": (np.log(g("yf:HG=F") * 2204.62) - np.log(g("yf:ALI=F")), -1)}}
+
+
+def procurement_metals(progress=None, split="2019-07-01"):
+    """철광석·점결탄·구리: '추천' 프리셋에서 상대가치 정의만 바꿔 비교 → 전반·후반 모두 + 인 정의만 채택.
+    데이터가 2010~2013년부터라 곡물(2008~)과 따로, 시작 2013(점결탄 2015) · 전반/후반 경계 split."""
+    import procurement as PR
+    t0 = time.time(); La, Lr, U, _ = _data(); rows = []
+    P_ = PR.PRESETS["추천 (고도화: 상대가치+계절+MIDAS)"]
+    C = _metal_candidates(Lr)
+    jobs = [(i, nm, wk) for i in PR.METAL_IDS for nm in ["상대가치 없음", *C[i]] for wk in (8, 13, 26)]
+    vf = {}
+    for j, (i, nm, wk) in enumerate(jobs):
+        if i not in vf:
+            vf[i] = PR.midas_var(La[i])
+        rel, sg = C[i].get(nm, (None, 1))
+        if rel is not None:
+            rel = rel.dropna(); rel = rel[rel.index.dayofweek < 5]
+        st_ = "2015-01-01" if i == "ak:JM0" else "2013-01-01"
+        B = PR.backtest(Lr[i], La[i], wk, 4, start=st_, w=P_["w"], k=P_["k"], lookback=P_["lookback"],
+                        inp=dict(rel=rel, rel_sign=sg, vol_fc=vf[i]), season=P_["season"])
+        x = B["절감_규칙"]; nov = x.iloc[::max(1, wk // 4)]
+        rows.append(dict(품목=PR.BUY_IDS[i], 상대가치=nm, 구매기간주=wk, 평균절감bp=x.mean(), 중앙값bp=x.median(),
+                         t값_비중첩=nov.mean() / nov.std() * np.sqrt(len(nov)), 전반bp=x[x.index < split].mean(), 후반bp=x[x.index >= split].mean(),
+                         균등보다싸게=(x > 0).mean(), 하위5bp=x.quantile(0.05), 기간수=len(x)))
+        if progress: progress((j + 1) / len(jobs))
+    _save("procure_metals", pd.DataFrame(rows), t0, dict(프리셋="추천", 시작="2013 (점결탄 2015)", 전후반경계=split, 시작간격="4주"))
+
+
 EXPERIMENTS = {
     "procure": dict(title="구매 타이밍 — 신호·공격성별 평균 매입가 절감", file="procurement_compare.csv", fn=procurement, eta="약 1분",
                     cols=["품목", "신호", "구매기간주", "기간", "평균절감bp"]),
     "procure_steps": dict(title="구매 신호 고도화 — 단계별 추가 효과 검증", file="procurement_steps_compare.csv", fn=procurement_steps,
                           eta="약 5~10분", cols=["단계", "변형", "평균절감bp", "하위5bp"]),
+    "procure_metals": dict(title="철강 원료·구리 — 상대가치 정의 비교", file="procurement_metals_compare.csv", fn=procurement_metals,
+                           eta="약 1분", cols=["품목", "상대가치", "구매기간주", "전반bp", "후반bp"]),
     "momentum": dict(title="모멘텀 기간 비교", file="momentum_lookback_compare.csv", fn=momentum_lookback, eta="약 5~8분",
                      cols=["모드", "모멘텀", "전략", "Sharpe (비용 후)", "연간 회전율(편도 합)"]),
     "rules": dict(title="거래 규칙 비교 (고정 주기 · 무거래 구간 · 부분 조정)", file="rebalance_rule_compare.csv", fn=trade_rules, eta="약 7~10분",

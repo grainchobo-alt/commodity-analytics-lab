@@ -59,13 +59,14 @@ YAHOO = {
  "HE=F": ("Livestock", "Lean Hogs", "c/lb"),
  "BDRY": ("Freight", "BDRY ETF (BDI futures proxy)", "$"),
  "DX-Y.NYB": ("FX", "US Dollar Index", "idx"), "KRW=X": ("FX", "USD/KRW", "KRW"),
+ "CNY=X": ("FX", "USD/CNY", "CNY"),
  "^GSPC": ("Macro", "S&P 500", "idx"),
 }
 AK_SHIP = {"macro_shipping_bdi": "BDI (Dry)", "macro_shipping_bci": "BCI (Capesize)",
            "macro_shipping_bpi": "BPI (Panamax)", "macro_shipping_bcti": "BCTI (Dirty Tanker)"}
 AK_DCE = {"I0": ("DCE Iron Ore", "CNY/mt"), "M0": ("DCE Soybean Meal", "CNY/mt"), "C0": ("DCE Corn", "CNY/mt"),
           "A0": ("DCE Soybean #1", "CNY/mt"), "Y0": ("DCE Soybean Oil", "CNY/mt"), "JM0": ("DCE Coking Coal", "CNY/mt"),
-          "J0": ("DCE Coke", "CNY/mt")}
+          "J0": ("DCE Coke", "CNY/mt"), "RB0": ("SHFE Rebar", "CNY/mt")}
 FRED = {"DCOILWTICO": "WTI spot (EIA)", "DCOILBRENTEU": "Brent spot (EIA)", "DHHNGSP": "Henry Hub spot (EIA)"}
 # 회귀/FAVAR 설명변수 및 위기 식별용 거시 변수
 FRED_MACRO = {"VIXCLS": ("VIX", "idx"), "DGS10": ("US 10Y yield", "%"), "DGS2": ("US 2Y yield", "%"),

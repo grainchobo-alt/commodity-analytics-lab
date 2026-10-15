@@ -67,7 +67,23 @@ assert (Bc["일괄"] / B0["일괄"] - 1).round(6).eq(0.012).all()               
 assert np.allclose(Bc["규칙"], Bc["균등"])
 ok("보유비용 10bp/주: 기간 초 일괄 매수 실효가 +1.2% (12주 보유), k=0이면 여전히 균등과 동일")
 
+# 7) 철강 원료·구리 상대가치: 기준일 이후 DCE·철근·환율·금 가격을 바꿔도 기준일까지의 관계·신호 불변, 위안 품목 달러 환산
+cut3 = pd.Timestamp("2020-06-30")
+Lr3 = Lr.copy()
+for c_ in ["ak:I0", "ak:RB0", "ak:J0", PR.FX_CNY, "yf:GC=F"]:
+    Lr3.loc[Lr3.index > cut3, c_] *= 1.5
+for j_ in PR.METAL_IDS:
+    q1, q2 = PR.rel_series(Lr, j_), PR.rel_series(Lr3, j_)
+    assert q1 is not None and len(q1.loc[:cut3]) > 500, j_
+    assert np.allclose(q1.loc[:cut3].values, q2.loc[:cut3].values), j_
+    sg_ = PR.REL_DEF[j_][1]
+    v1 = PR.signals(La[j_], rel=q1, rel_sign=sg_)["relval"]; v2 = PR.signals(La[j_], rel=q2, rel_sign=sg_)["relval"]
+    assert np.allclose(v1.loc[:cut3].fillna(-1), v2.loc[:cut3].fillna(-1)), j_
+u1, u2 = PR.usd_t(Lr, "ak:JM0"), PR.usd_t(Lr3, "ak:JM0")
+assert np.allclose(u1.loc[:cut3].dropna(), u2.loc[:cut3].dropna()) and 50 < u1.dropna().iloc[-1] < 1000
+ok("철광석(SGX/DCE 차익)·점결탄(고로 마진)·구리(구리/금): 기준일 이후 데이터 교란에도 기준일까지 불변, 점결탄 달러 환산 정상")
+
 T = PR.today_table(La, Lr, list(PR.BUY_IDS))
-assert len(T) == 6 and T["매수 점수"].between(0, 100).all() and (T["4주 하단 90% ($/t)"] < T["가격 ($/t)"]).all()
-ok("오늘의 신호판: 6품목, 점수 0~100, 4주 범위 하단 < 현재가")
+assert len(T) == len(PR.BUY_IDS) and T["매수 점수"].between(0, 100).all() and (T["4주 하단 90% ($/t)"] < T["가격 ($/t)"]).all()
+ok(f"오늘의 신호판: {len(T)}품목, 점수 0~100, 4주 범위 하단 < 현재가")
 print("PROCUREMENT TEST PASSED")

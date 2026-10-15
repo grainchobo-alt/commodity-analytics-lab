@@ -1586,8 +1586,10 @@ def tab_procure():
         carry = g[4].number_input("보유비용 (bp/주)", 0.0, 20.0, 0.0, 0.5, key="pc_carry",
                                   help="재판매·인도 시점까지 보유하는 금융·보관 비용. 일찍 살수록 커짐 — 백테스트 평가에만 반영")
         st.caption("12개월 추세는 롱숏 전략에선 유효했지만 구매 시점 선택에서는 '오를 때 서둘러 사기'가 평균 −20~−50bp로 손해 → 기본 0. "
-                   "상대가치는 경제적 관계(옥수수↔밀 가격비, 대두 크러시 마진, 대두박·대두유 가치/대두)의 1년 분위 — 대두유는 바이오연료 정책으로 "
-                   "관계 자체가 이동해 효과가 약함(실험 참고).")
+                   "상대가치는 경제적 관계(옥수수↔밀 가격비, 대두 크러시 마진, 대두박·대두유 가치/대두, 철광석 SGX↔DCE 수입 차익, "
+                   "점결탄↔철근 고로 마진, 구리↔금)의 1년 분위 — 대두유는 바이오연료 정책으로 관계 자체가 이동해 효과가 약하고, "
+                   "구리는 대체재(알루미늄) 관계가 최근 기각돼 구리/금만 참고 수준. 점결탄은 DCE 위안 가격을 그날 환율로 달러 환산(증치세 포함), "
+                   "철강 원료 3품목은 데이터가 2010~2013년부터라 검증 기간이 짧음.")
     risk = PR.RISK_MODES[risk_l]; lookback = {"6개월": 126, "1년": 252, "2년": 504}[lb_l]; season = PR.SEASON_MODES[sea_l]
     if not ids:
         st.info("품목을 선택하세요."); return
@@ -1602,12 +1604,12 @@ def tab_procure():
         sig, inp = sig_of(i)
         sc = PR.score(sig, w)
         last = sig.dropna(subset=["value"]).index.max()
-        pa = Lr_[i].dropna(); px = float(pa.loc[:last].iloc[-1]); p1 = pa.loc[last - pd.DateOffset(years=1):last]
-        u = PR.TO_USD_T.get(i, 1.0); va = float(sig["vol_ann"].loc[last]); rk = float(sig["risk"].loc[last])
-        rows.append({"품목": PR.BUY_IDS[i], "id": i, "기준일": last.date(), "가격 ($/t)": px * u, "1년 최저 ($/t)": p1.min() * u,
-                     "1년 최고 ($/t)": p1.max() * u, "매수 점수": float(sc.loc[last]) * 100,
+        pa = PR.usd_t(Lr_, i); px = float(pa.loc[:last].iloc[-1]); p1 = pa.loc[last - pd.DateOffset(years=1):last]
+        va = float(sig["vol_ann"].loc[last]); rk = float(sig["risk"].loc[last])
+        rows.append({"품목": PR.BUY_IDS[i], "id": i, "기준일": last.date(), "가격 ($/t)": px, "1년 최저 ($/t)": p1.min(),
+                     "1년 최고 ($/t)": p1.max(), "매수 점수": float(sc.loc[last]) * 100,
                      **{PR.COMP_LBL[c]: float(sig[c].loc[last]) * 100 for c in PR.COMP_LBL}, "위험 지표": rk * 100,
-                     "4주 하단 90% ($/t)": px * u * np.exp(-1.645 * va * np.sqrt(20 / 252)), "4주 상단 90% ($/t)": px * u * np.exp(1.645 * va * np.sqrt(20 / 252)),
+                     "4주 하단 90% ($/t)": px * np.exp(-1.645 * va * np.sqrt(20 / 252)), "4주 상단 90% ($/t)": px * np.exp(1.645 * va * np.sqrt(20 / 252)),
                      "권장 속도 (균등 대비 배)": PR.pace(float(sc.loc[last]), rk, 1.0, int(weeks), k, 3.0) * int(weeks)})
     T = pd.DataFrame(rows)
     st.markdown(f"##### 오늘의 구매 신호 (기준일 {T['기준일'].max()} · {preset})")
@@ -1640,7 +1642,7 @@ def tab_procure():
     st.markdown("##### 신호 상세")
     di = st.selectbox("품목 선택", list(T["id"]), format_func=lambda i: PR.BUY_IDS[i], key="pc_detail")
     sig, inp = sig_of(di); sc = PR.score(sig, w) * 100
-    pa = Lr_[di].dropna() * PR.TO_USD_T.get(di, 1.0)
+    pa = PR.usd_t(Lr_, di)
     lo = pa.index.max() - pd.DateOffset(years=3)
     pa3, sc3 = pa[pa.index >= lo], sc[sc.index >= lo]
     f = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.45, 0.3, 0.25], vertical_spacing=0.05,
@@ -1731,7 +1733,7 @@ def tab_experiments():
     st.subheader("실험 결과 — 설정을 바꿔가며 같은 백테스트 엔진으로 비교한 결과")
     st.caption("모든 실험은 미래정보 차단(다음 거래일 체결·walk-forward)·같은 비용 가정. 데이터가 갱신되면 '재실행'으로 최신화. "
                "주의: 표에서 가장 좋은 설정을 골라 쓰면 과적합 — 여러 조건에서 일관되게 좋은 설정을 고를 것.")
-    sec = st.radio("실험", ["구매 신호 고도화 (단계별)", "구매 타이밍", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징"],
+    sec = st.radio("실험", ["구매 신호 고도화 (단계별)", "구매 타이밍", "철강 원료·구리 상대가치", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징"],
                    horizontal=True, key="ex_sec")
     pct = lambda cols: {c: "{:.2%}" for c in cols}
     if sec == "구매 신호 고도화 (단계별)":
@@ -1772,6 +1774,26 @@ def tab_experiments():
                 {"평균절감bp": "{:+.1f}", "중앙값bp": "{:+.1f}", "균등보다싸게": "{:.0%}", "하위5bp": "{:+.0f}", "사후최저bp": "{:+.0f}", "일괄매수bp": "{:+.0f}"}))
         st.caption("읽는 법: '추세만'이 음수 = 오를 때 서둘러 사면 손해. '가격 위치'는 평균은 크지만 '하위 5%'(꼬리 손실)도 큼. 국소 저점(위치+반등)은 수익·꼬리의 절충. "
                    "사후 최저(수백 bp)는 이론 상한 — 현실 규칙과의 격차가 '타이밍 예측의 한계'.")
+    elif sec == "철강 원료·구리 상대가치":
+        st.markdown("##### 철광석·점결탄·구리 — '추천' 프리셋에서 상대가치 정의만 바꿨을 때 (균등 매수 대비, bp)")
+        df = _exp_header("procure_metals")
+        if df is None:
+            return
+        wk = st.radio("구매 기간", sorted(df["구매기간주"].unique()), 1, horizontal=True, key="ex_mt_wk", format_func=lambda x: f"{x}주")
+        d = df[df.구매기간주 == wk].set_index(["품목", "상대가치"]).drop(columns="구매기간주")
+        f = go.Figure()
+        for j, c in enumerate(["전반bp", "후반bp"]):
+            f.add_trace(go.Bar(y=[f"{a} · {b}" for a, b in d.index], x=d[c], orientation="h", name={"전반bp": "전반 (~2019.6)", "후반bp": "후반 (2019.7~)"}[c],
+                               marker_color=PAL[j]))
+        f.add_vline(x=0, line_color="#222")
+        f.update_layout(height=120 + 30 * len(d), margin=dict(l=10, r=10, t=40, b=10), barmode="group", yaxis=dict(autorange="reversed"),
+                        title="평균 절감 (bp) — 두 기간 모두 0 오른쪽 + '상대가치 없음'보다 커야 채택")
+        st.plotly_chart(f, key="ex_mt_bar")
+        st.dataframe(d.style.format({"평균절감bp": "{:+.1f}", "중앙값bp": "{:+.1f}", "t값_비중첩": "{:+.2f}", "전반bp": "{:+.1f}", "후반bp": "{:+.1f}",
+                                     "균등보다싸게": "{:.0%}", "하위5bp": "{:+.0f}", "기간수": "{:.0f}"}))
+        st.caption("읽는 법: 철광석은 SGX 달러 가격과 DCE 위안 가격(환율·증치세 환산)의 차익, 점결탄은 철근 고로 마진(철근 − 1.6·철광석 − 0.5·코크스)이 "
+                   "8·13·26주 모두에서 전·후반 + → 채택. 구리는 대체재 알루미늄 비율이 후반에 무너져 기각, 구리/금은 일관되지만 작아(t≈1) 참고 수준. "
+                   "표본이 2013년부터라 곡물보다 검증 기간이 짧고, DCE 연속월물은 롤 보정이 없어 신호에 만기 교체 갭이 섞일 수 있음.")
     elif sec == "전략 비교 (리스크 버짓)":
         st.markdown("##### 리스크 버짓(신호 기울기 τ) vs 리스크 패리티 vs 최적화 vs 1/N vs DBC")
         df = _exp_header("rb")

@@ -19,7 +19,7 @@
 ## 구성
 | 파일 | 내용 |
 |---|---|
-| `collect.py` | Yahoo / FRED / World Bank / akshare(BDI·DCE) / CFTC COT 수집 → `data/*.parquet` |
+| `collect.py` | Yahoo(선물·달러/위안 등) / FRED / World Bank / akshare(BDI·DCE·SHFE 철근) / CFTC COT 수집 → `data/*.parquet` |
 | `build_dashboard.py`, `dashboard_template.html` | 정적 대시보드 생성 |
 | `analytics.py` | 분석 엔진: PCA, 흡수비율, Diebold-Yilmaz, GARCH/GJR/EGARCH, Markov-switching, OLS·Ridge·Lasso·EN·Adaptive Lasso·SCAD·MCP·분위수·Kalman TVP·RF·GBM·LSTM, FAVAR |
 | `mvgarch.py` | 다변량 GARCH 직접 구현 (numba): 단변량 GARCH 요약, DCC/ADCC, BEKK(1,1) Full·Diagonal·Scalar + 전이표 |
@@ -30,7 +30,7 @@
 | `regime.py` | C그룹: Markov-switching 회귀·TAR·STAR·TVP-VAR 연결성 |
 | `models_ml.py` | D그룹: LightGBM(+TreeSHAP)·Gaussian Process·Kernel Ridge, Conformal 예측구간(분할·적응형 ACI) |
 | `reports.py` | 기관 리포트 수집·평가: USDA WASDE(1997~)·EIA STEO 빈티지(2010~), 발표일 이벤트 스터디 |
-| `procurement.py` | ★ 구매 타이밍: 매수 점수(가격 위치·단기 반등·계절성·추세), 기간 내 매수 속도 규칙, 균등 매수 대비 평균 매입가 절감 백테스트 |
+| `procurement.py` | ★ 구매 타이밍 (곡물 6 + 철광석·점결탄·구리): 매수 점수(가격 위치·단기 반등·상대가치·계절성·추세), 기간 내 매수 속도 규칙, 균등 매수 대비 평균 매입가 절감 백테스트 |
 | `experiments.py` | ⑥ 실험 결과: 구매 타이밍·모멘텀 기간·거래 규칙·변동성 사이징·리스크 버짓 비교 실험 (`python experiments.py [이름]`) |
 | `app.py` | Streamlit 분석 앱 — ★ 구매 타이밍 / ① 시장 구조·동조성(상관·PCA·DY·TVP-VAR·FAVAR) / ② 레짐(Markov·HMM·MS 회귀·Kalman·TAR·STAR) / ③ 변동성·공분산(GARCH·DCC·BEKK·MIDAS) / ④ 수익률 예측(단일 품목·패널·MIDAS 회귀) / ⑤ 포트폴리오 / ⑥ 실험 결과 / ⑦ 모델 도감 / ⑧ 데이터·방법론 |
 | `model_atlas.py` | ⑥ 모델 도감: 31개 모델·방법론의 원리를 합성 데이터 시각화·수식·용도·함정으로 설명 |

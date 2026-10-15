@@ -4,7 +4,8 @@
 매수 점수 (0~1, 높을수록 지금 사기 좋음) = 가중 평균:
   value  : 1 − (최근 lookback일 가격 분위)                  → 쌀수록 ↑
   turn   : Φ(최근 10일 수익 z)                             → 단기 반등 = 국소 저점 통과 확인 (떨어지는 칼날 회피)
-  relval : 대체재·가공마진 대비 상대가치 (1년 분위)          → 옥수수↔밀, 대두↔크러시 마진, 대두박·대두유↔대두
+  relval : 대체재·가공마진 대비 상대가치 (1년 분위)          → 옥수수↔밀, 대두↔크러시 마진, 대두박·대두유↔대두,
+                                                            철광석↔DCE 수입 차익, 점결탄↔철근 고로 마진, 구리↔금
   season : Φ(−과거 연도들의 같은 달 상대가격 / σ)          → 계절 패턴 (올해 이전 연도만; 전체·최근 10년·최근 가중 선택)
   trend  : Φ(12-1개월 모멘텀 z)                            → 정보용 (실험상 구매 타이밍에는 해로워 기본 가중치 0)
 속도 규칙: 기본 = 남은 물량/남은 주, 배율 = clip(1 + k·확신·(2·점수 − 1), 0, m_max), 마감 주 전량.
@@ -19,10 +20,15 @@ import pandas as pd
 from scipy.stats import norm
 
 BUY_IDS = {"yf:ZC=F": "옥수수", "yf:ZW=F": "밀 (CBOT SRW)", "yf:KE=F": "밀 (KC HRW)", "yf:ZS=F": "대두",
-           "yf:ZM=F": "대두박", "yf:ZL=F": "대두유"}
-# 원 단위 → 미국 달러/메트릭톤
+           "yf:ZM=F": "대두박", "yf:ZL=F": "대두유",
+           "yf:TIO=F": "철광석 (SGX 62%)", "ak:JM0": "점결탄 (DCE)", "yf:HG=F": "구리 (COMEX)"}
+# 원 단위 → 미국 달러/메트릭톤 (위안 표시 품목은 CNY_IDS: 그날 달러/위안 환율로 환산)
 TO_USD_T = {"yf:ZC=F": 39.368 / 100, "yf:ZW=F": 36.744 / 100, "yf:KE=F": 36.744 / 100, "yf:ZS=F": 36.744 / 100,
-            "yf:ZM=F": 1.10231, "yf:ZL=F": 22.0462 / 100}
+            "yf:ZM=F": 1.10231, "yf:ZL=F": 22.0462 / 100, "yf:TIO=F": 1.0, "yf:HG=F": 2204.62}
+GRAIN_IDS = ["yf:ZC=F", "yf:ZW=F", "yf:KE=F", "yf:ZS=F", "yf:ZM=F", "yf:ZL=F"]   # 2008~ 검증·프리셋 결정에 쓴 품목
+METAL_IDS = ["yf:TIO=F", "ak:JM0", "yf:HG=F"]                                    # 2013~ 별도 검증 (experiments.procurement_metals)
+CNY_IDS = {"ak:JM0"}
+FX_CNY = "yf:CNY=X"
 DEFAULT_W = {"value": 0.6, "turn": 0.4, "relval": 0.0, "season": 0.0, "trend": 0.0}   # 균형 = 국소 저점 (싸면서 반등 시작)
 # 프리셋: 가중치·공격성 k·위험 판단·가격 위치 창·계절성 방식. 2008~2026, 6품목 × 13주 구매 기간 단계별 검증 결과:
 #  - 추세는 구매자에게 해로움(평균 −20~−50bp) → 0
@@ -42,7 +48,30 @@ SEASON_MODES = {"전체 과거 연도": "all", "최근 10년": "10y", "최근 �
 # 상대가치 정의: 실제 근월물 시세 기반 경제적 관계. 부호 +1 = 값이 클수록 '내 품목이 상대적으로 쌈'
 REL_DEF = {"yf:ZC=F": ("옥수수/밀 가격비 (낮을수록 옥수수 쌈)", -1), "yf:ZW=F": ("밀/옥수수 가격비 (낮을수록 밀 쌈)", -1),
            "yf:KE=F": ("KC밀/옥수수 가격비", -1), "yf:ZS=F": ("크러시 마진 (높을수록 대두 쌈)", +1),
-           "yf:ZM=F": ("대두박 가치/대두 (낮을수록 대두박 쌈)", -1), "yf:ZL=F": ("대두유 가치/대두 (낮을수록 대두유 쌈)", -1)}
+           "yf:ZM=F": ("대두박 가치/대두 (낮을수록 대두박 쌈)", -1), "yf:ZL=F": ("대두유 가치/대두 (낮을수록 대두유 쌈)", -1),
+           "yf:TIO=F": ("SGX/DCE 수입 차익 (낮을수록 SGX 철광석 쌈)", -1),
+           "ak:JM0": ("철근 고로 마진 (높을수록 점결탄 쌈)", +1),
+           "yf:HG=F": ("구리/금 가격비 (낮을수록 구리 쌈, 효과 약함)", -1)}
+# 철강 원료 관계 (2013~2026, 13주 구매 · 추천 프리셋, 전반 2013~19.6 / 후반 2019.7~ 모두 + 인 정의만 채택):
+#  - 철광석: SGX 달러 가격 vs DCE 위안 가격(환율·증치세 환산) — 중국 항구 수요 대비 해상 가격이 쌀 때 ↑  (+27bp, 전 +30 / 후 +24)
+#  - 점결탄: 철근 − 1.6·철광석 − 0.5·코크스 (톤당 고로 마진) — 마진이 높으면 제철소 재고 확충 전 ↑     (+23bp, 전 +31 / 후 +17)
+#  - 구리: 대체재 알루미늄 비율은 후반에 음(−) → 기각, 구리/금은 전·후반 + 이나 작음(+5bp, t≈1) — 참고 수준
+#  - 탈락: 철광석 고로 마진·철광석/철근·철광석/점결탄, 점결탄 코크스 마진(효과 미미)
+
+
+def cn_vat(idx: pd.DatetimeIndex) -> np.ndarray:
+    """중국 증치세율 (DCE 가격은 세금 포함): 17% → 16% (2018-05-01) → 13% (2019-04-01)."""
+    return np.where(idx < "2018-05-01", 1.17, np.where(idx < "2019-04-01", 1.16, 1.13))
+
+
+def usd_t(Lr: pd.DataFrame, i: str) -> pd.Series:
+    """실제 근월물 시세 → 달러/톤 (위안 품목은 그날까지의 달러/위안 환율, 세금 포함 그대로)."""
+    s = Lr[i].dropna()
+    if i in CNY_IDS:
+        if FX_CNY not in Lr:
+            return s * np.nan
+        return s / Lr[FX_CNY].ffill().reindex(s.index)
+    return s * TO_USD_T.get(i, 1.0)
 
 
 # ============================================================================
@@ -53,6 +82,7 @@ def rel_series(Lr: pd.DataFrame, i: str, La: pd.DataFrame | None = None, mode: s
     S = La if (mode == "adj" and La is not None) else Lr
     g = lambda k: S[k].dropna() if k in S else None
     ZC, ZW, ZS, ZM, ZL, KE = (g(k) for k in ["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F", "yf:ZL=F", "yf:KE=F"])
+    TIO, I0, J0, JM, RB, HG, GC = (g(k) for k in ["yf:TIO=F", "ak:I0", "ak:J0", "ak:JM0", "ak:RB0", "yf:HG=F", "yf:GC=F"])
     try:
         if i == "yf:ZC=F":
             x = np.log(ZC) - np.log(ZW)
@@ -66,9 +96,19 @@ def rel_series(Lr: pd.DataFrame, i: str, La: pd.DataFrame | None = None, mode: s
             x = np.log(ZM * 0.022 * 100) - np.log(ZS)
         elif i == "yf:ZL=F":
             x = np.log(ZL * 11) - np.log(ZS)
+        elif i == "yf:TIO=F":
+            if mode == "price":
+                fx = Lr[FX_CNY].ffill().reindex(I0.index)
+                x = np.log(TIO) - np.log(I0 / fx / cn_vat(I0.index))
+            else:
+                x = -(np.log(TIO) - np.log(I0))
+        elif i == "ak:JM0":
+            x = (RB - 1.6 * I0 - 0.5 * J0) if mode == "price" else -(np.log(JM) - np.log(RB))
+        elif i == "yf:HG=F":
+            x = np.log(HG) - np.log(GC) if mode == "price" else -(np.log(HG) - np.log(GC))
         else:
             return None
-    except TypeError:
+    except (TypeError, KeyError):
         return None
     x = x.dropna()
     return x[x.index.dayofweek < 5]
@@ -261,18 +301,18 @@ def today_table(La: pd.DataFrame, Lr: pd.DataFrame, ids: list[str], w: dict | No
         sig = signals(La[i], lookback, inp["rel"], inp["rel_sign"], inp["vol_fc"], inp["crisis"], season)
         sc = score(sig, w)
         last = sig.dropna(subset=["value"]).index.max()
-        pa = Lr[i].dropna()
+        pa = usd_t(Lr, i)
         px = float(pa.loc[:last].iloc[-1])
         p1 = pa.loc[last - pd.DateOffset(years=1):last]
         rk = float(sig["risk"].loc[last])
         mult = pace(float(sc.loc[last]), rk, 1.0, weeks_left, k, m_max) / (1.0 / weeks_left)
         va = float(sig["vol_ann"].loc[last])
-        rows.append({"품목": BUY_IDS.get(i, i), "id": i, "기준일": last.date(), "가격 ($/t)": px * TO_USD_T.get(i, 1.0),
-                     "1년 최저 ($/t)": p1.min() * TO_USD_T.get(i, 1.0), "1년 최고 ($/t)": p1.max() * TO_USD_T.get(i, 1.0),
+        rows.append({"품목": BUY_IDS.get(i, i), "id": i, "기준일": last.date(), "가격 ($/t)": px,
+                     "1년 최저 ($/t)": p1.min(), "1년 최고 ($/t)": p1.max(),
                      "매수 점수": float(sc.loc[last]) * 100, **{COMP_LBL[c]: float(sig[c].loc[last]) * 100 for c in COMP_LBL},
                      "위험 지표": rk * 100, "변동성 분위": float(sig["vol_pct"].loc[last]) * 100, "연 변동성": va,
-                     "4주 하단 90% ($/t)": px * TO_USD_T.get(i, 1.0) * np.exp(-1.645 * va * np.sqrt(20 / 252)),
-                     "4주 상단 90% ($/t)": px * TO_USD_T.get(i, 1.0) * np.exp(1.645 * va * np.sqrt(20 / 252)),
+                     "4주 하단 90% ($/t)": px * np.exp(-1.645 * va * np.sqrt(20 / 252)),
+                     "4주 상단 90% ($/t)": px * np.exp(1.645 * va * np.sqrt(20 / 252)),
                      "권장 속도 (균등 대비 배)": mult, "상대가치 지표": REL_DEF.get(i, ("–",))[0]})
     return pd.DataFrame(rows)
 
@@ -281,7 +321,8 @@ def today_table(La: pd.DataFrame, Lr: pd.DataFrame, ids: list[str], w: dict | No
 # 펀더멘털 맥락 (점수에는 넣지 않음 — 기관 리포트·COT는 발표 후 예측력이 재현되지 않았음, 참고 정보)
 # ============================================================================
 WASDE_MAP = {"yf:ZC=F": "corn", "yf:ZS=F": "soybean", "yf:ZM=F": "soymeal", "yf:ZL=F": "soyoil", "yf:ZW=F": "wheat", "yf:KE=F": "wheat"}
-COT_NAME = {"yf:ZC=F": "Corn", "yf:ZS=F": "Soybeans", "yf:ZM=F": "Soybean Meal", "yf:ZL=F": "Soybean Oil", "yf:ZW=F": "Wheat SRW", "yf:KE=F": "Wheat HRW"}
+COT_NAME = {"yf:ZC=F": "Corn", "yf:ZS=F": "Soybeans", "yf:ZM=F": "Soybean Meal", "yf:ZL=F": "Soybean Oil", "yf:ZW=F": "Wheat SRW", "yf:KE=F": "Wheat HRW",
+            "yf:HG=F": "Copper"}
 
 
 def fundamentals(ids: list[str]) -> pd.DataFrame:
