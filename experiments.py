@@ -1,0 +1,209 @@
+"""비교 실험 모음 — ⑥ 실험 결과 탭이 읽는 CSV를 만들고, 실행 기록(시각·소요시간·설정)을 data/experiments_meta.json에 남김.
+모든 실험은 백테스트 엔진(portfolio.backtest·procurement.backtest)을 그대로 사용 → 미래정보 차단·비용 가정 동일."""
+from __future__ import annotations
+
+import json
+import time
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+ROOT = Path(__file__).parent
+DATA = ROOT / "data"
+META = DATA / "experiments_meta.json"
+KEEP = ["Sharpe (비용 후)", "Sharpe (비용 전)", "연환산 수익률(CAGR)", "연환산 변동성", "최대낙폭(MDD)", "연간 회전율(편도 합)",
+        "연간 비용 부담", "연간 리밸런싱 횟수"]
+STRATS = ["최적화(Newton)", "리스크 패리티(Newton)", "리스크 버짓(신호 기울기)", "동일가중 1/N"]
+
+
+def _data():
+    import analytics as A
+    import portfolio as P
+    cat = A.load_catalog()
+    U = dict(zip(cat.id, cat.unit))
+    La = A.load_levels(roll_adjusted=True); Lr = A.load_levels(roll_adjusted=False)
+    return La, Lr, U, [i for i in P.DEFAULT_UNIVERSE if i in La]
+
+
+def _save(name: str, df: pd.DataFrame, t0: float, settings: dict):
+    df.to_csv(DATA / EXPERIMENTS[name]["file"], index=False, encoding="utf-8-sig")
+    meta = json.loads(META.read_text(encoding="utf-8")) if META.exists() else {}
+    meta[name] = dict(run_at=pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"), seconds=round(time.time() - t0), settings=settings)
+    META.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def _rows(res: dict, base: dict) -> list[dict]:
+    out = []
+    for k in STRATS:
+        if k in res:
+            out.append(dict(base, 전략=k, **{c: res[k]["stats"].get(c, np.nan) for c in KEEP}))
+    return out
+
+
+def momentum_lookback(progress=None, start="2010-01-01"):
+    import portfolio as P
+    t0 = time.time(); La, Lr, U, ids = _data(); rows = []
+    jobs = [(m, s) for m in ["long_short", "long_only"] for s in P.MOM_SPECS]
+    for j, (mode, spec) in enumerate(jobs):
+        r = P.backtest(La, Lr, ids, U, "W-FRI", start=start, signal="momentum", mode=mode, w_max=0.25, mom_spec=spec)["results"]
+        rows += _rows(r, dict(모드=mode, 모멘텀=spec))
+        if progress: progress((j + 1) / len(jobs))
+    _save("momentum", pd.DataFrame(rows), t0, dict(데이터="주간", 리밸런싱="주간", 기준="ETF", 시작=start, 종목상한=0.25))
+
+
+def trade_rules(progress=None, start="2010-01-01"):
+    import portfolio as P
+    t0 = time.time(); La, Lr, U, ids = _data(); rows = []
+    cases = [("고정 매일", dict(rebalance="B")), ("고정 매주", dict(rebalance="W-FRI")), ("고정 매월", dict(rebalance="ME")),
+             ("무거래 5% (최대 21일)", dict(rebalance="B", trade_rule="band", band=0.05, max_hold=21)),
+             ("무거래 10% (최대 21일)", dict(rebalance="B", trade_rule="band", band=0.10, max_hold=21)),
+             ("무거래 20% (최대 63일)", dict(rebalance="B", trade_rule="band", band=0.20, max_hold=63)),
+             ("부분조정 κ=0.3", dict(rebalance="B", trade_rule="partial", kappa=0.3)),
+             ("부분조정 κ=0.1", dict(rebalance="B", trade_rule="partial", kappa=0.1))]
+    for j, (nm, kw) in enumerate(cases):
+        r = P.backtest(La, Lr, ids, U, "B", start=start, signal="momentum", mode="long_short", w_max=0.25, **kw)["results"]
+        rows += _rows(r, dict(규칙=nm))
+        if progress: progress((j + 1) / len(cases))
+    _save("rules", pd.DataFrame(rows), t0, dict(데이터="일간", 신호="모멘텀 12-1", 제약="롱숏", 기준="ETF", 시작=start))
+
+
+def vol_sizing(progress=None, start="2010-01-01"):
+    import portfolio as P
+    t0 = time.time(); La, Lr, U, ids = _data(); rows = []
+    jobs = [(m, v, t) for m in ["long_short", "long_only"] for v in ["lw", "EWMA", "HAR-RV", "MIDAS-RV"] for t in [None, 0.10]]
+    for j, (mode, vm, vt) in enumerate(jobs):
+        r = P.backtest(La, Lr, ids, U, "B", start=start, signal="momentum", mode=mode, w_max=0.25, rebalance="W-FRI",
+                       vol_model=vm, vol_target=vt, max_lev=3.0)["results"]
+        for k in STRATS:
+            ret = r[k]["ret"]; rv = ret.rolling(63).std() * np.sqrt(252)
+            rows.append(dict(모드=mode, 변동성모형={"lw": "과거 창(LW)"}.get(vm, vm), 목표=("10%" if vt else "없음"), 전략=k,
+                             **{c: r[k]["stats"].get(c, np.nan) for c in KEEP}, 변동성의변동성=float(rv.std()),
+                             목표이탈=float((rv - 0.10).abs().mean()) if vt else np.nan))
+        if progress: progress((j + 1) / len(jobs))
+    _save("vol", pd.DataFrame(rows), t0, dict(데이터="일간", 리밸런싱="주간", 신호="모멘텀 12-1", 기준="ETF", 시작=start, 최대배율=3.0))
+
+
+def risk_budget(progress=None, start="2010-01-01"):
+    import portfolio as P
+    t0 = time.time(); La, Lr, U, ids = _data(); rows = []
+    sets = {"주간·모멘텀·롱숏": dict(freq="W-FRI", signal="momentum", mode="long_short"),
+            "주간·모멘텀·롱온리": dict(freq="W-FRI", signal="momentum", mode="long_only"),
+            "주간·Ridge·롱숏": dict(freq="W-FRI", signal="ridge", mode="long_short"),
+            "일간·모멘텀·롱숏·무거래20%": dict(freq="B", signal="momentum", mode="long_short", rebalance="B", trade_rule="band", band=0.2, max_hold=63)}
+    jobs = [(nm, t) for nm in sets for t in [0.0, 0.25, 0.5, 0.75, 1.0]]
+    for j, (nm, tilt) in enumerate(jobs):
+        kw = dict(sets[nm]); fq = kw.pop("freq")
+        r = P.backtest(La, Lr, ids, U, fq, start=start, w_max=0.25, rb_tilt=tilt, **kw)["results"]
+        rows += _rows(r, dict(설정=nm, τ=tilt))
+        if "DBC 보유 (투자가능 지수)" in r:
+            rows.append(dict(설정=nm, τ=tilt, 전략="DBC 보유", **{c: r["DBC 보유 (투자가능 지수)"]["stats"].get(c, np.nan) for c in KEEP}))
+        if progress: progress((j + 1) / len(jobs))
+    _save("rb", pd.DataFrame(rows), t0, dict(기준="ETF", 시작=start, 종목상한=0.25))
+
+
+def procurement(progress=None, start="2008-01-01"):
+    import procurement as PR
+    t0 = time.time(); La, Lr, U, _ = _data(); rows = []
+    combos = dict(PR.PRESETS)
+    combos.update({"추세만 (참고)": dict(w={"trend": 1.0}, k=1.0, risk="ewma", lookback=252, season="all"),
+                   "가격 위치 (k=1)": dict(w={"value": 1.0}, k=1.0, risk="ewma", lookback=252, season="all")})
+    cache = {}
+    ids = ["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F", "yf:KE=F", "yf:ZL=F"]
+    jobs = [(i, nm, wk) for i in ids for nm in combos for wk in (13, 26)]
+    for j, (i, nm, wk) in enumerate(jobs):
+        P_ = combos[nm]
+        if (i, P_["risk"]) not in cache:
+            cache[(i, P_["risk"])] = PR.inputs(La, Lr, i, P_["risk"], "price")
+        B = PR.backtest(Lr[i], La[i], wk, 4, start=start, w=P_["w"], k=P_["k"], lookback=P_["lookback"],
+                        inp=cache[(i, P_["risk"])], season=P_["season"])
+        for per, msk in [("전체", B.index >= start), ("2008-2016", B.index < "2017-01-01"), ("2017-현재", B.index >= "2017-01-01")]:
+            x = B.loc[msk, "절감_규칙"]
+            rows.append(dict(품목=PR.BUY_IDS[i], 신호=nm, 구매기간주=wk, 기간=per, 평균절감bp=x.mean(), 중앙값bp=x.median(),
+                             균등보다싸게=(x > 0).mean(), 하위5bp=x.quantile(0.05), 사후최저bp=B.loc[msk, "절감_사후최저"].mean(),
+                             일괄매수bp=B.loc[msk, "절감_일괄"].mean(), 기간수=int(msk.sum())))
+        if progress: progress((j + 1) / len(jobs))
+    _save("procure", pd.DataFrame(rows), t0, dict(시작=start, 시작간격="4주", 체결="결정일(금) 다음 거래일 실제 종가"))
+
+
+def procurement_steps(progress=None, start="2008-01-01", weeks: int = 13):
+    """구매 신호 고도화 단계별 검증: 기준(균형 프리셋) 대비 한 가지씩 바꿨을 때 균등 매수 대비 절감이 개선되는가."""
+    import procurement as PR
+    t0 = time.time(); La, Lr, U, _ = _data(); rows = []
+    base_w = dict(PR.DEFAULT_W)
+    V = [  # (단계, 변형 이름, 가중치, k, 위험, 상대가치 모드, 계절, lookback, 보유비용)
+        ("0 기준", "균형 (위치+반등), EWMA 위험", base_w, 1.0, "ewma", "price", "all", 252, 0.0),
+        ("1 위험 판단", "MIDAS 변동성 예측 위험", base_w, 1.0, "midas", "price", "all", 252, 0.0),
+        ("1 위험 판단", "HMM 위기 확률 위험", base_w, 1.0, "hmm", "price", "all", 252, 0.0),
+        ("1 위험 판단", "공격적 k=2 + EWMA", base_w, 2.0, "ewma", "price", "all", 252, 0.0),
+        ("1 위험 판단", "공격적 k=2 + HMM", base_w, 2.0, "hmm", "price", "all", 252, 0.0),
+        ("2 상대가치", "+ 상대가치 25% (실제 시세 관계)", {"value": .45, "turn": .30, "relval": .25}, 1.0, "ewma", "price", "all", 252, 0.0),
+        ("2 상대가치", "+ 상대가치 25% (롤보정 상대성과)", {"value": .45, "turn": .30, "relval": .25}, 1.0, "ewma", "adj", "all", 252, 0.0),
+        ("2 상대가치", "상대가치만 (단독 효과)", {"relval": 1.0}, 1.0, "ewma", "price", "all", 252, 0.0),
+        ("2 상대가치", "+ 상대가치 50%", {"value": .3, "turn": .2, "relval": .5}, 1.0, "ewma", "price", "all", 252, 0.0),
+        ("4 계절성·창", "+ 계절 25% (전체 연도)", {"value": .45, "turn": .30, "season": .25}, 1.0, "ewma", "price", "all", 252, 0.0),
+        ("4 계절성·창", "+ 계절 25% (최근 10년)", {"value": .45, "turn": .30, "season": .25}, 1.0, "ewma", "price", "10y", 252, 0.0),
+        ("4 계절성·창", "+ 계절 25% (최근 가중)", {"value": .45, "turn": .30, "season": .25}, 1.0, "ewma", "price", "ewm", 252, 0.0),
+        ("4 계절성·창", "가격 위치 창 6개월", base_w, 1.0, "ewma", "price", "all", 126, 0.0),
+        ("4 계절성·창", "가격 위치 창 2년", base_w, 1.0, "ewma", "price", "all", 504, 0.0),
+        ("4 보유비용", "기준 + 보유비용 3bp/주", base_w, 1.0, "ewma", "price", "all", 252, 3.0),
+    ]
+    ids = list(PR.BUY_IDS)
+    cache = {}
+    jobs = [(i, v) for v in V for i in ids]
+    for j, (i, (stg, nm, w, k, risk, relm, sea, lb, carry)) in enumerate(jobs):
+        key = (i, risk, relm)
+        if key not in cache:
+            cache[key] = PR.inputs(La, Lr, i, risk, relm)
+        B = PR.backtest(Lr[i], La[i], weeks, 4, start=start, w=w, k=k, lookback=lb, inp=cache[key], season=sea, carry_bp_week=carry)
+        for dt, r in B.iterrows():
+            rows.append(dict(단계=stg, 변형=nm, 품목=PR.BUY_IDS[i], start=dt, 절감bp=r["절감_규칙"], 일괄bp=r["절감_일괄"],
+                             시작위험=r["시작위험"]))
+        if progress: progress((j + 1) / len(jobs))
+    D = pd.DataFrame(rows)
+    D.to_parquet(DATA / "procurement_steps_raw.parquet")
+    out = []
+    for (stg, nm), g in D.groupby(["단계", "변형"], sort=False):
+        per = g.groupby("start")["절감bp"].mean()                        # 기간별 품목 평균
+        nov = per.iloc[::max(1, weeks // 4)]
+        rec = per[per.index >= "2017-01-01"]; old = per[per.index < "2017-01-01"]
+        hv = g[g.시작위험 >= 0.7].groupby("start")["절감bp"].mean(); lv = g[g.시작위험 < 0.7].groupby("start")["절감bp"].mean()
+        out.append(dict(단계=stg, 변형=nm, 평균절감bp=g.절감bp.mean(), 균등보다싸게=(g.절감bp > 0).mean(), 하위5bp=g.절감bp.quantile(0.05),
+                        t값_비중첩=nov.mean() / nov.std() * np.sqrt(len(nov)), 전반_2008_16=old.mean(), 후반_2017_현재=rec.mean(),
+                        고변동국면=hv.mean(), 저변동국면=lv.mean()))
+    _save("procure_steps", pd.DataFrame(out), t0, dict(시작=start, 구매기간=f"{weeks}주", 품목=len(ids), 시작간격="4주"))
+
+
+EXPERIMENTS = {
+    "procure": dict(title="구매 타이밍 — 신호·공격성별 평균 매입가 절감", file="procurement_compare.csv", fn=procurement, eta="약 1분",
+                    cols=["품목", "신호", "구매기간주", "기간", "평균절감bp"]),
+    "procure_steps": dict(title="구매 신호 고도화 — 단계별 추가 효과 검증", file="procurement_steps_compare.csv", fn=procurement_steps,
+                          eta="약 5~10분", cols=["단계", "변형", "평균절감bp", "하위5bp"]),
+    "momentum": dict(title="모멘텀 기간 비교", file="momentum_lookback_compare.csv", fn=momentum_lookback, eta="약 5~8분",
+                     cols=["모드", "모멘텀", "전략", "Sharpe (비용 후)", "연간 회전율(편도 합)"]),
+    "rules": dict(title="거래 규칙 비교 (고정 주기 · 무거래 구간 · 부분 조정)", file="rebalance_rule_compare.csv", fn=trade_rules, eta="약 7~10분",
+                  cols=["규칙", "전략", "Sharpe (비용 후)", "연간 회전율(편도 합)", "연환산 변동성"]),
+    "vol": dict(title="변동성 예측 → 포지션 크기 (변동성 타기팅)", file="vol_sizing_compare.csv", fn=vol_sizing, eta="약 5분",
+                cols=["모드", "변동성모형", "목표", "전략", "Sharpe (비용 후)", "연환산 변동성", "변동성의변동성"]),
+    "rb": dict(title="전략 비교 — 리스크 버짓(신호 기울기 τ) vs 리스크 패리티 vs 최적화", file="risk_budget_tilt_compare.csv", fn=risk_budget, eta="약 10분",
+               cols=["설정", "τ", "전략", "Sharpe (비용 후)"]),
+}
+
+
+def load(name: str) -> tuple[pd.DataFrame | None, dict]:
+    f = DATA / EXPERIMENTS[name]["file"]
+    meta = json.loads(META.read_text(encoding="utf-8")).get(name, {}) if META.exists() else {}
+    if not f.exists():
+        return None, meta
+    df = pd.read_csv(f, encoding="utf-8-sig")
+    if not set(EXPERIMENTS[name].get("cols", [])) <= set(df.columns):     # 이전 형식(구버전 스크립트) → 재실행 필요
+        return None, dict(meta, stale=True)
+    if not meta:
+        meta = dict(run_at=pd.Timestamp(f.stat().st_mtime, unit="s").strftime("%Y-%m-%d %H:%M") + " (파일 시각)")
+    return df, meta
+
+
+if __name__ == "__main__":
+    import sys
+    for n in (sys.argv[1:] or list(EXPERIMENTS)):
+        print(n, end=" ", flush=True); t = time.time(); EXPERIMENTS[n]["fn"](); print(f"{time.time() - t:.0f}s")

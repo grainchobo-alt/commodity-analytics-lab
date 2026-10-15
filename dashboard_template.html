@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Commodity Daily Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<style>
+:root{
+  color-scheme:light;
+  --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10);
+  --up:#006300; --down:#d03b3b; --warn:#9a6a00;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark;
+  --page:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+  --up:#0ca30c; --down:#e66767; --warn:#fab219;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --page:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+  --up:#0ca30c; --down:#e66767; --warn:#fab219;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI","Malgun Gothic",sans-serif}
+.wrap{max-width:1280px;margin:0 auto;padding:20px 16px 60px}
+header{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:baseline;justify-content:space-between;margin-bottom:6px}
+h1{font-size:20px;margin:0}
+.sub{color:var(--ink2);font-size:12.5px}
+nav{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0}
+nav a{color:var(--ink2);text-decoration:none;border:1px solid var(--border);padding:4px 10px;border-radius:999px;font-size:12.5px;background:var(--surface)}
+nav a:hover{color:var(--ink)}
+section{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin:16px 0}
+h2{font-size:15px;margin:0 0 4px}
+.note{color:var(--muted);font-size:12px;margin:0 0 12px}
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:5px 8px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--grid)}
+th{font-weight:600;color:var(--ink2);font-size:12px;position:sticky;top:0;background:var(--surface)}
+th:first-child,td:first-child{text-align:left}
+tr.grp td{background:var(--page);font-weight:600;color:var(--ink2);font-size:12px;text-align:left;padding-top:8px}
+.up{color:var(--up)} .dn{color:var(--down)} .na{color:var(--muted)}
+.stale{color:var(--warn);font-size:11.5px}
+.tag{display:inline-block;padding:1px 7px;border-radius:999px;font-size:11.5px;border:1px solid var(--border)}
+.tag.up{color:var(--up)} .tag.dn{color:var(--down)} .tag.flat{color:var(--ink2)}
+.ctl{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center}
+select,button{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 8px;cursor:pointer}
+button.on{border-color:var(--s1);color:var(--s1);font-weight:600}
+.grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.chart{width:100%;height:380px} .chart.sm{height:240px}
+.pill-ok{color:var(--up)} .pill-err{color:var(--down)}
+.spark{vertical-align:middle}
+footer{color:var(--muted);font-size:12px;margin-top:20px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>원자재 데일리 대시보드 <span class="sub">(초안 v0.1)</span></h1>
+  <div class="sub" id="meta"></div>
+</header>
+<nav>
+  <a href="#snap">스냅샷</a><a href="#chart">단일 차트</a><a href="#cmp">비교(지수화)</a><a href="#vol">변동성(GARCH·DCC)</a><a href="#freight">운임</a>
+  <a href="#china">중국 vs 글로벌</a><a href="#monthly">월간(WB/IMF)</a><a href="#cot">COT 포지션</a><a href="#status">소스 상태</a>
+</nav>
+
+<section id="snap">
+  <h2>전일 스냅샷</h2>
+  <p class="note">등락률은 각 소스의 직전 관측치 대비. <b>ⓡ</b> 표시 품목은 연속월물 롤오버 갭을 보정한 수익률(가격은 실제 시세). Kalman 추세 = statsmodels local linear trend(로그가격, 최근 ~3년)의 평활 기울기 z-score(&gt;0.5 상승, &lt;-0.5 하락) — <b>자리표시자</b>이며 본인 레짐 모델로 교체 예정. 변동성 백분위 = 20일 실현변동성의 3년 내 위치. 1Y 위치 = 최근 1년 가격 분포 내 백분위.</p>
+  <div class="tbl-wrap"><table id="snapTbl"></table></div>
+</section>
+
+<section id="chart">
+  <h2>단일 시계열 + Kalman 추세</h2>
+  <div class="ctl"><select id="selSeries"></select><span id="rng1"></span></div>
+  <div id="c1" class="chart"></div>
+</section>
+
+<section id="cmp">
+  <h2>그룹 비교 (기간 시작 = 100)</h2>
+  <div class="ctl"><select id="selGroup"></select><span id="rng2"></span></div>
+  <div id="c2" class="chart"></div>
+</section>
+
+<section id="vol">
+  <h2>변동성 — GARCH · DCC</h2>
+  <p class="note">단변량 GJR-GARCH(1,1)-t, 최근 10년 일간 수익률로 추정 (연율 %). 현재 백분위 = 현재 조건부 변동성의 10년 분포 내 위치.
+    장기 변동성 = 무조건부 수준(평균회귀 목표, 지속성 ≥0.99인 품목은 추정 불안정으로 미표시). γ&gt;0 이면 하락 충격에 변동성이 더 커짐(레버리지), γ&lt;0 이면 상승 충격에(역레버리지).</p>
+  <div class="tbl-wrap"><table id="garchTbl"></table></div>
+  <h2 style="margin-top:18px">DCC 동적 조건부 상관 (주간, 2005~)</h2>
+  <p class="note" id="dccNote"></p>
+  <div class="ctl"><select id="selDcc"></select><span id="rng5"></span></div>
+  <div class="grid4" style="grid-template-columns:repeat(auto-fit,minmax(420px,1fr))">
+    <div id="c5" class="chart"></div><div id="c6" class="chart"></div>
+  </div>
+</section>
+
+<section id="freight">
+  <h2>벌크·탱커 운임지수 (Baltic)</h2>
+  <p class="note">스케일이 달라 이중축 대신 4개 패널로 분리. 출처: akshare(Baltic Exchange 지수 재배포) — 공식 데이터와 반드시 대조 필요. BDI는 1988년부터.</p>
+  <div class="ctl"><span id="rng3"></span></div>
+  <div class="grid4" id="freightGrid"></div>
+</section>
+
+<section id="china">
+  <h2>중국(DCE) vs 글로벌 — 지수화 비교</h2>
+  <p class="note">통화·단위가 달라 절대값 비교 불가, 시작점=100 지수화로 방향/괴리만 확인. 두 시리즈가 모두 있는 구간부터 지수화.</p>
+  <div class="ctl"><span id="rng4"></span></div>
+  <div class="grid4" id="chinaGrid"></div>
+</section>
+
+<section id="monthly">
+  <h2>월간 시리즈 (World Bank Pink Sheet · IMF via FRED)</h2>
+  <p class="note">석탄·철광석 등 일간 무료 소스가 없는 품목의 대체재. 월평균가이므로 일간 시리즈와 해상도가 다름.</p>
+  <div class="ctl"><select id="selMon"></select></div>
+  <div id="c3" class="chart sm"></div>
+</section>
+
+<section id="cot">
+  <h2>CFTC COT — Managed Money 순포지션 (주간)</h2>
+  <div class="ctl"><select id="selCot"></select></div>
+  <div id="c4" class="chart sm"></div>
+</section>
+
+<section id="status">
+  <h2>데이터 소스 상태</h2>
+  <div class="tbl-wrap"><table id="statTbl"></table></div>
+</section>
+
+<footer>생성: <span id="gen"></span> · Yahoo Finance 연속월물은 롤오버 갭이 포함됨 · 투자 판단용이 아닌 모니터링 초안</footer>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+// 압축 해제: 시작일 + 일수 오프셋 -> 날짜 문자열
+for (const s of Object.values(DATA.series)) {
+  const b = Date.parse(s.t0 + 'T00:00:00Z');
+  s.d = s.o.map(o => new Date(b + o * 864e5).toISOString().slice(0, 10));
+}
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const COLS = () => ['--s1','--s2','--s3','--s4','--s5','--s6','--s7','--s8'].map(css);
+const fmt = (v,d=2) => v==null||isNaN(v) ? '–' : Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+const fpct = v => v==null ? '<span class="na">–</span>' :
+  `<span class="${v>=0?'up':'dn'}">${v>=0?'▲':'▼'} ${Math.abs(v).toFixed(2)}%</span>`;
+const $ = id => document.getElementById(id);
+
+$('meta').textContent = `기준일(최근 거래일) ${DATA.asof}`;
+$('gen').textContent = DATA.generated;
+
+// ---- sparkline ----
+function spark(vals){
+  const w=90,h=22,mn=Math.min(...vals),mx=Math.max(...vals),r=(mx-mn)||1;
+  const pts=vals.map((v,i)=>`${(i/(vals.length-1)*w).toFixed(1)},${(h-2-(v-mn)/r*(h-4)).toFixed(1)}`).join(' ');
+  const up=vals[vals.length-1]>=vals[0];
+  return `<svg class="spark" width="${w}" height="${h}"><polyline fill="none" stroke="${up?css('--up'):css('--down')}" stroke-width="1.5" points="${pts}"/></svg>`;
+}
+// ---- snapshot table ----
+function renderSnap(){
+  let h='<tr><th>품목</th><th>종가</th><th>단위</th><th>1D</th><th>1W</th><th>1M</th><th>YTD</th><th>1Y 위치</th><th>Kalman 추세</th><th>변동성 %ile</th><th>90일</th><th>기준일</th></tr>';
+  let g=null;
+  for(const r of DATA.rows){
+    if(r.group!==g){g=r.group;h+=`<tr class="grp"><td colspan="12">${g}</td></tr>`;}
+    const rg=r.regime?`<span class="tag ${r.regime==='up'?'up':r.regime==='down'?'dn':'flat'}">${r.regime==='up'?'▲ 상승':r.regime==='down'?'▼ 하락':'■ 횡보'} (${r.zslope})</span>`:'<span class="na">–</span>';
+    h+=`<tr><td>${r.name}${r.roll_adj?' <span class="na" title="롤오버 갭 보정 수익률">ⓡ</span>':''}</td><td>${fmt(r.last, r.last>1000?0:2)}</td><td class="na">${r.unit}</td>
+      <td>${fpct(r.d1)}</td><td>${fpct(r.d5)}</td><td>${fpct(r.m1)}</td><td>${fpct(r.ytd)}</td>
+      <td>${r.p1y.toFixed(0)}%</td><td>${rg}</td><td>${r.volpct==null?'–':r.volpct.toFixed(0)+'%'}</td>
+      <td>${spark(r.spark)}</td><td class="${r.stale?'stale':'na'}">${r.date}${r.stale?' ⚠ 지연':''}</td></tr>`;
+  }
+  $('snapTbl').innerHTML=h;
+}
+// ---- range buttons ----
+const RANGES={'3M':92,'6M':183,'1Y':365,'3Y':1095,'5Y':1830,'10Y':3653,'MAX':40000};
+function rangeBtns(el,state,cb){
+  el.innerHTML=Object.keys(RANGES).map(k=>`<button data-k="${k}" class="${k===state.r?'on':''}">${k}</button>`).join('');
+  el.querySelectorAll('button').forEach(b=>b.onclick=()=>{state.r=b.dataset.k;rangeBtns(el,state,cb);cb();});
+}
+const cutoff=r=>{const d=new Date(DATA.asof);d.setDate(d.getDate()-RANGES[r]);return d.toISOString().slice(0,10);};
+const layoutBase=(extra={})=>Object.assign({
+  margin:{l:56,r:16,t:8,b:36},paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
+  font:{color:css('--ink2'),size:12},hovermode:'x unified',
+  xaxis:{gridcolor:css('--grid'),linecolor:css('--axis'),zeroline:false},
+  yaxis:{gridcolor:css('--grid'),linecolor:css('--axis'),zeroline:false},
+  legend:{orientation:'h',y:-0.18}},extra);
+const cfg={displayModeBar:false,responsive:true};
+
+// ---- single series ----
+const st1={r:'1Y'};
+function drawSingle(){
+  const s=DATA.series[$('selSeries').value], c=cutoff(st1.r);
+  const idx=s.d.map((d,i)=>d>=c?i:-1).filter(i=>i>=0);
+  const x=idx.map(i=>s.d[i]), y=idx.map(i=>s.v[i]);
+  const traces=[{x,y,name:s.n,type:'scatter',mode:'lines',line:{color:css('--s1'),width:2}}];
+  if(s.k) traces.push({x,y:idx.map(i=>s.k[i]),name:'Kalman 추세(평활, 최근 ~3년)',type:'scatter',mode:'lines',line:{color:css('--s2'),width:2,dash:'dot'}});
+  Plotly.react('c1',traces,layoutBase({yaxis:{title:s.u,gridcolor:css('--grid'),linecolor:css('--axis')}}),cfg);
+}
+// ---- group compare ----
+const GROUPS={
+  '곡물·유지':['yf:ZC=F','yf:ZS=F','yf:ZM=F','yf:ZL=F','yf:ZW=F','yf:KE=F'],
+  '에너지':['yf:CL=F','yf:BZ=F','yf:NG=F','yf:HO=F','yf:RB=F'],
+  '금속':['yf:HG=F','yf:ALI=F','yf:GC=F','yf:SI=F','yf:PL=F'],
+  '원료(철광석·석탄·제철)':['yf:TIO=F','ak:I0','ak:JM0','ak:J0'],
+  '운임':['ak:macro_shipping_bdi','ak:macro_shipping_bci','ak:macro_shipping_bpi','yf:BDRY'],
+  '소프트':['yf:KC=F','yf:SB=F','yf:CC=F','yf:CT=F','yf:OJ=F'],
+  '중국 DCE':['ak:I0','ak:M0','ak:C0','ak:A0','ak:Y0','ak:JM0'],
+};
+const st2={r:'1Y'};
+// 지수화 기준일 = 선택 구간 내에서 모든 시리즈가 존재하는 첫 날짜 (서로 다른 시작일로 인한 왜곡 방지)
+const commonStart=(ids,c)=>ids.reduce((m,id)=>{const d=DATA.series[id].d.find(x=>x>=c);return d>m?d:m;},c);
+function drawCmp(){
+  const ids=GROUPS[$('selGroup').value].filter(id=>DATA.series[id]);
+  const c=commonStart(ids,cutoff(st2.r)), cols=COLS();
+  const traces=ids.map((id,i)=>{
+    const s=DATA.series[id], idx=s.d.map((d,j)=>d>=c?j:-1).filter(j=>j>=0), b=s.v[idx[0]];
+    return {x:idx.map(j=>s.d[j]),y:idx.map(j=>s.v[j]/b*100),name:s.n,type:'scatter',mode:'lines',line:{color:cols[i%8],width:2}};
+  });
+  Plotly.react('c2',traces,layoutBase({yaxis:{title:'지수 (시작=100)',gridcolor:css('--grid'),linecolor:css('--axis')}}),cfg);
+}
+// ---- small multiples ----
+function mini(el,traces,title){
+  const d=document.createElement('div');d.className='chart sm';el.appendChild(d);
+  Plotly.react(d,traces,layoutBase({title:{text:title,font:{size:13,color:css('--ink')},x:0.01},margin:{l:48,r:10,t:34,b:30},legend:{orientation:'h',y:-0.25}}),cfg);
+}
+const st3={r:'3Y'}, st4={r:'1Y'};
+function drawFreight(){
+  $('freightGrid').innerHTML='';const c=cutoff(st3.r),cols=COLS();
+  [['ak:macro_shipping_bdi','BDI'],['ak:macro_shipping_bci','BCI Capesize'],['ak:macro_shipping_bpi','BPI Panamax'],['ak:macro_shipping_bcti','BCTI Dirty Tanker']].forEach(([id,t],i)=>{
+    const s=DATA.series[id]; if(!s) return;
+    const idx=s.d.map((d,j)=>d>=c?j:-1).filter(j=>j>=0);
+    mini($('freightGrid'),[{x:idx.map(j=>s.d[j]),y:idx.map(j=>s.v[j]),name:t,type:'scatter',mode:'lines',line:{color:cols[i],width:2},showlegend:false}],`${t} · 최근 ${fmt(s.v[s.v.length-1],0)}`);
+  });
+}
+function drawChina(){
+  $('chinaGrid').innerHTML='';const cols=COLS();
+  [[['ak:I0','yf:TIO=F'],'철광석: DCE vs SGX'],[['ak:M0','yf:ZM=F'],'대두박: DCE vs CBOT'],
+   [['ak:C0','yf:ZC=F'],'옥수수: DCE vs CBOT'],[['ak:Y0','yf:ZL=F'],'대두유: DCE vs CBOT']].forEach(([ids0,t])=>{
+    const ids=ids0.filter(id=>DATA.series[id]), c=commonStart(ids,cutoff(st4.r));
+    const tr=ids.map((id,i)=>{
+      const s=DATA.series[id], idx=s.d.map((d,j)=>d>=c?j:-1).filter(j=>j>=0), b=s.v[idx[0]];
+      return {x:idx.map(j=>s.d[j]),y:idx.map(j=>s.v[j]/b*100),name:s.n,type:'scatter',mode:'lines',line:{color:cols[i],width:2}};
+    });
+    mini($('chinaGrid'),tr,t);
+  });
+}
+// ---- volatility: GARCH table + DCC ----
+const pv=v=>v==null?'<span class="na">–</span>':fmt(v,1)+'%';
+function renderGarch(){
+  const V=DATA.vol; if(!V) return;
+  let h='<tr><th>품목</th><th>현재 GARCH</th><th>장기</th><th>22일 예측</th><th>최근 20일 실현</th><th>현재 백분위</th><th>γ (비대칭)</th><th>지속성</th><th>반감기(일)</th><th>현재 vs 장기</th></tr>';
+  let g=null;
+  for(const r of V.garch){
+    if(r.group!==g){g=r.group;h+=`<tr class="grp"><td colspan="10">${g}</td></tr>`;}
+    const rel=(r.cur!=null&&r.lr!=null)?r.cur/r.lr:null;
+    const tag=rel==null?(r.persist>=0.99?'<span class="tag flat">≈IGARCH</span>':'–'):rel>1.25?'<span class="tag dn">▲ 고변동</span>':rel<0.8?'<span class="tag up">▼ 저변동</span>':'<span class="tag flat">■ 평균권</span>';
+    h+=`<tr><td>${r.name}${r.roll_adj?' <span class="na" title="롤오버 갭 보정 수익률">ⓡ</span>':''}</td><td>${pv(r.cur)}</td><td>${pv(r.lr)}</td><td>${pv(r.f22)}</td><td>${pv(r.rv20)}</td>
+      <td>${r.pct==null?'–':r.pct.toFixed(0)+'%'}</td><td>${fmt(r.gamma,3)}</td><td>${fmt(r.persist,3)}</td><td>${fmt(r.half,0)}</td><td>${tag}</td></tr>`;
+  }
+  $('garchTbl').innerHTML=h;
+}
+const st5={r:'MAX'};
+function drawDcc(){
+  const V=DATA.vol; if(!V) return;
+  const D=V.dcc, b0=Date.parse(D.t0+'T00:00:00Z');
+  if(!D.d) D.d=D.o.map(o=>new Date(b0+o*864e5).toISOString().slice(0,10));
+  const c=cutoff(st5.r), idx=D.d.map((d,i)=>d>=c?i:-1).filter(i=>i>=0), x=idx.map(i=>D.d[i]);
+  const base=$('selDcc').value, cols=COLS(); let j=0; const tr=[];
+  D.ids.forEach((id,k)=>{ if(id===base) return;
+    const key=D.pairs[base+'|'+id]?base+'|'+id:id+'|'+base;
+    tr.push({x,y:idx.map(i=>D.pairs[key][i]),name:D.names[k],type:'scatter',mode:'lines',line:{color:cols[j++%8],width:1.6}}); });
+  Plotly.react('c5',tr,layoutBase({title:{text:`DCC 상관: ${D.names[D.ids.indexOf(base)]} vs 기타`,font:{size:13,color:css('--ink')},x:0.01},
+    margin:{l:48,r:10,t:34,b:36},yaxis:{range:[-1,1],gridcolor:css('--grid'),linecolor:css('--axis')}}),cfg);
+  Plotly.react('c6',[{x,y:idx.map(i=>D.avg[i]),name:'평균 DCC 상관',type:'scatter',mode:'lines',line:{color:css('--s7'),width:2}}],
+    layoutBase({title:{text:'평균 조건부 상관 (8개 품목 전 쌍) — 동조화 지표',font:{size:13,color:css('--ink')},x:0.01},margin:{l:48,r:10,t:34,b:36},showlegend:false}),cfg);
+}
+// ---- monthly ----
+function drawMon(){
+  const s=DATA.monthly[$('selMon').value];
+  Plotly.react('c3',[{x:s.d,y:s.v,type:'scatter',mode:'lines',name:s.n,line:{color:css('--s1'),width:2}}],
+    layoutBase({yaxis:{title:s.u,gridcolor:css('--grid'),linecolor:css('--axis')},xaxis:{range:[s.d[Math.max(0,s.d.length-180)],s.d[s.d.length-1]],gridcolor:css('--grid')}}),cfg);
+}
+// ---- COT ----
+function drawCot(){
+  const s=DATA.cot[$('selCot').value];
+  const last=s.mm[s.mm.length-1], rank=s.mm.filter(v=>v<=last).length/s.mm.length*100;
+  Plotly.react('c4',[
+    {x:s.d,y:s.mm,type:'bar',name:'Managed Money 순포지션',marker:{color:s.mm.map(v=>v>=0?css('--s1'):css('--s2'))}},
+    ],layoutBase({title:{text:`최근 ${last.toLocaleString()} 계약 · 5년 내 ${rank.toFixed(0)}% 분위 (기준 ${s.d[s.d.length-1]})`,font:{size:13,color:css('--ink')},x:0.01},
+      margin:{l:64,r:16,t:34,b:36},showlegend:false}),cfg);
+}
+function renderStatus(){
+  let h='<tr><th>소스</th><th>항목</th><th>상태</th><th>마지막 일자</th><th>행수</th><th>비고</th></tr>';
+  for(const s of DATA.status) h+=`<tr><td>${s.source}</td><td style="text-align:left">${s.name}</td><td class="${s.ok?'pill-ok':'pill-err'}">${s.ok?'✔ OK':'✖ 실패'}</td><td>${s.last||'–'}</td><td>${s.rows}</td><td style="white-space:normal;text-align:left">${s.note||''}</td></tr>`;
+  $('statTbl').innerHTML=h;
+}
+function init(){
+  renderSnap(); renderStatus();
+  const opt=(el,items)=>el.innerHTML=items.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
+  const ids=DATA.rows.map(r=>[r.id,`${r.group} · ${r.name}`]);
+  opt($('selSeries'),ids); $('selSeries').value='yf:ZC=F'; $('selSeries').onchange=drawSingle;
+  opt($('selGroup'),Object.keys(GROUPS).map(k=>[k,k])); $('selGroup').onchange=drawCmp;
+  opt($('selMon'),Object.entries(DATA.monthly).map(([k,v])=>[k,`${v.n} (${v.u}) — ${v.s}`]));
+  const pref=Object.keys(DATA.monthly).find(k=>k==='wb:Coal, Australian'); if(pref) $('selMon').value=pref;
+  $('selMon').onchange=drawMon;
+  opt($('selCot'),Object.keys(DATA.cot).map(k=>[k,k])); $('selCot').onchange=drawCot;
+  rangeBtns($('rng1'),st1,drawSingle); rangeBtns($('rng2'),st2,drawCmp);
+  rangeBtns($('rng3'),st3,drawFreight); rangeBtns($('rng4'),st4,drawChina);
+  if(DATA.vol){
+    renderGarch();
+    const D=DATA.vol.dcc;
+    opt($('selDcc'),D.ids.map((id,k)=>[id,D.names[k]])); $('selDcc').onchange=drawDcc;
+    rangeBtns($('rng5'),st5,drawDcc); drawDcc();
+    $('dccNote').textContent=`Engle(2002) DCC, 1단계 GJR-GARCH-t. 추정치 a=${D.a} (충격 반응), b=${D.b} (지속성). 평균 상관 상승 = 원자재 동조화(분산효과 감소).`;
+  }
+  drawSingle(); drawCmp(); drawFreight(); drawChina(); drawMon(); if(Object.keys(DATA.cot).length) drawCot();
+}
+init();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>location.reload());
+</script>
+</body>
+</html>

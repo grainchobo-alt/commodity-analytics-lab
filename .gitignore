@@ -1,0 +1,42 @@
+# ---- 가상환경 · 캐시 ----
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+node_modules/
+
+# ---- 비밀정보: API 키는 .env 에만 (형식은 .env.example) ----
+.env
+.env.*
+!.env.example
+
+# ---- 로컬 도구 설정 (PC 경로 포함) ----
+.claude/
+.omc/
+.vscode/
+.idea/
+
+# ---- 데이터: 수집 스크립트로 재생성 (setup.bat → run_daily.bat, 전체 이력은 collect.py --full)
+#      Yahoo·FRED·USDA·EIA·CFTC 등 제3자 원자료 재배포 방지 + 용량(약 300MB)
+data/*
+# 사람이 직접 관리하는 입력
+!data/cleaning_rules.csv
+# 비교 실험 결과 요약 (⑥ 실험 결과 탭이 바로 표시, 원자료 아님)
+!data/experiments_meta.json
+!data/*_compare.csv
+
+# ---- 생성물 ----
+dashboard.html
+source_test_result.csv
+*.log
+
+# ---- OS · 오피스 임시 파일 ----
+Thumbs.db
+desktop.ini
+.DS_Store
+~$*
+
+# ---- 내부 문서 (기획서 등) ----
+*.docx
+*.pptx
