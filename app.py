@@ -165,6 +165,13 @@ def tab_comove():
     else:
         cc[0].plotly_chart(heat(C_all, "전체 기간"), key="h0")
         cc[1].info("선택 기간 안에 위기 구간 표본이 부족합니다.")
+    if R.shape[1] >= 2:
+        import risk as RK
+        q_ = st.select_slider("꼬리 의존: 꼬리 분위 q", [0.01, 0.025, 0.05, 0.10], 0.05, key="cm_tdq")
+        t1_, t2_ = st.columns(2)
+        t1_.plotly_chart(heat(RK.tail_dependence(R, q_), f"동반 폭락 P(j 하위 {q_:.0%} | i 하위 {q_:.0%}) — 보유자 위험", 0, 1, scale=SEQ), key="cm_tdl")
+        t2_.plotly_chart(heat(RK.tail_dependence(R, q_, upper=True), f"동반 급등 (상위 {q_:.0%}) — 구매자 위험", 0, 1, scale=SEQ), key="cm_tdu")
+        st.caption(f"상관계수 = 평균적 동조, 꼬리 의존 = '극단적인 날에 같이 움직이는가'. 독립이면 {q_:.0%}, 완전 동조면 100% (순위 기반, 빈도 = 사이드바 설정).")
 
     st.markdown("##### 시간에 따른 동조성")
     w = st.slider("롤링 창 (관측치 수)", 20, 520, {"B": 120, "W-FRI": 52, "ME": 24}[FQ], key="cm_w")
@@ -200,17 +207,14 @@ def tab_comove():
 
     st.markdown("##### Diebold-Yilmaz 스필오버 (연결성)")
     st.caption("VAR + 일반화 예측오차분산분해(GFEVD). TO=해당 품목이 다른 품목에 주는 충격, FROM=받는 충격, NET>0이면 충격 전달자.")
-    d1, d2, d3, d4 = st.columns(4)
+    d1, d2, d4 = st.columns(3)
     p_dy = d1.number_input("VAR 시차 p", 1, 10, 2, key="dyp")
     H_dy = d2.number_input("예측 기간 H", 2, 30, 10, key="dyh")
-    w_dy = d3.number_input("롤링 창", 60, 1500, {"B": 500, "W-FRI": 156, "ME": 60}[FQ], key="dyw")
     if d4.button("스필오버 계산", type="primary", key="dybtn"):
         with st.spinner("VAR 추정 중..."):
-            tbl, tot = A.dy_spillover(R, int(p_dy), int(H_dy))
-            rdy = A.rolling_dy(R, int(w_dy), int(p_dy), int(H_dy), step=max(1, int(w_dy) // 40))
-        st.session_state["dy"] = (tbl, tot, rdy)
+            st.session_state["dy"] = A.dy_spillover(R, int(p_dy), int(H_dy))
     if "dy" in st.session_state:
-        tbl, tot, rdy = st.session_state["dy"]
+        tbl, tot = st.session_state["dy"]
         x1, x2 = st.columns([3, 2])
         core = tbl.iloc[:-2, :-1]
         x1.plotly_chart(heat(core, f"스필오버 표 (%) — 총 스필오버 지수 {tot:.1f}%", 0, max(30, float(np.nanmax(core.values))),
@@ -219,8 +223,7 @@ def tab_comove():
         f = go.Figure(go.Bar(x=net.values, y=[short(i) for i in net.index], orientation="h",
                              marker_color=[PAL[0] if v >= 0 else PAL[1] for v in net.values]))
         x2.plotly_chart(fig_layout(f, 420, title="NET 스필오버 (전달자 > 0 > 수신자)", hovermode="y"), key="dynet")
-        f = go.Figure(go.Scatter(x=rdy.index, y=rdy.values, line=dict(color=PAL[6], width=2), name="총 스필오버"))
-        st.plotly_chart(shade(fig_layout(f, 300, title=f"롤링 총 스필오버 지수 (%) — 창 {int(w_dy)}"), rdy.index), key="dyroll")
+        st.caption("전체 기간 정적 표. 시간에 따른 연결성은 아래 TVP-VAR (롤링창 선택에 좌우되던 롤링 DY는 v1.4.0에서 TVP-VAR로 대체).")
 
     st.markdown("##### TVP-VAR 연결성 (롤링창 없음, Antonakakis-Chatziantoniou-Gabauer 2020)")
     st.caption("VAR 계수가 매 시점 칼만필터(망각계수 κ1)로 갱신되고 공분산은 EWMA(κ2) → 시점별 일반화 FEVD. "
@@ -236,9 +239,6 @@ def tab_comove():
     if "tvp" in st.session_state:
         cn = st.session_state["tvp"]
         f = go.Figure(go.Scatter(x=cn["tci"].index, y=cn["tci"].values, line=dict(color=PAL[6], width=2), name="TVP-VAR TCI"))
-        if "dy" in st.session_state:
-            rdy_ = st.session_state["dy"][2]
-            f.add_trace(go.Scatter(x=rdy_.index, y=rdy_.values, line=dict(color="#898781", width=1.2, dash="dot"), name="롤링 DY (비교)"))
         st.plotly_chart(shade(fig_layout(f, 320, title="총 연결성 지수 TCI (%, N/(N−1) 조정)"), cn["tci"].index), key="tvp_tci")
         netm = cn["net"].resample("ME").mean() if len(cn["net"]) > 400 else cn["net"]
         vmx = float(np.abs(netm.values).max()) or 1
@@ -332,7 +332,10 @@ def tab_regime():
     st.subheader("레짐 — 지금은 평시인가, 위기인가 · 국면마다 관계가 달라지는가")
     st.caption("숨은 상태를 확률로 추정(Markov-switching·HMM), 관계(베타)가 연속적으로 변한다고 보거나(Kalman TVP), "
                "관측 변수의 임계값으로 국면을 나눔(TAR·STAR). 같은 모델들은 ④ 수익률 예측 탭에서 예측력 비교 후보로도 선택 가능.")
-    s1, s2 = st.tabs(["수익률 레짐 (Markov-switching, Hamilton)", "레짐별 관계 (HMM · MS 회귀 · Kalman TVP · TAR · STAR)"])
+    s1, s2, s3 = st.tabs(["수익률 레짐 (Markov-switching, Hamilton)", "레짐별 관계 (HMM · MS 회귀 · Kalman TVP · TAR · STAR)",
+                          "변동성 레짐 (HMM 3상태 · 반감기 안정성)"])
+    with s3:
+        vol_regime()
     with s1:
         st.caption("단일 품목 수익률의 평균·분산이 숨은 레짐(평시/위기)에 따라 달라진다고 보고, 시점별 레짐 확률을 추정.")
         gid = st.selectbox("품목", ALL_IDS, ALL_IDS.index("yf:CL=F") if "yf:CL=F" in ALL_IDS else 0, format_func=lbl, key="rg_id")
@@ -1778,7 +1781,7 @@ RISK_DEF = [i for i in ["yf:ZC=F", "yf:ZS=F", "yf:ZM=F", "yf:ZW=F", "yf:TIO=F", 
 
 def tab_risk():
     import risk as RK
-    st.subheader("리스크 — 시변 감쇠 변동성 · 예측 검증 · VaR/ES · 꼬리 위험 · 구매 물량 위험")
+    st.subheader("리스크 — VaR/ES · 꼬리 위험 · 구매·보유 물량 위험")
     st.caption("모든 예측은 walk-forward (매년 1월 그 이전 데이터로만 재추정, 시점 t의 예측은 t−1 종가까지의 정보). 수익률 = 롤 보정 가격의 일간 로그수익률(%). "
                "구매자에게 위험은 '가격 상승'(매입 예정 물량 = 숏 노출), 재고 보유자에게는 '가격 하락' — 두 방향을 모두 평가.")
     ids_r = [i for i in COMMOD_IDS if GROUP.get(i) not in ("Freight",)]
@@ -1786,111 +1789,24 @@ def tab_risk():
     rid = c1_.selectbox("품목", ids_r, ids_r.index("yf:ZC=F") if "yf:ZC=F" in ids_r else 0, format_func=lbl, key="rk_id")
     ev0 = c2_.selectbox("평가 시작", [2005, 2010, 2015, 2020], 1, key="rk_ev0", help="이 시점 이후의 예측으로 손실·검정을 계산 (추정은 그 이전부터 walk-forward)")
     if c3_.button("▶ 모형 추정 (품목당 약 10초)", type="primary", key="rk_run"):
-        with st.spinner("8개 변동성 모형 walk-forward 추정 중 (HMM·GARCH 매년 재적합)…"):
+        with st.spinner("변동성 모형 walk-forward 추정 중 (HMM·GARCH 매년 재적합)…"):
             st.session_state["rk_o"] = (rid, _risk_vm(rid, None, ROLL, extra_bytes))
     if "rk_o" not in st.session_state:
-        st.info("품목을 고르고 '모형 추정'을 누르세요. 여러 품목 요약은 ⑥ 실험 결과 → '리스크 모형'.")
+        st.info("품목을 고르고 '모형 추정'을 누르세요. σ 모형 비교(QLIKE·DM·MCS)는 ③ 변동성 → '변동성 예측 검증', "
+                "변동성 레짐·반감기 안정성은 ② 레짐, 동반 폭락·급등(꼬리 의존)은 ① 시장 구조. 여러 품목 요약: ⑥ 실험 결과 → '리스크 모형'.")
         return
     rid_, o = st.session_state["rk_o"]
     r, S = o["r"], o["S"]
     ev = S.index >= pd.Timestamp(f"{ev0}-01-01")
-    a, b, c, d, e = st.tabs(["시변 감쇠 λ (롤링 · HMM · Kalman)", "변동성 모형 검증 (QLIKE · DM · MCS · LR)", "VaR · ES 백테스트",
-                             "꼬리 위험 (EVT · 꼬리 의존 · 스트레스)", "구매·보유 물량 위험"])
-    with a:
-        st.markdown(f"##### {short(rid_)} — 같은 품목 안에서도 감쇠율 λ(= 변동성 충격의 반감기)가 시간에 따라 변하는가")
-        st.caption("EWMA σ²ₜ = λσ²ₜ₋₁ + (1−λ)r²ₜ₋₁ 에서 반감기 = ln 0.5 / ln λ (거래일). RiskMetrics는 모든 품목·시점에 λ=0.94(반감기 11일). "
-                   "확장 = 과거 전체로 매년 재추정, 롤링 = 직전 3년만(빠른 망각), HMM = 저·중·고변동 레짐별 λ를 필터 확률로 가중(이산적 전환), "
-                   "Kalman = 평균 구조 rₜ = αₜ + φₜrₜ₋₁ 의 계수를 칼만 필터로 연속 갱신한 1기 선행 잔차에 EWMA.")
-        lam = o["lam"]
-        f = go.Figure()
-        for j, m in enumerate([m for m in RK.VOL_MODELS if m in lam]):
-            x = lam[m].dropna()
-            f.add_trace(go.Scatter(x=x.index, y=RK.hl_days(x), name=m, line=dict(color=PAL[j % 8], width=2.2 if m in RK.TV_MODELS else 1.2,
-                                                                                   dash=None if m in RK.TV_MODELS else "dot")))
-        st.plotly_chart(shade(fig_layout(f, 360, title="반감기 경로 (거래일, 로그 축) — 실선 = 시변 방식", yaxis_type="log"), r.index), key="rk_hl")
-        lt = RK.lr_time_lambda(o["LL"], r.index, 3)
-        m1_, m2_ = st.columns([2, 1])
-        m1_.dataframe(lt["table"].set_index("기간").style.format({"λ": "{:.3f}", "95% 하한": "{:.3f}", "95% 상한": "{:.3f}", "반감기 (거래일)": "{:.1f}", "관측": "{:,.0f}"}))
-        m2_.metric("우도비 검정: 3년 블록 간 λ 동일?", f"LR = {lt['LR']:.1f} (df {lt['df']})", f"p = {lt['p']:.4f}", delta_color="off")
-        m2_.caption("p < 0.05 → 같은 품목의 λ가 기간마다 유의하게 다름 = 시변 λ의 통계적 근거. 단, 시변 λ가 '예측'까지 좋아지는지는 옆 탭의 QLIKE·MCS로 확인.")
-        hm = o["hmm"]
-        if hm is not None and np.isfinite(hm["prob"]).any():
-            P_ = pd.DataFrame(hm["prob"], index=r.index, columns=["저변동", "중변동", "고변동"]).dropna()
-            f = go.Figure([go.Scatter(x=P_.index, y=P_[c_], stackgroup="one", name=c_, line=dict(width=0.5, color=PAL[[2, 3, 7][j]]))
-                           for j, c_ in enumerate(P_.columns)])
-            st.plotly_chart(shade(fig_layout(f, 260, title="HMM 3상태 필터 확률 (그 시점까지의 정보) — 고변동 레짐이 커지면 λ가 그 레짐의 값으로 이동",
-                                             yaxis_range=[0, 1]), P_.index), key="rk_hmmp")
-            st.dataframe(hm["table"].set_index("연도").tail(10).style.format("{:.3f}"))
-        kf = o["kalman"]
-        if kf is not None:
-            phi = pd.Series(kf["coef"][:, 1], index=r.index)
-            f = go.Figure(go.Scatter(x=phi.index, y=phi.values, line=dict(color=PAL[4], width=1.4), name="φₜ"))
-            f.add_hline(y=0, line_color="#898781")
-            st.plotly_chart(shade(fig_layout(f, 240, title="Kalman TVP-AR(1): 일간 자기상관 φₜ (양수 = 단기 추세 지속, 음수 = 되돌림)"), phi.index), key="rk_phi")
-        ex = load_exp("risk")
-        if ex is not None:
-            v = ex[ex.구분 == "변동성"].copy(); v["포함"] = v.MCS_p >= 0.10; v["순위"] = v.groupby("품목")["QLIKE"].rank()
-            st.markdown("##### 12품목 요약 (⑥ 실험 결과 '리스크 모형') — 시변 λ가 실제 예측을 개선했나")
-            st.dataframe(v.groupby("항목").agg(**{"MCS 포함 품목 수": ("포함", "sum"), "평균 QLIKE 순위": ("순위", "mean"),
-                                                "DM t 중앙값 (vs RiskMetrics)": ("DM_t", "median")}).sort_values("평균 QLIKE 순위")
-                         .style.format({"평균 QLIKE 순위": "{:.2f}", "DM t 중앙값 (vs RiskMetrics)": "{:+.2f}"}))
-            st.caption("λ는 기간마다 통계적으로 다르지만(LR), 매년 직전 3년·HMM 레짐으로 λ를 바꾸면 추정 잡음이 커져 1일 예측은 오히려 나빠지는 경우가 많음. "
-                       "Kalman TVP 잔차는 품목별 고정 λ와 거의 같은 성능(평균 구조의 시변성은 작음). 결론: 시변 λ는 '레짐 진단·설명'에, "
-                       "VaR의 σ에는 품목별 λ(확장) 또는 GARCH가 안정적.")
-    with b:
-        Lo = RK.qlike(r, S)[ev].dropna()
-        base = st.selectbox("DM 기준 모형", list(S.columns), 0, key="rk_base")
-        pv = RK.mcs(Lo, B=500); dm = RK.dm_table(Lo, base)
-        T_ = pd.DataFrame({"평균 QLIKE": Lo.mean(), "MCS p": pv}).join(dm[["DM t", "p값 (양측)", "모형이 나은 날 비율"]])
-        T_["90% MCS 포함"] = np.where(T_["MCS p"] >= 0.10, "✓", "")
-        st.markdown(f"##### 1일 분산 예측 정확도 — {short(rid_)}, {Lo.index.min():%Y-%m}~ ({len(Lo):,}일)")
-        st.dataframe(T_.sort_values("평균 QLIKE").style.format({"평균 QLIKE": "{:.4f}", "MCS p": "{:.3f}", "DM t": "{:+.2f}", "p값 (양측)": "{:.3f}",
-                                                             "모형이 나은 날 비율": "{:.0%}"}, na_rep="–").highlight_min(subset=["평균 QLIKE"], props="font-weight:700"))
-        st.caption(f"QLIKE = log σ̂² + r²/σ̂² (낮을수록 좋음). DM t < −1.96 → '{base}'보다 유의하게 우수 (Newey-West). "
-                   "MCS (Hansen·Lunde·Nason 2011) = 최선과 통계적으로 구별되지 않는 모형 집합 (T_max, 10일 블록 부트스트랩) — p ≥ 0.10이면 포함.")
-        zm = st.selectbox("잔차 진단 모형", list(S.columns), list(S.columns).index("EWMA 롤링 λ (직전 3년)") if "EWMA 롤링 λ (직전 3년)" in S else 0, key="rk_zm")
-        z = (r / np.sqrt(S[zm]))[ev].values
-        sb = RK.sign_bias(z); lb = RK.ljung_box_sq(z, 10)
-        q1_, q2_ = st.columns(2)
-        q1_.markdown("**Engle-Ng 부호 편향 검정** (표준화 잔차²에 어제의 부호·크기가 남아 있나)")
-        q1_.dataframe(sb["table"].style.format("{:+.3f}"))
-        q1_.caption(f"결합 LM = {sb['LM']:.1f}, p = {sb['p']:.3f} — p < 0.05면 대칭 모형이 하락/상승 비대칭을 놓침 (원자재는 종종 '역레버리지': 상승 충격이 변동성↑).")
-        q2_.markdown("**Ljung-Box (z², 10시차)** — 남은 변동성 군집")
-        q2_.metric("Q(10)", f"{lb[0]:.1f}", f"p = {lb[1]:.3f}", delta_color="off")
-        q2_.caption("p < 0.05면 모형이 변동성 군집을 다 흡수하지 못함.")
-        st.markdown("##### 여러 품목: 공통 λ 우도비 검정 · 다변량 적합 진단 (마할라노비스)")
-        mids = st.multiselect("품목", ids_r, default=[i for i in RISK_DEF if i in ids_r][:5], format_func=lbl, key="rk_mids")
-        if st.button("▶ 여러 품목 검정", key="rk_mrun") and len(mids) >= 2:
-            with st.spinner("품목별 EWMA 추정…"):
-                mods = ("RiskMetrics λ=0.94", "EWMA 품목별 λ (확장)", "EWMA 롤링 λ (직전 3년)")
-                OO = {i: _risk_vm(i, mods, ROLL, extra_bytes) for i in mids}
-                lr = RK.lr_common_lambda({i: OO[i]["LL"] for i in mids})
-                Rm = pd.DataFrame({i: OO[i]["r"] for i in mids}).dropna()
-                mh = {m: RK.mahalanobis(Rm, pd.DataFrame({i: OO[i]["S"][m] for i in mids}).reindex(Rm.index), 252) for m in mods}
-                st.session_state["rk_m"] = (mids, lr, pd.DataFrame(mh))
-        if "rk_m" in st.session_state:
-            from scipy import stats as _st
-            mids_, lr, MH = st.session_state["rk_m"]
-            K_ = len(mids_); MH = MH[MH.index >= pd.Timestamp(f"{ev0}-01-01")].dropna()
-            c95 = _st.chi2.ppf(0.95, K_)
-            l1_, l2_ = st.columns([1, 2])
-            l1_.metric("H₀: 모든 품목 같은 λ", f"LR = {lr['LR']:.1f} (df {lr['df']})", f"p = {lr['p']:.2g} · 공통 λ = {lr['common_lambda']:.3f}", delta_color="off")
-            l1_.dataframe(pd.DataFrame({"λ (전체 표본)": lr["own"], "반감기 (거래일)": {k: float(RK.hl_days(v)) for k, v in lr["own"].items()}})
-                          .rename(index=short).style.format({"λ (전체 표본)": "{:.3f}", "반감기 (거래일)": "{:.1f}"}))
-            l1_.caption("전체 표본 우도 (표본 내 검정). p < 0.05 → 품목마다 반감기가 다름 = 공통 λ(RiskMetrics)는 일부 품목을 과대·과소 평활.")
-            summ = pd.DataFrame({"평균 d² (기대 = K)": MH.mean(), "χ² 95% 초과율 (기대 5%)": (MH > c95).mean()})
-            l2_.dataframe(summ.style.format({"평균 d² (기대 = K)": "{:.2f}", "χ² 95% 초과율 (기대 5%)": "{:.1%}"}))
-            mm = MH.rolling(63).mean()
-            f = go.Figure([go.Scatter(x=mm.index, y=mm[c_], name=c_, line=dict(color=PAL[j % 8], width=1.4)) for j, c_ in enumerate(mm.columns)])
-            f.add_hline(y=K_, line_color=PAL[2], line_dash="dash", annotation_text=f"기대값 K={K_}")
-            l2_.plotly_chart(shade(fig_layout(f, 300, title="마할라노비스 d² 63일 평균 — K보다 높으면 공분산 과소추정 (위기에 급등)"), mm.index), key="rk_mh")
+    c, d, e = st.tabs(["VaR · ES 백테스트", "꼬리 위험 (EVT · 스트레스)", "구매·보유 물량 위험"])
     with c:
         k1_, k2_, k3_, k4_ = st.columns(4)
         side_l = k1_.radio("포지션", ["매입 예정 물량 (가격 상승 위험)", "보유 재고 (가격 하락 위험)"], key="rk_side")
         side = "short" if side_l.startswith("매입") else "long"
         alpha = k2_.selectbox("신뢰수준", [0.95, 0.975, 0.99], 2, format_func=lambda x: f"{x:.1%}", key="rk_alpha")
         h = k3_.selectbox("기간 (영업일)", [1, 5, 10, 20], 0, key="rk_h")
-        vm = k4_.selectbox("σ 모형", list(S.columns), list(S.columns).index("EWMA 롤링 λ (직전 3년)") if "EWMA 롤링 λ (직전 3년)" in S else 0, key="rk_vm")
+        vm = k4_.selectbox("σ 모형", list(S.columns), list(S.columns).index("GARCH(1,1)") if "GARCH(1,1)" in S else 0, key="rk_vm",
+                          help="③ '변동성 예측 검증'에서 12품목 모두 MCS에 든 GARCH(1,1)가 기본")
         V = RK.var_forecasts(r, S[vm], alpha, side, h, start=f"{ev0}-01-01")
         BT = RK.backtest_table(V)
         now = RK.var_now(V, r, RK.next_var(o, vm))
@@ -1917,10 +1833,10 @@ def tab_risk():
         ex = load_exp("risk")
         if ex is not None:
             x = ex[ex.구분 == "VaR"].copy(); x["통과"] = (x.Kupiec_p >= 0.05) & (x.Christoffersen_p >= 0.05)
-            st.markdown("##### 12품목 요약 (⑥ 실험 결과 '리스크 모형', σ = 롤링 λ) — 백테스트 통과 비율 (Kupiec·Christoffersen 모두 p ≥ 0.05)")
+            st.markdown("##### 12품목 요약 (⑥ 실험 결과 '리스크 모형', σ = GARCH(1,1)) — 백테스트 통과 비율 (Kupiec·Christoffersen 모두 p ≥ 0.05)")
             st.dataframe(x.groupby(["기준", "포지션", "항목"])["통과"].mean().unstack(0).style.format("{:.0%}"))
     with d:
-        tids = st.multiselect("품목 (꼬리 의존·통계)", ids_r, default=[i for i in RISK_DEF if i in ids_r][:6], format_func=lbl, key="rk_tids")
+        tids = st.multiselect("품목 (꼬리 통계)", ids_r, default=[i for i in RISK_DEF if i in ids_r][:6], format_func=lbl, key="rk_tids")
         if len(tids) >= 1:
             Rt = pd.DataFrame({i: RK.returns(_levels(extra_bytes, ROLL)[i]) for i in tids}).loc[str(start):str(end)]
             z_sel = (r / np.sqrt(S["EWMA 롤링 λ (직전 3년)"])).values if "EWMA 롤링 λ (직전 3년)" in S else None
@@ -1929,14 +1845,6 @@ def tab_risk():
             st.dataframe(TS.style.format("{:.3f}", na_rep="–"))
             st.caption("Hill α = 꼬리 지수 (작을수록 두꺼운 꼬리, 2~4가 원자재 전형; 정규분포는 무한대). 표준화 잔차의 초과첨도·|z|>3 비율은 "
                        "변동성 군집을 걸러낸 뒤에도 남는 꼬리 → 정규 VaR가 과소추정하는 이유. (표준화 잔차 항목은 위에서 추정한 품목만)")
-            if len(tids) >= 2:
-                q_ = st.select_slider("꼬리 분위 q", [0.01, 0.025, 0.05, 0.10], 0.05, key="rk_q")
-                Rc = Rt.dropna()
-                h1_, h2_ = st.columns(2)
-                h1_.plotly_chart(heat(RK.tail_dependence(Rc, q_), f"동반 폭락 확률 (하위 {q_:.0%}) — 보유자 위험", 0, 1, scale=SEQ), key="rk_tdl")
-                h2_.plotly_chart(heat(RK.tail_dependence(Rc, q_, upper=True), f"동반 급등 확률 (상위 {q_:.0%}) — 구매자 위험", 0, 1, scale=SEQ), key="rk_tdu")
-                st.caption(f"P(j 꼬리 | i 꼬리). 독립이면 {q_:.0%}, 완전 동조면 100%. 상관계수는 평균적 동조, 꼬리 의존은 '위기 때 같이 움직이는가' "
-                           "→ 분산 효과가 꼬리에서 얼마나 사라지는지.")
         p_ = _levels(extra_bytes, ROLL)[rid_].dropna().loc[str(start):str(end)]
         dd = RK.drawdown(p_)
         st.markdown(f"##### {short(rid_)} 낙폭·급등 · 최악 구간 (롤 보정 가격)")
@@ -1984,6 +1892,112 @@ def tab_risk():
                 st.markdown("##### 과거 위기 구간을 지금 물량에 적용하면")
                 st.dataframe(CS.style.format({PR.BUY_IDS[i]: "{:+.1%}" for i in pids} | {"손익 ($)": "{:+,.0f}"}, na_rep="–"))
                 st.caption("손익 = 구간 시작~끝 가격 변화 × 현재 노출 (구간 중 최악 시점이 아니라 시작·끝 기준). 매입 예정 물량은 가격이 오른 위기(예: 2022년)에 손실.")
+
+
+def vol_forecast_check():
+    """③ 변동성 예측 검증: 8개 σ 모형의 1일 분산 예측 경주 (QLIKE·DM·MCS) + 잔차 진단 + 여러 품목 공통 λ·마할라노비스."""
+    import risk as RK
+    st.subheader("변동성 예측 검증 — 어떤 σ 모형이 내일의 변동성을 가장 잘 맞히나")
+    st.caption("후보: RiskMetrics λ=0.94 · 품목별 EWMA λ(확장) · 롤링 λ(직전 3년) · HMM 3상태 λ · GARCH(1,1) · HAR-RV · MIDAS-RV — "
+               "모두 walk-forward (매년 1월 재추정, 시점 t의 예측은 t−1 종가까지). 여기서 고른 모형을 ◆ 리스크 VaR의 σ로 사용.")
+    ids_r = [i for i in COMMOD_IDS if GROUP.get(i) not in ("Freight",)]
+    c1_, c2_, c3_ = st.columns([2, 1, 1])
+    rid = c1_.selectbox("품목", ids_r, ids_r.index("yf:ZC=F") if "yf:ZC=F" in ids_r else 0, format_func=lbl, key="vf_id")
+    ev0 = c2_.selectbox("평가 시작", [2005, 2010, 2015, 2020], 1, key="vf_ev0")
+    if c3_.button("▶ 변동성 모형 경주 (약 10초)", type="primary", key="vf_run"):
+        with st.spinner("변동성 모형 walk-forward 추정 중…"):
+            st.session_state["vf_o"] = (rid, _risk_vm(rid, None, ROLL, extra_bytes))
+    ex = load_exp("risk")
+    if ex is not None:
+        v = ex[ex.구분 == "변동성"].copy(); v["포함"] = v.MCS_p >= 0.10; v["순위"] = v.groupby("품목")["QLIKE"].rank()
+        with st.expander("12품목 요약 (⑥ 실험 결과 '리스크 모형')", expanded="vf_o" not in st.session_state):
+            st.dataframe(v.groupby("항목").agg(**{"MCS 포함 품목 수": ("포함", "sum"), "평균 QLIKE 순위": ("순위", "mean"),
+                                                "DM t 중앙값 (vs RiskMetrics)": ("DM_t", "median")}).sort_values("평균 QLIKE 순위")
+                         .style.format({"평균 QLIKE 순위": "{:.2f}", "DM t 중앙값 (vs RiskMetrics)": "{:+.2f}"}))
+            st.caption("1일 예측은 GARCH(1,1)가 가장 안정적이고, 품목별 고정 λ가 그다음. 매년 λ를 바꾸는 롤링·HMM은 λ가 기간마다 다르다는 "
+                       "통계적 근거(② 레짐 → 변동성 레짐)에도 불구하고 추정 잡음 때문에 예측이 나빠짐 → 시변 λ는 진단용, σ에는 GARCH·고정 λ.")
+    if "vf_o" not in st.session_state:
+        return
+    rid_, o = st.session_state["vf_o"]
+    r, S = o["r"], o["S"]
+    ev = S.index >= pd.Timestamp(f"{ev0}-01-01")
+    Lo = RK.qlike(r, S)[ev].dropna()
+    base = st.selectbox("DM 기준 모형", list(S.columns), 0, key="vf_base")
+    pv = RK.mcs(Lo, B=500); dm = RK.dm_table(Lo, base)
+    T_ = pd.DataFrame({"평균 QLIKE": Lo.mean(), "MCS p": pv}).join(dm[["DM t", "p값 (양측)", "모형이 나은 날 비율"]])
+    T_["90% MCS 포함"] = np.where(T_["MCS p"] >= 0.10, "✓", "")
+    st.markdown(f"##### 1일 분산 예측 정확도 — {short(rid_)}, {Lo.index.min():%Y-%m}~ ({len(Lo):,}일)")
+    st.dataframe(T_.sort_values("평균 QLIKE").style.format({"평균 QLIKE": "{:.4f}", "MCS p": "{:.3f}", "DM t": "{:+.2f}", "p값 (양측)": "{:.3f}",
+                                                         "모형이 나은 날 비율": "{:.0%}"}, na_rep="–").highlight_min(subset=["평균 QLIKE"], props="font-weight:700"))
+    st.caption(f"QLIKE = log σ̂² + r²/σ̂² (낮을수록 좋음). DM t < −1.96 → '{base}'보다 유의하게 우수 (Newey-West). "
+               "MCS (Hansen·Lunde·Nason 2011) = 최선과 통계적으로 구별되지 않는 모형 집합 (T_max, 10일 블록 부트스트랩) — p ≥ 0.10이면 포함.")
+    zm = st.selectbox("잔차 진단 모형", list(S.columns), list(S.columns).index("EWMA 롤링 λ (직전 3년)") if "EWMA 롤링 λ (직전 3년)" in S else 0, key="vf_zm")
+    z = (r / np.sqrt(S[zm]))[ev].values
+    sb = RK.sign_bias(z); lb = RK.ljung_box_sq(z, 10)
+    q1_, q2_ = st.columns(2)
+    q1_.markdown("**Engle-Ng 부호 편향 검정** (표준화 잔차²에 어제의 부호·크기가 남아 있나)")
+    q1_.dataframe(sb["table"].style.format("{:+.3f}"))
+    q1_.caption(f"결합 LM = {sb['LM']:.1f}, p = {sb['p']:.3f} — p < 0.05면 대칭 모형이 하락/상승 비대칭을 놓침 (원자재는 종종 '역레버리지': 상승 충격이 변동성↑).")
+    q2_.markdown("**Ljung-Box (z², 10시차)** — 남은 변동성 군집")
+    q2_.metric("Q(10)", f"{lb[0]:.1f}", f"p = {lb[1]:.3f}", delta_color="off")
+    q2_.caption("p < 0.05면 모형이 변동성 군집을 다 흡수하지 못함.")
+    st.markdown("##### 여러 품목: 공통 λ 우도비 검정 · 다변량 적합 진단 (마할라노비스)")
+    mids = st.multiselect("품목", ids_r, default=[i for i in RISK_DEF if i in ids_r][:5], format_func=lbl, key="vf_mids")
+    if st.button("▶ 여러 품목 검정", key="vf_mrun") and len(mids) >= 2:
+        with st.spinner("품목별 EWMA 추정…"):
+            mods = ("RiskMetrics λ=0.94", "EWMA 품목별 λ (확장)", "EWMA 롤링 λ (직전 3년)")
+            OO = {i: _risk_vm(i, mods, ROLL, extra_bytes) for i in mids}
+            lr = RK.lr_common_lambda({i: OO[i]["LL"] for i in mids})
+            Rm = pd.DataFrame({i: OO[i]["r"] for i in mids}).dropna()
+            mh = {m: RK.mahalanobis(Rm, pd.DataFrame({i: OO[i]["S"][m] for i in mids}).reindex(Rm.index), 252) for m in mods}
+            st.session_state["vf_m"] = (mids, lr, pd.DataFrame(mh))
+    if "vf_m" in st.session_state:
+        from scipy import stats as _st
+        mids_, lr, MH = st.session_state["vf_m"]
+        K_ = len(mids_); MH = MH[MH.index >= pd.Timestamp(f"{ev0}-01-01")].dropna()
+        c95 = _st.chi2.ppf(0.95, K_)
+        l1_, l2_ = st.columns([1, 2])
+        l1_.metric("H₀: 모든 품목 같은 λ", f"LR = {lr['LR']:.1f} (df {lr['df']})", f"p = {lr['p']:.2g} · 공통 λ = {lr['common_lambda']:.3f}", delta_color="off")
+        l1_.dataframe(pd.DataFrame({"λ (전체 표본)": lr["own"], "반감기 (거래일)": {k: float(RK.hl_days(v)) for k, v in lr["own"].items()}})
+                      .rename(index=short).style.format({"λ (전체 표본)": "{:.3f}", "반감기 (거래일)": "{:.1f}"}))
+        l1_.caption("전체 표본 우도 (표본 내 검정). p < 0.05 → 품목마다 반감기가 다름 = 공통 λ(RiskMetrics)는 일부 품목을 과대·과소 평활.")
+        summ = pd.DataFrame({"평균 d² (기대 = K)": MH.mean(), "χ² 95% 초과율 (기대 5%)": (MH > c95).mean()})
+        l2_.dataframe(summ.style.format({"평균 d² (기대 = K)": "{:.2f}", "χ² 95% 초과율 (기대 5%)": "{:.1%}"}))
+        mm = MH.rolling(63).mean()
+        f = go.Figure([go.Scatter(x=mm.index, y=mm[c_], name=c_, line=dict(color=PAL[j % 8], width=1.4)) for j, c_ in enumerate(mm.columns)])
+        f.add_hline(y=K_, line_color=PAL[2], line_dash="dash", annotation_text=f"기대값 K={K_}")
+        l2_.plotly_chart(shade(fig_layout(f, 300, title="마할라노비스 d² 63일 평균 — K보다 높으면 공분산 과소추정 (위기에 급등)"), mm.index), key="vf_mh")
+
+
+def vol_regime():
+    """② 변동성 레짐: HMM 3상태(저·중·고변동) 필터 확률과 레짐별 감쇠율, 3년 블록 간 λ 동일성 우도비 검정."""
+    import risk as RK
+    st.markdown("##### 변동성 레짐 — 저·중·고변동 국면과 변동성 충격의 반감기가 시간에 따라 변하는가")
+    st.caption("HMM 3상태 = 일간 수익률을 저·중·고변동 레짐으로 분류 (매년 그 이전 데이터로 재적합, 필터 확률만 사용). "
+               "반감기 = ln 0.5 / ln λ (EWMA σ²ₜ = λσ²ₜ₋₁ + (1−λ)r²ₜ₋₁). 3년 블록별 λ와 '블록 간 동일' 우도비 검정으로 같은 품목 안의 시변성을 판정.")
+    ids_r = [i for i in COMMOD_IDS if GROUP.get(i) not in ("Freight",)]
+    c1_, c2_ = st.columns([3, 1])
+    rid = c1_.selectbox("품목", ids_r, ids_r.index("yf:ZC=F") if "yf:ZC=F" in ids_r else 0, format_func=lbl, key="vr_id")
+    if c2_.button("▶ 변동성 레짐 추정", type="primary", key="vr_run"):
+        with st.spinner("HMM 3상태 walk-forward 재적합 중…"):
+            st.session_state["vr_o"] = (rid, _risk_vm(rid, ("EWMA 품목별 λ (확장)", "HMM 3상태 λ"), ROLL, extra_bytes))
+    if "vr_o" not in st.session_state:
+        return
+    rid_, o = st.session_state["vr_o"]
+    r = o["r"]; hm = o["hmm"]
+    if hm is not None and np.isfinite(hm["prob"]).any():
+        P_ = pd.DataFrame(hm["prob"], index=r.index, columns=["저변동", "중변동", "고변동"]).dropna()
+        f = go.Figure([go.Scatter(x=P_.index, y=P_[c_], stackgroup="one", name=c_, line=dict(width=0.5, color=PAL[[2, 3, 7][j]]))
+                       for j, c_ in enumerate(P_.columns)])
+        st.plotly_chart(shade(fig_layout(f, 280, title=f"{short(rid_)} HMM 3상태 필터 확률 (그 시점까지의 정보)", yaxis_range=[0, 1]), P_.index), key="vr_hmmp")
+        st.dataframe(hm["table"].set_index("연도").tail(10).style.format("{:.3f}"))
+        st.caption("레짐별 λ = 그 레짐에 속한 날들의 가중 QMLE. 옆 '수익률 레짐'(Markov-switching, 수익률 평균·분산 레짐)과 상호 보완 — "
+                   "이쪽은 '변동성 수준' 레짐.")
+    lt = RK.lr_time_lambda(o["LL"], r.index, 3)
+    m1_, m2_ = st.columns([2, 1])
+    m1_.dataframe(lt["table"].set_index("기간").style.format({"λ": "{:.3f}", "95% 하한": "{:.3f}", "95% 상한": "{:.3f}", "반감기 (거래일)": "{:.1f}", "관측": "{:,.0f}"}))
+    m2_.metric("우도비 검정: 3년 블록 간 λ 동일?", f"LR = {lt['LR']:.1f} (df {lt['df']})", f"p = {lt['p']:.4f}", delta_color="off")
+    m2_.caption("p < 0.05 → 같은 품목의 반감기가 기간마다 유의하게 다름. 단, 이를 예측에 쓰면(롤링·HMM λ) 오히려 나빠짐 — ③ 변동성 예측 검증 참고.")
 
 
 # ============================================================================
@@ -2235,13 +2249,16 @@ def page_structure():
 
 
 def page_vol():
-    a, b, c = st.tabs(["단변량 GARCH · 레버리지", "다변량 GARCH (DCC · ADCC · BEKK)", "GARCH-MIDAS (장기·단기 변동성 분해)"])
+    a, b, c, dd = st.tabs(["단변량 GARCH · 레버리지", "다변량 GARCH (DCC · ADCC · BEKK)", "GARCH-MIDAS (장기·단기 변동성 분해)",
+                            "변동성 예측 검증 (QLIKE · DM · MCS · 부호 편향)"])
     with a:
         tab_vol()
     with b:
         tab_mvgarch()
     with c:
         tab_midas(vol_only=True)
+    with dd:
+        vol_forecast_check()
 
 
 def page_predict():

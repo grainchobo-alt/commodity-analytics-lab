@@ -5,7 +5,6 @@
   EWMA 품목별 λ (확장)      : σ²ₜ = λσ²ₜ₋₁ + (1−λ)r²ₜ₋₁, λ = QMLE (과거 전체)
   EWMA 롤링 λ (직전 3년)    : 같은 식, λ를 직전 3년만으로 재추정 → 같은 품목 안에서도 λ가 해마다 바뀜
   HMM 3상태 λ               : 저·중·고변동 레짐별 λₛ (레짐 확률 가중 QMLE) → λₜ = Σₛ P(sₜ₋₁=s | r₁..ₜ₋₁)·λₛ (필터 확률만)
-  Kalman TVP-AR(1) + EWMA   : rₜ = αₜ + φₜrₜ₋₁ + εₜ (계수 랜덤워크, 칼만 필터 1기 선행 혁신) → 혁신에 품목별 EWMA
   GARCH(1,1) · HAR-RV · MIDAS-RV : 학계 표준 비교 기준
 검증: QLIKE 손실, Diebold-Mariano(Newey-West), Model Confidence Set(Hansen·Lunde·Nason 2011, 블록 부트스트랩),
       우도비(품목 간 공통 λ / 기간 간 공통 λ), Engle-Ng 부호 편향, Ljung-Box(잔여 ARCH), 다변량 마할라노비스 적합 진단.
@@ -21,8 +20,9 @@ from scipy import stats
 
 LAM_GRID = np.linspace(0.90, 0.999, 100)        # 일간 λ 범위 (반감기 6.6일 ~ 1.9년)
 VOL_MODELS = ["RiskMetrics λ=0.94", "EWMA 품목별 λ (확장)", "EWMA 롤링 λ (직전 3년)", "HMM 3상태 λ",
-              "Kalman TVP-AR(1) + EWMA", "GARCH(1,1)", "HAR-RV", "MIDAS-RV"]
-TV_MODELS = ["EWMA 롤링 λ (직전 3년)", "HMM 3상태 λ", "Kalman TVP-AR(1) + EWMA"]   # 같은 품목 안에서 λ(또는 잔차 구조)가 시변
+              "GARCH(1,1)", "HAR-RV", "MIDAS-RV"]
+# (Kalman TVP-AR(1) 잔차 + EWMA는 v1.4.0에서 제거: 12품목 실험에서 품목별 고정 λ와 성능이 같아 추가 정보 없음)
+TV_MODELS = ["EWMA 롤링 λ (직전 3년)", "HMM 3상태 λ"]   # 같은 품목 안에서 λ가 시변
 VAR_METHODS = ["정규", "Student-t", "FHS (필터링 역사적)", "EVT-GPD (조건부 POT)", "역사적 시뮬레이션 (500일)"]
 hl_days = lambda lam: np.log(0.5) / np.log(np.asarray(lam, float))
 
@@ -151,27 +151,6 @@ def hmm_lambda(e: np.ndarray, idx: pd.DatetimeIndex, n_states: int = 3, min_year
 
 
 # ============================================================================
-# Kalman TVP-AR(1)
-# ============================================================================
-def kalman_tvp_ar1(r: np.ndarray, q: float = 1e-5, r_var: float | None = None) -> dict:
-    """rₜ = αₜ + φₜrₜ₋₁ + εₜ, [α,φ]ₜ = [α,φ]ₜ₋₁ + η (η~N(0,qI)). 반환: 1기 선행 혁신 eₜ = rₜ − Hₜx̂ₜ|ₜ₋₁ (t−1 정보로 예측), 계수 경로.
-    관측 잡음 R은 초기 1년 분산으로 고정 (이후 데이터를 쓰지 않음)."""
-    T = len(r)
-    R = float(np.var(r[:252])) if r_var is None else r_var
-    x = np.zeros(2); P = np.eye(2) * 1.0; Q = np.eye(2) * q * R
-    innov = np.full(T, np.nan); mu = np.full(T, np.nan); coef = np.full((T, 2), np.nan)
-    for t in range(1, T):
-        P = P + Q
-        H = np.array([1.0, r[t - 1]])
-        mu[t] = H @ x; innov[t] = r[t] - mu[t]
-        S = H @ P @ H + R; K = P @ H / S
-        x = x + K * innov[t]; P = P - np.outer(K, H) @ P
-        coef[t] = x
-    innov[0] = r[0]
-    return dict(innov=innov, mu=np.nan_to_num(mu), coef=coef)
-
-
-# ============================================================================
 # 변동성 모형 경주 (walk-forward)
 # ============================================================================
 def garch_path(e: np.ndarray, idx: pd.DatetimeIndex, min_obs: int = 750) -> np.ndarray:
@@ -192,8 +171,8 @@ def garch_path(e: np.ndarray, idx: pd.DatetimeIndex, min_obs: int = 750) -> np.n
     return out
 
 
-def vol_models(r: pd.Series, models: list[str] | None = None, q_kalman: float = 1e-5) -> dict:
-    """품목 1개의 일간 수익률(%) → 모형별 분산 예측 S (DataFrame, s2[t] = r[t] 분산 예측), λ 경로, HMM 확률, Kalman 계수."""
+def vol_models(r: pd.Series, models: list[str] | None = None) -> dict:
+    """품목 1개의 일간 수익률(%) → 모형별 분산 예측 S (DataFrame, s2[t] = r[t] 분산 예측), λ 경로, HMM 확률."""
     models = models or VOL_MODELS
     r = r.dropna(); e = r.values; idx = r.index
     LL = ewma_ll_grid(e)
@@ -211,12 +190,6 @@ def vol_models(r: pd.Series, models: list[str] | None = None, q_kalman: float = 
         hm = hmm_lambda(e, idx, 3, LL=LL)
         S["HMM 3상태 λ"] = np.where(np.isnan(hm["lam"]), np.nan, ewma_path(e, np.nan_to_num(hm["lam"], nan=0.94)))
         lam["HMM 3상태 λ"] = hm["lam"]
-    kf = None
-    if "Kalman TVP-AR(1) + EWMA" in models:
-        kf = kalman_tvp_ar1(e, q_kalman)
-        ek = np.nan_to_num(kf["innov"]); l_ = wf_lambda(ek, idx, None)
-        S["Kalman TVP-AR(1) + EWMA"] = np.where(np.isnan(l_), np.nan, ewma_path(ek, np.nan_to_num(l_, nan=0.94)) + kf["mu"] ** 2)
-        lam["Kalman TVP-AR(1) + EWMA"] = l_
     if "GARCH(1,1)" in models:
         S["GARCH(1,1)"] = garch_path(e, idx)
     if "HAR-RV" in models or "MIDAS-RV" in models:
@@ -226,7 +199,7 @@ def vol_models(r: pd.Series, models: list[str] | None = None, q_kalman: float = 
             if c in models:
                 S[c] = f[c].reindex(idx).values
     S = pd.DataFrame(S, index=idx)[[m for m in models if m in S]]
-    return dict(r=r, S=S, lam=pd.DataFrame(lam, index=idx), hmm=hm, kalman=kf, LL=LL)
+    return dict(r=r, S=S, lam=pd.DataFrame(lam, index=idx), hmm=hm, LL=LL)
 
 
 # ============================================================================
@@ -619,8 +592,7 @@ def next_var(o: dict, model: str) -> float:
     lam = o["lam"][model].dropna() if model in o["lam"] else None
     s2 = float(S.dropna().iloc[-1])
     if lam is not None and len(lam):
-        e_last = float(o["kalman"]["innov"][-1]) if model.startswith("Kalman") and o.get("kalman") else float(r.iloc[-1])
-        return float(lam.iloc[-1]) * s2 + (1 - float(lam.iloc[-1])) * e_last ** 2
+        return float(lam.iloc[-1]) * s2 + (1 - float(lam.iloc[-1])) * float(r.iloc[-1]) ** 2
     return s2
 
 

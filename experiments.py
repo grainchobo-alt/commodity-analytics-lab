@@ -236,7 +236,7 @@ def risk_models(progress=None, start="2010-01-01"):
                              평균반감기일=float(np.nanmean(RK.hl_days(o["lam"][m][o["lam"].index >= start]))) if m in o["lam"] else np.nan))
         for side in ["long", "short"]:
             for a_, h in [(0.99, 1), (0.95, 20)]:
-                V = RK.var_forecasts(r, S["EWMA 롤링 λ (직전 3년)"], a_, side, h, start=start)
+                V = RK.var_forecasts(r, S["GARCH(1,1)"], a_, side, h, start=start)
                 bt = RK.backtest_table(V)
                 for m, b in bt.iterrows():
                     rows.append(dict(구분="VaR", 품목=nm, 항목=m, 포지션={"long": "보유 (하락 위험)", "short": "매입 예정 (상승 위험)"}[side],
@@ -249,7 +249,7 @@ def risk_models(progress=None, start="2010-01-01"):
             rows.append(dict(구분="4주 범위", 품목=nm, 항목="MIDAS σ (추천 프리셋)", 정규적중=cv["정규 적중률"], 경험적적중=cv["경험적 적중률"],
                              하단이탈=cv["하단 이탈률 (경험적)"], 상단이탈=cv["상단 이탈률 (경험적)"], n=cv["n"]))
         if progress: progress((j + 1) / len(ids))
-    _save("risk", pd.DataFrame(rows), t0, dict(평가시작=start, 품목=len(ids), VaR_σ="EWMA 롤링 λ (직전 3년)", MCS="T_max, 블록 10일, B=500"))
+    _save("risk", pd.DataFrame(rows), t0, dict(평가시작=start, 품목=len(ids), VaR_σ="GARCH(1,1)", MCS="T_max, 블록 10일, B=500"))
 
 
 META_IDS = ["yf:ZC=F", "yf:ZS=F", "yf:ZW=F", "yf:ZM=F", "yf:ZL=F", "yf:HG=F"]
