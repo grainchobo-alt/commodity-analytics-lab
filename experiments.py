@@ -293,6 +293,18 @@ def model_selection(progress=None, oos_start="2004-01-01", eval_start="2008-01-0
                                                    평가시작=eval_start, 선택창="6개월", 반감기="6개월", 위약B=B))
 
 
+def forecast_lab(progress=None):
+    """최신 시계열 파운데이션 모델(Chronos-Bolt·Chronos-2·TimesFM 2.5·TiRex) vs 기준 모델 — 목표별(방향·변동성·스프레드·순위·구매)
+    walk-forward 비교 + DSR·PBO·CV 누수 시연 + 메타 라벨링. 모델 예측은 data/fm/ 캐시 (첫 실행 약 1~2시간, 이후 수 분)."""
+    import forecast_lab as FL
+    t0 = time.time()
+    steps = iter(range(1, 10 ** 6))
+    out = FL.run(log=(lambda m: progress(min(0.95, next(steps) / 120)) if progress else print))
+    df = pd.concat([v.assign(구분=k) for k, v in out.items()], ignore_index=True)
+    _save("forecast_lab", df, t0, dict(평가시작=FL.EVAL_START, 결정일="매주 금요일 (TiRex 4주마다)", 컨텍스트=f"{FL.CTX}영업일", 예측기간=f"{FL.H}영업일",
+                                     모델=", ".join(FL.FM_NAMES)))
+
+
 EXPERIMENTS = {
     "procure": dict(title="구매 타이밍 — 신호·공격성별 평균 매입가 절감", file="procurement_compare.csv", fn=procurement, eta="약 1분",
                     cols=["품목", "신호", "구매기간주", "기간", "평균절감bp"]),
@@ -304,6 +316,8 @@ EXPERIMENTS = {
                     fn=model_selection, eta="약 8~12분", cols=["구분", "품목", "빈도", "전략"]),
     "risk": dict(title="리스크 — 변동성 모형 경주 · VaR 백테스트 · 4주 범위 적중률", file="risk_models_compare.csv", fn=risk_models,
                  eta="약 3~5분", cols=["구분", "품목", "항목"]),
+    "forecast_lab": dict(title="최신 시계열 모델 · 목표별 예측력 · 과적합 판정 · 메타 라벨링", file="forecast_lab_compare.csv", fn=forecast_lab,
+                         eta="첫 실행 1~2시간 (캐시 후 수 분)", cols=["구분", "모델"]),
     "momentum": dict(title="모멘텀 기간 비교", file="momentum_lookback_compare.csv", fn=momentum_lookback, eta="약 5~8분",
                      cols=["모드", "모멘텀", "전략", "Sharpe (비용 후)", "연간 회전율(편도 합)"]),
     "rules": dict(title="거래 규칙 비교 (고정 주기 · 무거래 구간 · 부분 조정)", file="rebalance_rule_compare.csv", fn=trade_rules, eta="약 7~10분",

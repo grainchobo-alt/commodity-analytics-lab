@@ -987,7 +987,9 @@ def ml_meta():
     st.markdown("##### 모델 선택 메타 전략 — 시기·레짐에 따라 어떤 모델을 쓸지 고르기 (중첩 walk-forward)")
     st.caption("후보 모델마다 walk-forward OOS 예측 경로를 만든 뒤, 매 시점 **이미 실현된 OOS 손실만으로** (a) 직전 N개월 손실 최소 모델, "
                "(b) 지수가중 역MSE 가중 결합, (c) 현재 레짐(HMM 3상태 필터·실현변동성 3분위·평균 쌍별 상관 3분위)에서 과거 성과가 가장 좋았던 모델을 "
-               "고르고 (d) 동일가중 앙상블·(e) 과거 평균과 비교. 위약 = 롱 비중·전환 빈도를 맞춘 무작위 부호, 스누핑 보정 = White RC · Hansen SPA. "
+               "고르고 (d) 동일가중 앙상블·(e) 과거 평균과 비교. 혼합 전략: (f) Hedge = 최근 실현 성과(t값)가 좋은 모델에 소프트맥스 비중 (망각으로 국면 전환 추종), "
+               "(g) 레짐 게이트 전문가 혼합 = 지금 레짐 칸(변동성 3분위 × 상관 3분위)에서 잘 맞혔던 모델에 비중 (칸 표본이 적으면 전체 성과로 수축), "
+               "(h) + 기권 = 어떤 모델도 그 국면에서 t값 임계(모델 수 보정, 6개면 1.73)를 못 넘으면 포지션 0. (h)는 대부분 기간 무포지션일 수 있어 위약 p·Sharpe 비교가 무의미할 수 있음 — '롱 비중'·'연간 회전율'로 실제 투자 비중을 먼저 확인. 위약 = 롱 비중·전환 빈도를 맞춘 무작위 부호, 스누핑 보정 = White RC · Hansen SPA. "
                "위의 '▶ 모델 실행'(예측 모드)에서 만든 설계(Y·X·시차·비용)를 사용합니다.")
     ml = st.session_state.get("ml")
     if not ml or ml[3] != "predict":
@@ -2032,7 +2034,7 @@ def tab_experiments():
     st.subheader("실험 결과 — 설정을 바꿔가며 같은 백테스트 엔진으로 비교한 결과")
     st.caption("모든 실험은 미래정보 차단(다음 거래일 체결·walk-forward)·같은 비용 가정. 데이터가 갱신되면 '재실행'으로 최신화. "
                "주의: 표에서 가장 좋은 설정을 골라 쓰면 과적합 — 여러 조건에서 일관되게 좋은 설정을 고를 것.")
-    sec = st.radio("실험", ["구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "리스크 모형", "모델 선택 메타 전략", "전략 비교 (리스크 버짓)",
+    sec = st.radio("실험", ["구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)",
                           "모멘텀 기간", "거래 규칙", "변동성 사이징"],
                    horizontal=True, key="ex_sec")
     pct = lambda cols: {c: "{:.2%}" for c in cols}
@@ -2099,6 +2101,68 @@ def tab_experiments():
         st.caption("읽는 법: 철광석은 SGX 달러 가격과 DCE 위안 가격(환율·증치세 환산)의 차익, 점결탄은 철근 고로 마진(철근 − 1.6·철광석 − 0.5·코크스)이 "
                    "8·13·26주 모두에서 전·후반 + → 채택. 구리는 대체재 알루미늄 비율이 후반에 무너져 기각, 구리/금은 일관되지만 작아(t≈1) 참고 수준. "
                    "표본이 2013년부터라 곡물보다 검증 기간이 짧고, DCE 연속월물은 롤 보정이 없어 신호에 만기 교체 갭이 섞일 수 있음.")
+    elif sec == "최신 시계열 모델 · 예측 목표":
+        st.markdown("##### 최신 시계열 파운데이션 모델 vs 기준 모델 — 목표를 바꾸면 예측력이 생기나 (9개 구매 품목, 2012~ walk-forward, 매주 금요일 결정)")
+        st.caption("파운데이션 모델 = 사전학습만 된 zero-shot (Chronos-Bolt-small·Chronos-2: Amazon, TimesFM 2.5: Google Research, TiRex: NX-AI xLSTM — "
+                   "TiRex는 CPU에서 느려 4주마다 결정). 기준 = 과거 평균·모멘텀(12-1)·단기 반전·LightGBM 글로벌(9품목 함께 학습, 매년 재학습, Purged K-fold로 "
+                   "하이퍼파라미터 선택). 주의: 파운데이션 모델의 사전학습 자료에 평가 기간의 원자재 시계열이 일부 포함됐을 수 있음(낙관 편향 가능).")
+        df = _exp_header("forecast_lab")
+        if df is None:
+            return
+        g = lambda k: df[df.구분 == k].dropna(axis=1, how="all")
+        t1, t2, t3, t4, t5, t6, t7 = st.tabs(["방향 (5일)", "변동성 (20일)", "스프레드 (상대가치)", "품목 순위", "구매: 기다릴까", "과적합 판정", "메타 라벨링"])
+        with t1:
+            d = g("direction")
+            agg = d.groupby("모델").agg(평균Sharpe=("Sharpe", "mean"), 중앙Sharpe=("Sharpe", "median"), 평균적중률=("적중률", "mean"),
+                                       위약95_초과품목=("Sharpe", lambda x: int((x > d.loc[x.index, "위약95"]).sum())),
+                                       위약최대95_초과품목=("Sharpe", lambda x: int((x > d.loc[x.index, "위약최대95"]).sum())), 품목수=("Sharpe", "size"))
+            st.dataframe(agg.sort_values("평균Sharpe", ascending=False).style.format({"평균Sharpe": "{:+.2f}", "중앙Sharpe": "{:+.2f}", "평균적중률": "{:.1%}"}))
+            st.caption("부호전략 = 예측 부호대로 다음 5영업일 롱/숏 (주간 비중첩, 비용 전). 위약95 = 같은 롱 비중·전환 빈도의 무작위 부호 1개의 95% 분위, "
+                       "위약최대95 = 모델 수만큼 시도했을 때 최댓값의 95% 분위 → 이 기준을 넘어야 '운이 아님'.")
+            with st.expander("품목 × 모델"):
+                st.dataframe(d.pivot(index="품목", columns="모델", values="Sharpe").style.format("{:+.2f}"))
+        with t2:
+            d = g("vol")
+            d["순위"] = d.groupby("품목")["QLIKE"].rank()
+            st.dataframe(d.groupby("모델").agg(평균QLIKE순위=("순위", "mean"), DM_t_중앙값=("DM_t_vs_GARCH", "median"),
+                                              GARCH보다_나은_날=("GARCH보다_나은_비율", "mean")).sort_values("평균QLIKE순위")
+                         .style.format({"평균QLIKE순위": "{:.2f}", "DM_t_중앙값": "{:+.2f}", "GARCH보다_나은_날": "{:.0%}"}, na_rep="–"))
+            st.caption("목표 = 향후 20영업일 실현분산. 파운데이션 모델 입력 = 주간 실현분산 5년(260주). DM t < −1.96이면 GARCH(1,1)보다 유의하게 우수.")
+        with t3:
+            d = g("spread")
+            st.dataframe(d.groupby("모델").agg(MAE비율_중앙=("MAE_비율_vs_RW", "median"), 방향적중_평균=("방향적중", "mean"), IC_평균=("IC", "mean"))
+                         .sort_values("MAE비율_중앙").style.format({"MAE비율_중앙": "{:.3f}", "방향적중_평균": "{:.1%}", "IC_평균": "{:+.3f}"}, na_rep="–"))
+            st.caption("목표 = 상대가치 관계(크러시 마진·옥수수/밀 가격비·SGX/DCE 차익·고로 마진 등)의 20영업일 후 변화. MAE 비율 < 1이면 랜덤워크(변화 0)보다 정확, "
+                       "IC = 예측 변화와 실제 변화의 순위상관.")
+            with st.expander("관계별"):
+                st.dataframe(d.pivot_table(index=["품목", "관계"], columns="모델", values="MAE_비율_vs_RW").style.format("{:.3f}"))
+        with t4:
+            d = g("rank").set_index("모델")
+            st.dataframe(d.sort_values("평균IC", ascending=False).style.format({"평균IC": "{:+.3f}", "IC_t": "{:+.2f}", "IC양수비율": "{:.0%}",
+                                                                                "상위3하위3_Sharpe": "{:+.2f}", "n": "{:.0f}"}))
+            st.caption("매 4주(비중첩) 9품목의 향후 20영업일 수익률 순위를 예측 → 횡단면 Spearman IC. 상위3−하위3 = 예측 상위 3품목 롱·하위 3품목 숏의 Sharpe (연율).")
+        with t5:
+            d = g("buy")
+            st.dataframe(d[d.품목 == "(전체)"].set_index("모델").drop(columns="품목").sort_values("결정절감bp", ascending=False)
+                         .style.format({"AUC": "{:.3f}", "Brier": "{:.3f}", "기준비율": "{:.0%}", "기다림선택비율": "{:.0%}", "결정절감bp": "{:+.1f}",
+                                        "항상즉시매수bp": "{:+.1f}", "n": "{:.0f}"}))
+            st.caption("목표 = '향후 20영업일 평균가 < 오늘 가격'(기다리면 균등 매수로 더 싸게 살 수 있었나). 결정 = P(기다리면 쌈) > 0.5면 20일 균등 매수, 아니면 "
+                       "다음 날 즉시 매수 — 절감 bp = 항상 균등 매수 대비 (+면 이득). AUC 0.5 = 동전 던지기.")
+            with st.expander("품목별"):
+                st.dataframe(d[d.품목 != "(전체)"].pivot(index="품목", columns="모델", values="AUC").style.format("{:.3f}"))
+        with t6:
+            d = g("validation").set_index("대상")
+            st.dataframe(d.style.format({c: "{:.3f}" for c in d.columns if d[c].dtype.kind == "f"}, na_rep="–"))
+            st.caption("DSR(Deflated Sharpe) = 시도 횟수·표본 길이·왜도·첨도를 감안해 '최고 전략의 Sharpe가 운으로 기대되는 최댓값 SR₀보다 클 확률' — 0.95 이상이어야 신뢰. "
+                       "PBO = IS 최고 전략이 OOS에서 중앙값 아래로 떨어질 확률 (CSCV, 16블록) — 0.5 근처면 선택이 무의미. "
+                       "CV 비교 행의 PSR 열 = AUC: 무작위 K-fold는 겹치는 목표(20일) 때문에 학습·검증이 섞여 AUC가 부풀려짐 → Purged K-fold + embargo가 실제 walk-forward에 가까움.")
+        with t7:
+            d = g("meta")
+            st.dataframe(d.set_index(["품목", "방식"])[["평균절감bp", "전반_2010_17", "후반_2018_", "균등보다싸게", "하위5bp", "기간수", "메타_AUC"]]
+                         .style.format({"평균절감bp": "{:+.1f}", "전반_2010_17": "{:+.1f}", "후반_2018_": "{:+.1f}", "균등보다싸게": "{:.0%}", "하위5bp": "{:+.0f}",
+                                        "기간수": "{:.0f}", "메타_AUC": "{:.3f}"}, na_rep="–"))
+            st.caption("메타 라벨링 (López de Prado 2018): 1차 신호 = ★ 구매 타이밍 '추천' 점수(상대가치 중심). 2차 LightGBM이 '이번 주 1차 신호 방향(더/덜 사라)이 "
+                       "13주 균등 매수보다 나을 확률' p를 예측(매년 재학습, 13주 purge) → 점수' = 0.5 + (점수 − 0.5)·2p. 같은 13주 구매 백테스트(균등 매수 대비 절감 bp).")
     elif sec == "리스크 모형":
         st.markdown("##### 리스크 — 변동성 모형 경주 · VaR 백테스트 · 구매 타이밍 4주 범위 적중률 (12품목, 2010~ 평가)")
         df = _exp_header("risk")

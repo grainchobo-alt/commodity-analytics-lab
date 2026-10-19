@@ -17,3 +17,7 @@ numba==0.68.0
 hmmlearn==0.3.3
 linearmodels>=6.0
 lightgbm==4.7.0
+# 시계열 파운데이션 모델 (⑥ '최신 시계열 모델', 가중치 약 1.7GB는 첫 실행 시 Hugging Face에서 내려받음)
+chronos-forecasting==2.3.2
+timesfm[torch]==3.0.2
+tirex-ts==1.4.2

@@ -229,13 +229,13 @@ def pace(score_now: float, risk: float, remaining: float, weeks_left: int, k: fl
 # ============================================================================
 def backtest(p_act: pd.Series, p_adj: pd.Series, weeks: int = 13, step: int = 4, start="2008-01-01", k: float = 1.0,
              m_max: float = 3.0, w: dict | None = None, lookback: int = 252, inp: dict | None = None, season: str = "all",
-             carry_bp_week: float = 0.0) -> pd.DataFrame:
+             carry_bp_week: float = 0.0, score_override: pd.Series | None = None) -> pd.DataFrame:
     """구매 기간(weeks주)을 step주 간격으로 반복 시작. 매주 금요일(결정일) 점수 → 다음 거래일 실제 종가에 매수.
     carry_bp_week: 기간 말(재판매·인도 시점)까지 보유하는 주당 비용(금융+보관, bp) — 일찍 살수록 비용 ↑, 모든 방식에 동일 적용.
     반환: 기간별 실효 평균 매입가 — 규칙 / 균등(TWAP) / 기간 초 일괄 / 가격 위치만 / 사후 최저(이론 상한) + 시작 시점 위험 지표."""
     inp = inp or {}
     sig = signals(p_adj, lookback, inp.get("rel"), inp.get("rel_sign", 1), inp.get("vol_fc"), inp.get("crisis"), season)
-    sc = score(sig, w)
+    sc = score(sig, w) if score_override is None else score_override.reindex(sig.index)   # score_override: 메타 라벨링 등 외부 조정 점수
     sc_v = score(sig, {"value": 1.0})
     pa = p_act.dropna(); pa = pa[pa > 0]
     days = pa.index.intersection(sig.index)

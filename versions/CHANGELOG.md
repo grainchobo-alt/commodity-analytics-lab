@@ -3,6 +3,14 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.5.0 — 2026-10-19 — 최신 시계열 모델 실험 · 과적합 판정 · 메타 라벨링 · 혼합 메타 전략
+- `forecast_lab.py`: Chronos-Bolt-small·Chronos-2(Amazon)·TimesFM 2.5(Google)·TiRex(NX-AI) zero-shot vs 과거 평균·모멘텀·단기 반전·LightGBM 글로벌(Purged K-fold)
+  목표 5종: 방향(5일) · 변동성(20일 실현분산) · 상대가치 스프레드(20일 변화) · 품목 순위(횡단면 IC) · 구매 '기다릴까'(20일 평균가 < 오늘)
+- `validation.py`: Purged K-fold+embargo, Deflated Sharpe Ratio, PBO(CSCV); CV 누수 시연 (무작위 K-fold AUC 0.69 vs purged 0.50 vs 실제 0.52)
+- 메타 라벨링: '추천' 점수 위 2차 LightGBM → 9품목 평균 +1.5bp (전·후반 모두 +, 메타 AUC≈0.5로 효과 작음)
+- ④ 메타 전략에 (f) Hedge 가중 · (g) 레짐 게이트 전문가 혼합(변동성×상관 9칸, 수축) · (h) 기권 추가
+- `procurement.backtest(score_override=…)`, ⑥ 새 섹션 '최신 시계열 모델 · 예측 목표', 테스트 `test_forecast_lab.py`·`test_metasel.py` 보강
+
 ## v1.4.0 — 2026-10-19 — 변동성 중복 정리 (탭 역할 분리)
 - 역할 분리: ① 무엇이 같이 움직이나 · ② 지금 어떤 국면인가 · ③ σ·Σ를 어떻게 추정하나 · ◆ 손실이 얼마나 될 수 있나
 - ◆ 리스크의 '변동성 모형 검증'(QLIKE·DM·MCS·부호 편향·Ljung-Box·공통 λ LR·마할라노비스) → ③ 새 하위 탭 '변동성 예측 검증'

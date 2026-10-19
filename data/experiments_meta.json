@@ -82,8 +82,8 @@
   }
  },
  "metasel": {
-  "run_at": "2026-10-19 09:51",
-  "seconds": 364,
+  "run_at": "2026-10-19 11:45",
+  "seconds": 460,
   "settings": {
    "후보": "OLS·Ridge·Lasso·GB·LightGBM·Kalman",
    "비용": "5bp",
@@ -92,6 +92,17 @@
    "선택창": "6개월",
    "반감기": "6개월",
    "위약B": 1000
+  }
+ },
+ "forecast_lab": {
+  "run_at": "2026-10-19 12:11",
+  "seconds": 93,
+  "settings": {
+   "평가시작": "2012-01-01",
+   "결정일": "매주 금요일 (TiRex 4주마다)",
+   "컨텍스트": "512영업일",
+   "예측기간": "20영업일",
+   "모델": "Chronos-Bolt-small, Chronos-2, TimesFM-2.5, TiRex"
   }
  }
 }

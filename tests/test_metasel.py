@@ -19,7 +19,7 @@ rng = np.random.default_rng(0)
 idx = pd.bdate_range("2004-01-01", periods=1500)
 y = pd.Series(rng.normal(0, 1, len(idx)), idx)
 P = pd.DataFrame(rng.normal(0, 0.3, (len(idx), 4)), idx, columns=list("abcd"))
-G = pd.DataFrame({"vol": rng.integers(0, 3, len(idx)).astype(float)}, idx)
+G = pd.DataFrame({"vol": rng.integers(0, 3, len(idx)).astype(float), "corr": rng.integers(0, 3, len(idx)).astype(float)}, idx)
 C = idx[1000]
 for h in (1, 5):
     M1, K1 = MS.meta_predictions(P, y, h, 252, 3, 3, G)
@@ -38,6 +38,25 @@ for h in (1, 5):
     sel = [c for c in M1.columns if not c.startswith("(e)")]
     assert np.allclose(M1.loc[edge, sel], M3.loc[edge, sel]), f"h={h}: 실현 전 손실(y_C)을 사용"
 ok("합성: 메타 예측·선택은 실현이 끝난 손실(s ≤ t−h)만 사용 (h=1, 5)")
+
+# 혼합 전략 검정력: 레짐 0에서는 모델 a, 레짐 2에서는 모델 b만 부호를 맞히는 자료 → (g) 레짐 게이트가 Hedge·동일가중보다 낫고,
+# 아무도 못 맞히는 레짐 1에서는 (h)가 기권
+n = 3000; ix = pd.bdate_range("2005-01-03", periods=n)
+reg = np.repeat(rng.integers(0, 3, n // 20), 20)[:n].astype(float)
+yy = pd.Series(rng.normal(0, 1, n), ix)
+sig = np.sign(yy.values)
+pa = np.where(reg == 0, sig * 0.3, rng.normal(0, 0.3, n)); pb = np.where(reg == 2, sig * 0.3, rng.normal(0, 0.3, n))
+PP = pd.DataFrame({"a": pa, "b": pb, "c": rng.normal(0, 0.3, n)}, ix)
+GG = pd.DataFrame({"vol": reg, "corr": np.zeros(n)}, ix)
+MM, KK = MS.meta_predictions(PP, yy, 1, 252, 3, 3, GG)
+ev_ = ix >= ix[1000]
+srr = lambda c: float((np.sign(MM[c][ev_]) * yy[ev_]).mean() / (np.sign(MM[c][ev_]) * yy[ev_]).std())
+moe, hed, eqs = srr("(g) 레짐 게이트 전문가 혼합"), srr("(f) Hedge 가중 (최근 성과)"), srr("(d) 동일가중 앙상블")
+assert moe > hed and moe > eqs, (moe, hed, eqs)
+abst = KK["(h) 전문가 혼합 + 기권"][ev_]
+assert (abst[reg[ev_] == 1] == "기권 (포지션 0)").mean() > 0.6 and (abst[reg[ev_] != 1] == "기권 (포지션 0)").mean() < 0.2
+assert (KK["(g) 레짐 게이트 전문가 혼합"][ev_][reg[ev_] == 0] == "a").mean() > 0.8
+ok(f"혼합 전략: 레짐별 전문가 자료에서 (g) 일간 SR {moe:.2f} > Hedge {hed:.2f}·동일가중 {eqs:.2f}, (h)는 무정보 레짐에서 기권")
 
 # ---- 3) SPA 크기·검정력 ----------------------------------------------------------------------
 pn = [MS.spa_test(rng.normal(0, 1, (2000, 8)), B=300, seed=s)["SPA_p"] for s in range(10)]

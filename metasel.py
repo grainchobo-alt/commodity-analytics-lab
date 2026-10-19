@@ -9,6 +9,11 @@
               63일 평균 쌍별 상관(analytics.avg_pairwise_corr)의 확장창 3분위. 해당 레짐 표본이 min_obs 미만이면 전체 과거 최선.
    (d) 동일가중 앙상블                 후보 예측의 단순평균
    (e) 과거 평균 (무정보 기준)          y의 확장창 평균 (t−h까지)
+   (f) Hedge 가중                      전문가(모델)별 '실현된 부호전략 성과'(σ로 표준화)의 지수가중 t값 → 소프트맥스 가중
+                                       w_m ∝ exp(η·t_m) (Freund-Schapire 1997 Hedge의 할인판: 최근 잘 맞힌 모델에 비중, 망각으로 국면 전환 추종)
+   (g) 레짐 게이트 전문가 혼합          현재 레짐 칸(실현변동성 3분위 × 평균 상관 3분위 = 9칸)에서의 과거 성과 t값으로 (f)와 같은 소프트맥스 가중.
+                                       칸 표본 n_k가 적으면 전체 기간 가중으로 수축: λ = n_k/(n_k+κ) (Jacobs et al. 1991 mixture of experts의 단순판)
+   (h) 전문가 혼합 + 기권               (g)에서 최고 전문가의 수축 t값 < 임계(기본 Φ⁻¹(1−0.2/M), 모델 6개면 1.73)면 포지션 0 (지금 국면에선 어떤 모델도 믿을 근거가 없음)
 3단계 (평가) : OOS R²(기준 = 과거 평균), 부호전략 Sharpe(비용 전후), Buy&Hold, 롱 비중, 하위기간(2008~16 / 2017~).
    데이터 스누핑 보정 — (i) 부호 위약: 각 전략의 롱 비중·전환 빈도를 그대로 맞춘 2상태 마르코프 무작위 포지션의 Sharpe 분포(95% 분위),
    '후보 중 최댓값' 위약: 매 위약 시행에서 전 전략 위약 Sharpe의 최댓값 분포, (ii) White(2000) Reality Check · Hansen(2005) SPA
@@ -21,7 +26,8 @@ import pandas as pd
 CANDIDATES = ["OLS", "Ridge", "Lasso", "Gradient Boosting", "LightGBM", "Kalman TVP"]
 REGIME_NAMES = {"hmm": "HMM 3상태 (필터)", "vol": "실현변동성 3분위", "corr": "평균 쌍별 상관 3분위"}
 META_NAMES = {"recent": "(a) 직전 {n}개월 최소손실", "ewc": "(b) 지수가중 역MSE 결합", "hmm": "(c) 레짐: HMM 3상태",
-              "vol": "(c) 레짐: 실현변동성", "corr": "(c) 레짐: 평균 상관", "eq": "(d) 동일가중 앙상블", "mean": "(e) 과거 평균 (기준)"}
+              "vol": "(c) 레짐: 실현변동성", "corr": "(c) 레짐: 평균 상관", "eq": "(d) 동일가중 앙상블", "mean": "(e) 과거 평균 (기준)",
+              "hedge": "(f) Hedge 가중 (최근 성과)", "moe": "(g) 레짐 게이트 전문가 혼합", "moe_abs": "(h) 전문가 혼합 + 기권"}
 SUBPERIODS = [("2008~16", "2008-01-01", "2016-12-31"), ("2017~", "2017-01-01", "2100-01-01")]
 
 
@@ -77,6 +83,73 @@ def regimes(target_px: pd.Series, R: pd.DataFrame | None, index: pd.DatetimeInde
 # ============================================================================
 # 2단계: 메타 선택 (모두 shift(h) 된 손실만 사용)
 # ============================================================================
+def _softmax(T: np.ndarray, eta: float) -> np.ndarray:
+    T = np.nan_to_num(T, nan=0.0) * eta
+    T = T - T.max(-1, keepdims=True)
+    e = np.exp(T)
+    return e / e.sum(-1, keepdims=True)
+
+
+def mixture_predictions(P: pd.DataFrame, y: pd.Series, h: int = 1, ann: int = 252, halflife_months: int = 6, G: pd.DataFrame | None = None,
+                        min_obs: int = 60, eta: float = 1.0, kappa: float = 60.0, abstain_t: float | None = None) -> tuple[dict, dict]:
+    """(f) Hedge · (g) 레짐 게이트 전문가 혼합 · (h) 기권. 성과 g_m,s = sign(p_m,s)·y_s / σ̂_y (s ≤ t−h 만 사용).
+    결합 예측 = Σ w_m · z_m,t (z = 각 모델 예측을 자기 확장창 표준편차로 나눈 값) × 후보 예측 평균 규모 → 부호만 전략에 쓰임."""
+    ppm = ann / 12
+    from scipy.stats import norm
+    if abstain_t is None:                       # 모델 M개 중 최댓값이므로 다중 비교 보정: 1 − 0.2/M 분위 (M=6이면 ≈1.73)
+        abstain_t = float(norm.ppf(1 - 0.2 / max(P.shape[1], 1)))
+    sd_y = y.expanding(min_periods=min_obs).std().shift(h)
+    Gn = (np.sign(P).mul(y, axis=0)).div(sd_y, axis=0).shift(h)              # t에 알려진 실현 성과
+    Z = P / P.expanding(min_periods=min_obs).std()
+    scale = P.abs().expanding(min_periods=min_obs).mean().mean(1)
+    names = np.array(P.columns); eq = P.mean(1)
+    out, pick = {}, {}
+    hl = max(1.0, halflife_months * ppm)
+    mu = Gn.ewm(halflife=hl, min_periods=min_obs).mean(); sdg = Gn.ewm(halflife=hl, min_periods=min_obs).std()
+    neff = np.minimum(Gn.notna().cumsum().values, hl / np.log(2) * 2)          # 지수가중 유효 표본 (≈ 2·반감기/ln2)
+    T_h = (mu / sdg.clip(lower=1e-9)).values * np.sqrt(np.maximum(neff, 1))
+    ok = np.isfinite(T_h).all(1) & Z.notna().all(1).values
+    W = _softmax(T_h, eta)
+    comb = (np.nan_to_num(Z.values) * W).sum(1) * scale.values
+    out["hedge"] = pd.Series(np.where(ok, comb, eq.values), index=P.index)
+    pick["hedge"] = pd.Series(np.where(ok, names[W.argmax(1)], "앙상블(초기)"), index=P.index)
+    if G is not None and {"vol", "corr"} <= set(G.columns):
+        lab = (G["vol"] * 3 + G["corr"]).reindex(P.index)
+        lab_l = lab.shift(h).values; labv = lab.values
+        Gv = Gn.values; Zv = Z.values; M = P.shape[1]
+        s1 = np.zeros((9, M)); s2 = np.zeros((9, M)); nk = np.zeros(9)
+        a1 = np.zeros(M); a2 = np.zeros(M); na = 0
+        pm = eq.values.copy(); pa = eq.values.copy()
+        pkm = np.array(["앙상블(초기)"] * len(P), dtype=object); pka = pkm.copy()
+        for t in range(len(P)):
+            g = Gv[t]
+            if np.isfinite(g).all():
+                a1 += g; a2 += g * g; na += 1
+                if np.isfinite(lab_l[t]):
+                    k = int(lab_l[t]); s1[k] += g; s2[k] += g * g; nk[k] += 1
+            if na < min_obs or not np.isfinite(Zv[t]).all():
+                continue
+            ma = a1 / na; sa = np.sqrt(np.maximum(a2 / na - ma ** 2, 1e-12))
+            k = labv[t]
+            if np.isfinite(k) and nk[int(k)] >= 5:
+                k = int(k); mk = s1[k] / nk[k]; n_ = nk[k]
+                lam = n_ / (n_ + kappa)
+            else:
+                mk, n_, lam = ma, 0.0, 0.0
+            m_shr = lam * mk + (1 - lam) * ma                                     # 칸 평균 성과를 전체 평균으로 수축 (표본 적으면 전체)
+            tt = m_shr / sa * np.sqrt(max(n_, 1.0))                                # 증거의 양 = 그 칸의 표본 수 → 처음 보는 국면은 기권 쪽
+            w = _softmax(tt[None, :], eta)[0]
+            v = float(Zv[t] @ w) * scale.values[t]
+            pm[t] = v; pkm[t] = names[w.argmax()]
+            if tt.max() < abstain_t:
+                pa[t] = 0.0; pka[t] = "기권 (포지션 0)"
+            else:
+                pa[t] = v; pka[t] = names[w.argmax()]
+        out["moe"] = pd.Series(pm, index=P.index); pick["moe"] = pd.Series(pkm, index=P.index)
+        out["moe_abs"] = pd.Series(pa, index=P.index); pick["moe_abs"] = pd.Series(pka, index=P.index)
+    return out, pick
+
+
 def meta_predictions(P: pd.DataFrame, y: pd.Series, h: int = 1, ann: int = 252, n_months: int = 6, halflife_months: int = 6,
                      G: pd.DataFrame | None = None, min_obs: int = 60) -> tuple[pd.DataFrame, pd.DataFrame]:
     """반환 (메타 예측 DataFrame, 선택된 모델 이름 DataFrame). 선택 정보가 부족한 초기에는 동일가중 앙상블로 대체."""
@@ -124,6 +197,8 @@ def meta_predictions(P: pd.DataFrame, y: pd.Series, h: int = 1, ann: int = 252, 
             out[g] = pd.Series(pred, index=P.index); pick[g] = pd.Series(pk, index=P.index)
     out["eq"] = eq
     out["mean"] = y.expanding().mean().shift(h)
+    mo, mp = mixture_predictions(P, y, h, ann, halflife_months, G, min_obs)
+    out.update(mo); pick.update(mp)
     labels = {k: META_NAMES[k].format(n=n_months) for k in out}
     return pd.DataFrame(out).rename(columns=labels), pd.DataFrame(pick).rename(columns=labels)
 
