@@ -789,7 +789,10 @@ def tab_ml():
                      help="이분산 제거·위험 균등화. 잔차 ARCH 효과는 사라지지만 예측력이 오르는 것은 아님 (⑥ 방법론 참고).")
     wf = f3.checkbox("Walk-forward 검증", False, key="wf", help="확장창으로 주기적으로 재학습하며 평가 — 단일 분할보다 신뢰도 높음.")
     wf_step = f4.number_input("재추정 주기", 5, 500, {"B": 126, "W-FRI": 26, "ME": 6}[FQ], key="wf_step", disabled=not wf)
-    g1_, g2_ = st.columns([1, 3])
+    g1_, g3_, g2_ = st.columns([1, 1, 2])
+    band_c = g3_.number_input("무거래 구간 c", 0.0, 3.0, 0.0, 0.25, key="band",
+                              help="|예측| < c × (그 시점까지 예측값 표준편차)이면 거래하지 않고 직전 포지션 유지 — 예측이 0 근처에서 흔들릴 때의 "
+                                   "잦은 반전(회전율·비용)을 줄임. 0 = 매 기간 부호대로.")
     cost_bp = g1_.number_input("거래비용 (편도, bp)", 0.0, 100.0, 5.0, 0.5, key="cost",
                                help="포지션 1단위 변경당 비용. CBOT 옥수수 1틱(0.25¢ ≈ 5bp) + 수수료 기준 약 5bp. 롱→숏 반전은 2단위.")
     xlag = 1 if g2_.checkbox("비동기 마감 보정: 타 시장 변수를 1기간 추가 지연 (일간 권장)", FQ == "B", key="xlag",
@@ -808,7 +811,8 @@ def tab_ml():
             max_depth=h4.number_input("트리 깊이", 2, 12, 4),
             seq=h1.number_input("LSTM 시퀀스 길이", 5, 120, 20), hidden=h2.number_input("LSTM 은닉 크기", 8, 128, 32, 8),
             epochs=h3.number_input("LSTM 최대 에폭", 5, 200, 40, 5),
-            hmm_states=h4.number_input("HMM 레짐 수", 2, 4, 2),
+            hmm_states=h4.selectbox("HMM 레짐 수", [0, 2, 3, 4, 5], 0, format_func=lambda k: "자동 (BIC, 2~5)" if k == 0 else str(k), key="hmm_k",
+                                    help="예측 모드는 레짐별 회귀(국면마다 X→y 베타가 다름). 자동 = 학습구간 BIC 최소 상태 수"),
             hmm_cov=h4.selectbox("HMM 공분산", ["full", "diag"], help="full: 레짐별 베타(조건부 회귀) 추정 가능 / diag: 모수 적음"),
             k_max=h1.number_input("PCR·PLS 최대 요인 수 (CV 선택)", 1, 30, 10),
             csr_kmax=h2.number_input("Complete Subset 최대 k (CV 선택)", 1, 15, 8),
@@ -853,6 +857,7 @@ def tab_ml():
         vsw = {"B": 21, "W-FRI": 13, "ME": 6}[FQ] if vs else None
         D = A.build_design(R3, tgt, feats, md, int(lags), int(hor), own, trf, extra=F, vol_scale=vsw, xlag=xlag)
         D.cost = cost_bp / 100.0     # bp -> % (수익률이 % 단위)
+        D.band = float(band_c)
         out, prog = {}, st.progress(0.0, "모델 추정 중")
         for j, mname in enumerate(models):
             prog.progress(j / len(models), f"{mname} 추정 중...")
@@ -935,7 +940,8 @@ def tab_ml():
                              "롱 비중", "연간 회전율", "재추정 횟수"]].style.format("{:.4f}", na_rep="–"))
             f = go.Figure()
             for j, (k, (p_, y_, m_)) in enumerate(wfres.items()):
-                s_ = (np.sign(p_) * y_).iloc[::D.horizon].cumsum()
+                s_ = pd.Series(A.band_positions(p_.iloc[::D.horizon].values, getattr(D, "band", 0.0)) * y_.iloc[::D.horizon].values,
+                               index=y_.index[::D.horizon]).cumsum()
                 f.add_trace(go.Scatter(x=s_.index, y=s_.values, name=k, line=dict(color=PAL[j % 8], width=1.6)))
             y0 = next(iter(wfres.values()))[1]
             bh = y0.iloc[::D.horizon].cumsum()

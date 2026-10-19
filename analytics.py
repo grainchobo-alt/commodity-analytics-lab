@@ -405,6 +405,7 @@ class Design:
     mode: str = "explain"
     cost: float = 0.0        # 편도 거래비용 (% 단위, 5bp = 0.05)
     target: str = ""         # 종속변수 id (Minnesota 사전분포 등에서 자기시차 식별)
+    band: float = 0.0        # 무거래 구간 c: |예측| < c·σ̂(과거 예측)이면 직전 포지션 유지
 
 
 def build_design(R: pd.DataFrame, target: str, features: list[str], mode: str = "explain",
@@ -448,7 +449,23 @@ def build_design(R: pd.DataFrame, target: str, features: list[str], mode: str = 
                   tr.index, te.index, list(D.columns[:-1]), mu, sd, y_mu, D, horizon if mode == "predict" else 1, mode, 0.0, target)
 
 
-def strategy_stats(p_raw, y_raw, ann: int, h: int = 1, cost: float = 0.0) -> dict:
+def band_positions(p, band: float = 0.0, min_obs: int = 20) -> np.ndarray:
+    """부호 포지션 + 무거래 구간(히스테리시스): |p_t| ≥ c·σ̂_t 이면 sign(p_t), 아니면 직전 포지션 유지 (처음엔 0 = 무포지션).
+    σ̂_t = 그 시점까지 나온 예측값들의 표준편차 (확장창, 미래 예측 미사용). c = 0이면 순수 부호 전략."""
+    p = np.asarray(p, float)
+    if band <= 0:
+        return np.sign(p)
+    sd = pd.Series(p).expanding(min_periods=min_obs).std().values
+    pos = np.zeros(len(p)); cur = 0.0
+    for t in range(len(p)):
+        thr = band * sd[t] if np.isfinite(sd[t]) else np.inf
+        if np.isfinite(p[t]) and abs(p[t]) >= thr:
+            cur = float(np.sign(p[t]))
+        pos[t] = cur
+    return pos
+
+
+def strategy_stats(p_raw, y_raw, ann: int, h: int = 1, cost: float = 0.0, band: float = 0.0) -> dict:
     """부호(롱/숏) 타이밍 전략 성과 — 단일 자산, 매 기간 ±1 단위(명목 100%) 포지션.
 
     포지션_t = sign(예측 수익률_t+h)  (+1 매수 / −1 매도 / 0 무포지션)
@@ -458,7 +475,7 @@ def strategy_stats(p_raw, y_raw, ann: int, h: int = 1, cost: float = 0.0) -> dic
     Sharpe   = 평균/표준편차 × √(연간 리밸런싱 횟수 = 연간기간수/h)
     포트폴리오 최적화·자본 배분·레버리지 조정 없음 (자산 간 비중 결정이 아닌 단일 자산 방향 타이밍)."""
     yn = np.asarray(y_raw, float)[::h]; pn = np.asarray(p_raw, float)[::h]
-    pos = np.sign(pn)
+    pos = band_positions(pn, band)
     gross = pos * yn
     turn = np.abs(np.diff(np.r_[0.0, pos]))
     net = gross - turn * cost
@@ -510,7 +527,7 @@ def _metrics(y_tr, p_tr, y_te, p_te, ann, h=1, D=None):
     tradable = D is None or getattr(D, "mode", "predict") == "predict"
     ym = D.y_mu if D is not None else 0.0
     cost = getattr(D, "cost", 0.0) if D is not None else 0.0
-    st = strategy_stats(np.asarray(p_te) + ym, np.asarray(y_te) + ym, ann, h, cost)
+    st = strategy_stats(np.asarray(p_te) + ym, np.asarray(y_te) + ym, ann, h, cost, getattr(D, "band", 0.0) if D is not None else 0.0)
     if not tradable:
         st = {k: np.nan for k in st}
     out.update(st)
@@ -542,6 +559,17 @@ def walk_forward(D: Design, model: str, ann: int, step: int, start_frac: float =
     n = len(raw); k0 = int(n * start_frac)
     preds = np.full(n, np.nan)
     ks = [k for k in range(k0, n, step) if k - (h - 1) >= 60]
+    if model == "Hidden Markov (HMM)" and not hp.get("hmm_states") and ks:
+        # BIC 자동 선택은 첫 학습창에서 한 번만 (매 재추정마다 2~5상태를 모두 적합하면 수십 배 느림) — 첫 창 이전 정보만 사용
+        k1 = ks[0] - (h - 1)
+        Xa, ya = Xall[:k1], yall[:k1]
+        mu_, sd_ = Xa.mean(0), Xa.std(0); sd_[sd_ == 0] = 1
+        D0 = Design((Xa - mu_) / sd_, ya - ya.mean(), (Xa[-1:] - mu_) / sd_, ya[-1:] - ya.mean(), idx[:k1], idx[k1 - 1:k1],
+                    D.names, mu_, sd_, ya.mean(), None, h, D.mode, D.cost, D.target)
+        try:
+            hp = dict(hp, hmm_states=int(run_model(model, D0, ann, **dict(hp, _fast=True))["extra"]["n_states"]))
+        except Exception:
+            hp = dict(hp, hmm_states=2)
     jobs = [(k, model, Xall, yall, idx, k - (h - 1), step, D.names, h, D.mode, D.cost, D.target, ann, hp) for k in ks]
     n_jobs = hp.pop("n_jobs", -1)
     outs = []
@@ -564,7 +592,7 @@ def walk_forward(D: Design, model: str, ann: int, step: int, start_frac: float =
     # 기준예측: 각 시점의 과거 평균(확장창) — Campbell-Thompson OOS R²
     bench = pd.Series(yall).expanding().mean().shift(h).values[m]
     met = {"OOS R² (vs 학습평균)": 1 - ((y_oos - p_oos) ** 2).sum() / ((y_oos - bench) ** 2).sum()}
-    met.update(strategy_stats(p_oos, y_oos, ann, h, getattr(D, "cost", 0.0)))
+    met.update(strategy_stats(p_oos, y_oos, ann, h, getattr(D, "cost", 0.0), getattr(D, "band", 0.0)))
     met["재추정 횟수"] = int(np.ceil((n - k0) / step))
     return pd.Series(preds[m], index=idx[m]), pd.Series(y_oos, index=idx[m]), met
 
@@ -748,7 +776,10 @@ def hmm_fit(D: Design, mode: str, n_states: int = 2, cov: str = "full", n_init: 
     설명(explain): 관측 o_t = [y_t, X_t] 로 HMM 적합 → 레짐별 조건부 회귀
         E[y_t | x_t] = Σ_s w_s,t · (μ_y,s + Σ_yx,s Σ_xx,s⁻¹ (x_t − μ_x,s)),
         w_s,t ∝ P(s_t=s | 과거 관측) · N(x_t; μ_x,s, Σ_xx,s)   (레짐별 베타가 다른 회귀)
-    예측(predict): 관측 o_t = 현재시점 변수들 → 필터 확률 α_t → ŷ_{t+h} = (α_t Pʰ) · m,  m_s = 레짐 s의 y 평균(학습구간)
+    예측(predict): 관측 o_t = 현재시점 변수들 → 필터 확률 α_t → 레짐별 회귀
+        ŷ_{t+1} = Σ_s (α_t P)_s · (b0_s + x_t'b_s),  b_s = 학습구간 평활확률 γ_s 가중 릿지 회귀 (레짐마다 X→y 베타가 다름)
+        (이전 버전은 레짐별 y 평균만 써서 레짐 평균의 부호가 같으면 예측 부호가 고정 → 회전율 ≈ 0 이었음)
+    n_states=0 → 상태 수 2~5 중 BIC 최소를 자동 선택 (학습구간 우도만 사용).
     학습구간에서만 EM 추정, 테스트 구간은 전방 필터(forward filter)만 사용 → 미래정보 누수 없음.
     """
     from hmmlearn.hmm import GaussianHMM
@@ -761,17 +792,34 @@ def hmm_fit(D: Design, mode: str, n_states: int = 2, cov: str = "full", n_init: 
         # 현재 시점 관측치만 사용 (시차 열 "(t-k)" 제외, 특성 열은 포함)
         cur = [i for i, n in enumerate(names) if "(t-" not in n] or list(range(len(names)))
         Otr, Ote = D.X_tr[:, cur], D.X_te[:, cur]
-    best, best_sc = None, -np.inf
-    for k in range(n_init):
-        m = GaussianHMM(n_components=n_states, covariance_type=cov, n_iter=300, tol=1e-4,
-                        random_state=seed + k, min_covar=1e-3)
-        try:
-            m.fit(Otr)
-            sc = m.score(Otr)
-        except Exception:
-            continue
-        if sc > best_sc:
-            best, best_sc = m, sc
+    def _fit(K):
+        best, best_sc = None, -np.inf
+        for k in range(n_init):
+            mm = GaussianHMM(n_components=K, covariance_type=cov, n_iter=300, tol=1e-4, random_state=seed + k, min_covar=1e-3)
+            try:
+                mm.fit(Otr)
+                sc = mm.score(Otr)
+            except Exception:
+                continue
+            if sc > best_sc:
+                best, best_sc = mm, sc
+        return best, best_sc
+    bic_tab = {}
+    if not n_states:                               # BIC 자동 선택 (학습구간)
+        d_ = Otr.shape[1]; n_ = len(Otr); cands = {}
+        for K in range(2, 6):
+            mm, sc = _fit(K)
+            if mm is None:
+                continue
+            npar = (K - 1) + K * (K - 1) + K * d_ + K * (d_ * (d_ + 1) / 2 if cov == "full" else d_)
+            bic_tab[K] = -2 * sc + npar * np.log(n_)
+            cands[K] = (mm, sc)
+        if not cands:
+            raise RuntimeError("HMM 추정 실패")
+        n_states = min(bic_tab, key=bic_tab.get)
+        best, best_sc = cands[n_states]
+    else:
+        best, best_sc = _fit(n_states)
     if best is None:
         raise RuntimeError("HMM 추정 실패")
     m = best
@@ -799,9 +847,12 @@ def hmm_fit(D: Design, mode: str, n_states: int = 2, cov: str = "full", n_init: 
         alpha[t] = a
         prior = a @ P
     if mode == "predict":
-        h = 1  # 설계행렬의 y가 이미 h기 앞 수익률이므로 한 단계 전이로 근사 (h>1이면 Pʰ)
-        Ph = np.linalg.matrix_power(P, max(1, h))
-        pred = (alpha @ Ph) @ m_y
+        # 레짐별 가중 릿지 회귀 (학습구간 평활확률 γ = 학습 자료만의 정보) → 다음 기 레짐 확률(α_t P)로 가중
+        Xall = np.vstack([D.X_tr, D.X_te]); Z1 = np.column_stack([np.ones(len(D.X_tr)), D.X_tr])
+        lam_r = 10.0 * np.eye(Z1.shape[1]); lam_r[0, 0] = 0.0
+        B = np.array([np.linalg.solve(Z1.T @ (Z1 * gam[:, s:s + 1]) + lam_r, Z1.T @ (gam[:, s] * D.y_tr)) for s in range(K)])   # (K, 1+p)
+        fit_s = np.column_stack([np.ones(T), Xall]) @ B.T                                                   # (T, K)
+        pred = ((alpha @ P) * fit_s).sum(1)
     order = np.argsort(s_y)        # 레짐을 y 변동성 오름차순으로 정렬
     idx = D.idx_tr.append(D.idx_te)
     labels = [f"레짐{i+1}" for i in range(K)]
@@ -811,7 +862,10 @@ def hmm_fit(D: Design, mode: str, n_states: int = 2, cov: str = "full", n_init: 
     regime = pd.DataFrame({"y 평균(%)": (m_y + D.y_mu)[order], "y 변동성(%)": s_y[order], "유지확률": stay,
                            "기대지속기간": 1 / (1 - stay), "정상분포 비중": st[order]}, index=labels)
     trans = pd.DataFrame(P[np.ix_(order, order)], index=labels, columns=labels)
-    extra = dict(probs=probs, regime=regime, transmat=trans, n_states=K, cov=cov, loglik=best_sc * len(Otr))
+    extra = dict(probs=probs, regime=regime, transmat=trans, n_states=K, cov=cov, loglik=best_sc * len(Otr),
+                 bic=pd.Series(bic_tab, name="BIC") if bic_tab else None)
+    if mode == "predict":
+        extra["state_betas"] = pd.DataFrame(B[order, 1:], index=labels, columns=names)
     if mode == "explain" and cov == "full":
         extra["state_betas"] = pd.DataFrame(betas[order] * ysd, index=labels, columns=names)
     n = len(D.y_tr)
