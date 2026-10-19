@@ -3,6 +3,16 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.2.1 — 2026-10-19 — 중복 기능 정리 · 단순화 (결과 수치 불변)
+- 변동성 예측 경주 일원화: ③ '변동성 예측 (MIDAS·HAR·GARCH-MIDAS)'의 월간 경주(`midas.vol_race`·`vol_metrics` 삭제)를 ◆ 리스크 '변동성 모형 검증'(`risk.vol_models`)으로 통합. ③ 하위 탭은 'GARCH-MIDAS (장기·단기 변동성 분해)'만 남기고 안내 문구
+- HMM 전방 필터 공용화: `procurement.hmm_crisis_prob`(2상태)가 `risk.hmm_filter`(구 `_hmm_filter`)를 사용 — 구매 타이밍 백테스트 차이 < 1e-8bp (HMM 적합 자체의 실행 간 잡음 수준)
+- EWMA(RiskMetrics λ=0.94) 공용 함수 `risk.ewma_var`·`risk.ewma_std` → `midas.daily_vol_forecasts`(포트폴리오 변동성 모형 EWMA 포함)·`procurement.signals`가 사용, 수익률 계산은 `risk.returns` 공용. 수치 완전 동일
+- ④ 단일 품목: 기본 모델 = 모형군별 대표 7개(`A.CORE_MODELS`: OLS·Ridge·Lasso·PLS·Kalman TVP·HMM·LightGBM), 나머지 20개는 '고급: 추가 모델' 확장 영역(`key="models_adv"`)
+- ④ 성과 표에 다중 비교 기준선 2행: '위약 · 무작위 부호 95% 분위', '위약 · 모델 N개 중 최댓값 95% 분위' (`A.placebo_sharpe`, 롱 비중·전환 확률을 모델 평균에 맞춘 마르코프 무작위 부호) + 기준선을 넘은 모델 표시
+- ★ 구매 타이밍 프리셋: 기본 노출 '추천'·'균형'(`PR.BASIC_PRESETS`), 검증상 열위인 '보수적'·'공격적'은 '고급: 비교용 프리셋' 체크(`key="pc_adv"`) 시에만
+- ⑥ 실험 결과: '구매 신호 고도화 (단계별)'와 '구매 타이밍'을 '구매 타이밍 (프리셋 · 단계별)' 한 섹션으로 합치고 보기 전환(`key="ex_pc_view"`)
+- 테스트: `test_app` key 갱신(경주 단계 삭제, 고급 프리셋·고급 모델·위약 행 확인), `test_midas` 실데이터 경주 → GARCH-MIDAS만
+
 ## v1.2.0 — 2026-10-19 — ◆ 리스크 탭 (시변 감쇠 변동성 · 예측 검증 · VaR/ES · 꼬리 위험)
 - 새 모듈 `risk.py` + 앱 탭 '◆ 리스크 (VaR·꼬리)' (하위 5탭)
 - 시변 감쇠 λ: EWMA 롤링 λ(직전 3년), HMM 3상태 레짐 λ(필터 확률 가중), Kalman TVP-AR(1) 잔차 + EWMA — 모두 walk-forward, 반감기 경로·HMM 확률·φₜ 시각화

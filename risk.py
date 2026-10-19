@@ -35,6 +35,20 @@ def returns(p: pd.Series) -> pd.Series:
 # ============================================================================
 # EWMA · QMLE
 # ============================================================================
+RM_LAMBDA = 0.94                                # RiskMetrics 일간 감쇠 (J.P. Morgan 1996)
+
+
+def ewma_var(r: pd.Series, lam: float = RM_LAMBDA) -> pd.Series:
+    """RiskMetrics 지수가중 분산 σ²ₜ = λσ²ₜ₋₁ + (1−λ)r²ₜ (평균 0, 초기값 r₀²). 값 t = t 종가까지의 정보로 본 '다음 날' 분산.
+    midas.daily_vol_forecasts(EWMA 열 → 포트폴리오 변동성 모형)가 사용. walk-forward λ·시변 λ는 ewma_path."""
+    return (r ** 2).ewm(alpha=round(1 - lam, 10), adjust=False).mean()
+
+
+def ewma_std(r: pd.Series, lam: float = RM_LAMBDA) -> pd.Series:
+    """지수가중 표준편차 (평균 차감, pandas ewm.std) — 구매 타이밍의 변동성 분위·연 변동성 표시용."""
+    return r.ewm(alpha=round(1 - lam, 10), adjust=False).std()
+
+
 def _seed(e: np.ndarray) -> float:
     return float(np.var(e[:20])) if len(e) >= 20 else float(np.var(e) or 1.0)
 
@@ -89,8 +103,9 @@ def lambda_ci(LLsum: np.ndarray, lams: np.ndarray = LAM_GRID, level: float = 0.9
 # ============================================================================
 # HMM 3상태 λ
 # ============================================================================
-def _hmm_filter(x: np.ndarray, m) -> np.ndarray:
-    """전방 필터 P(s_t | x_1..t) (평활 확률은 미래를 쓰므로 사용 안 함). 상태는 분산 오름차순으로 정렬해 반환."""
+def hmm_filter(x: np.ndarray, m) -> np.ndarray:
+    """가우시안 HMM(hmmlearn, 1차원) 전방 필터 P(s_t | x_1..t) (평활 확률은 미래를 쓰므로 사용 안 함).
+    상태는 분산 오름차순으로 정렬해 반환 → 마지막 열 = 고변동(위기) 레짐. 구매 타이밍 HMM 위기 확률도 이 함수를 씀."""
     mu = m.means_.ravel(); sd = np.sqrt(np.array([np.ravel(c)[0] for c in m.covars_]))
     o = np.argsort(sd)
     lb = stats.norm.logpdf(x[:, None], mu[None, :], sd[None, :])
@@ -124,7 +139,7 @@ def hmm_lambda(e: np.ndarray, idx: pd.DatetimeIndex, n_states: int = 3, min_year
         gam = m.predict_proba(x[:, None])[:, o]                             # 학습 구간(과거)만의 평활 확률
         ls = np.array([lams[(LL[:, :tr.sum()] * gam[:, s][None, :]).sum(1).argmin()] for s in range(n_states)])
         seg = np.flatnonzero(y <= yr)
-        F = _hmm_filter(e[seg], m)
+        F = hmm_filter(e[seg], m)
         cur = seg[y[seg] == yr]
         prev = np.clip(cur - 1, 0, None)                                    # t−1 시점의 필터 확률
         lam_t[cur] = F[prev] @ ls

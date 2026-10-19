@@ -16,8 +16,11 @@ at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=600)
 at.run(); check(at, "초기 렌더")
 
 # ★ 구매 타이밍 · ⑥ 실험 결과
+assert at.selectbox(key="pc_preset").options == ["추천 (고도화: 상대가치+계절+MIDAS)", "균형 (국소 저점 = 위치+반등)"]
+at.checkbox(key="pc_adv").check().run(); check(at, "구매 타이밍: 고급 프리셋 표시")
 for pz in ["보수적 (위치+반등+계절)", "공격적 (가격 위치만, 2배)", "균형 (국소 저점 = 위치+반등)", "추천 (고도화: 상대가치+계절+MIDAS)"]:
     at.selectbox(key="pc_preset").set_value(pz).run(); check(at, f"구매 타이밍: 프리셋 {pz}")
+at.checkbox(key="pc_adv").uncheck().run(); check(at, "구매 타이밍: 기본 프리셋 2개로 복귀")
 at.number_input(key="pc_weeks").set_value(26).run(); check(at, "구매 타이밍: 26주 기간 백테스트")
 at.selectbox(key="pc_detail").set_value("yf:ZM=F").run(); check(at, "구매 타이밍: 대두박 상세")
 at.number_input(key="pc_rem").set_value(12000.0).run(); check(at, "구매 타이밍: 매수량 계산기")
@@ -36,8 +39,9 @@ at.radio(key="rk_dir").set_value("보유 재고 (가격 하락이 손실)").run(
 at.selectbox(key="rk_ph").set_value(60).run(); check(at, "리스크: 60일 물량 VaR")
 at.selectbox(key="rk_id").set_value("yf:TIO=F").run()
 at.button(key="rk_run").click().run(); check(at, "리스크: 철광석 재추정")
-for sec in ["구매 신호 고도화 (단계별)", "철강 원료·구리 상대가치", "리스크 모형", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍"]:
+for sec in ["철강 원료·구리 상대가치", "리스크 모형", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍 (프리셋 · 단계별)"]:
     at.radio(key="ex_sec").set_value(sec).run(); check(at, f"실험 결과: {sec}")
+at.radio(key="ex_pc_view").set_value("프리셋 · 신호 비교 (13·26주, 품목별)").run(); check(at, "실험 결과: 구매 타이밍 프리셋 비교")
 
 at.button(key="dybtn").click().run(); check(at, "DY 스필오버")
 at.button(key="tvpbtn").click().run(); check(at, "TVP-VAR 연결성")
@@ -61,7 +65,9 @@ at.selectbox(key="mg_bkind").set_value("Diagonal").run()
 at.button(key="mg_bbtn").click().run(); check(at, "BEKK Diagonal")
 
 # 설명 모드: 전 모델
-at.multiselect(key="models").set_value(A.MODEL_LIST).run()
+assert at.multiselect(key="models").value == A.CORE_MODELS and len(A.CORE_MODELS) <= 8
+at.multiselect(key="models").set_value(A.CORE_MODELS).run()
+at.multiselect(key="models_adv").set_value(A.ADV_MODELS).run()
 at.button(key="runml").click().run(); check(at, "전 모델 실행 (설명)")
 for m in A.MODEL_LIST + ["앙상블 (단순평균)"]:
     at.selectbox(key="mlsel").set_value(m).run(); check(at, f"  상세: {m}")
@@ -72,8 +78,10 @@ for m in ["LightGBM", "Gaussian Process", "Ridge"]:
     at.button(key="cf_run").click().run(); check(at, f"  Conformal 구간: {m}")
 # 예측 모드
 at.radio(key="mode").set_value("예측 (미래 수익률)").run()
-at.multiselect(key="models").set_value(["OLS", "Lasso", "MCP", "Kalman TVP", "Hidden Markov (HMM)", "Gradient Boosting"]).run()
+at.multiselect(key="models").set_value(["OLS", "Lasso", "Kalman TVP", "Hidden Markov (HMM)"]).run()
+at.multiselect(key="models_adv").set_value(["MCP", "Gradient Boosting"]).run()
 at.button(key="runml").click().run(); check(at, "예측 모드 실행")
+assert any(str(i).startswith("위약 · 모델 7개 중 최댓값") for d in at.dataframe for i in getattr(d.value, "index", [])), "위약 기준선 행 없음"
 at.selectbox(key="mlsel").set_value("Hidden Markov (HMM)").run(); check(at, "  상세: HMM (예측 모드)")
 at.number_input(key="hor").set_value(4).run()
 at.button(key="runml").click().run(); check(at, "예측 모드 h=4 (겹침 제거 지표)")
@@ -81,6 +89,7 @@ at.number_input(key="hor").set_value(1).run()
 at.multiselect(key="fk").set_value(["모멘텀", "실현변동성", "계절성", "COT 헤징압력"]).run()
 at.checkbox(key="wf").check().run()
 at.multiselect(key="models").set_value(["OLS", "Ridge", "Lasso", "Hidden Markov (HMM)"]).run()
+at.multiselect(key="models_adv").set_value([]).run()
 at.button(key="runml").click().run(); check(at, "추가 특성 + Walk-forward")
 at.selectbox(key="mlsel").set_value("Ridge").run(); check(at, "  상세: Ridge (특성 포함, 잔차 진단)")
 at.checkbox(key="vs").check().run()
@@ -121,10 +130,6 @@ at.selectbox(key="pf_reb").set_value("매주 (금요일)").run()
 at.radio(key="pf_sig").set_value("패널 모델 예측 (④ 탭 '여러 품목'에서 전송)").run()
 at.button(key="pf_run").click().run(); check(at, "포트폴리오: 패널 신호 + Newton 최적화")
 
-at.multiselect(key="md_vids").set_value(["yf:CL=F", "yf:ZC=F"]).run()
-at.checkbox(key="md_g").uncheck().run()
-at.button(key="md_vrun").click().run(); check(at, "MIDAS: 변동성 예측 경주")
-at.radio(key="md_sec").set_value("② GARCH-MIDAS (장기·단기 변동성 분해)").run()
 at.button(key="md_grun").click().run(); check(at, "MIDAS: GARCH-MIDAS (자기 실현분산)")
 at.selectbox(key="md_mac").set_value("fred:VIXCLS").run()
 at.button(key="md_grun").click().run(); check(at, "MIDAS: GARCH-MIDAS (VIX 요인)")

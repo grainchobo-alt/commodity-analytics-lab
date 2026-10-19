@@ -771,7 +771,11 @@ def tab_ml():
                           help="'얼마나 앞'을 맞힐지. h=4(주간)이면 다음 4주 누적수익률(t+1~t+4)이 목표 (앞을 보는 창). h>1은 관측치가 겹치므로 지표는 겹침을 제거해 계산.")
     own = b4.checkbox("Y 자기시차 포함", True, disabled=md == "explain", key="own")
     trf = b5.slider("학습 비중", 0.5, 0.9, 0.7, 0.05, key="trf")
-    models = st.multiselect("모델 선택", A.MODEL_LIST, default=["OLS", "Lasso", "Elastic Net", "Adaptive Lasso", "SCAD", "MCP", "Kalman TVP"], key="models")
+    models = st.multiselect(f"모델 선택 (모형군별 대표 {len(A.CORE_MODELS)}개)", A.CORE_MODELS, default=A.CORE_MODELS, key="models",
+                            help="기준 OLS · 축소 Ridge · 변수 선택 Lasso · 요인 PLS · 시변 계수 Kalman · 레짐 HMM · 부스팅 LightGBM")
+    with st.expander(f"고급: 추가 모델 {len(A.ADV_MODELS)}개 (벌점 회귀 변형 · 밀집 요인 · 베이즈 · 레짐 회귀 · 커널 · LSTM)"):
+        models = models + st.multiselect("추가 모델", A.ADV_MODELS, default=[], key="models_adv")
+        st.caption("모델을 많이 돌릴수록 '그중 최고'의 성과는 운만으로도 높아집니다 — 성과 표의 '위약 · 모델 N개 중 최댓값' 기준선과 비교하세요.")
     f1, f2, f3, f4 = st.columns([3, 1.3, 1.3, 1])
     avail = [k for k in A.FEATURE_KINDS if not (k == "COT 헤징압력" and tgt not in A.COT_MAP)
              and not (k == "베이시스(캐리)" and tgt not in A.BASIS_MAP)]
@@ -876,6 +880,12 @@ def tab_ml():
         elif wf:
             st.info("Walk-forward는 '예측' 모드에서만 의미가 있습니다.")
         st.session_state["ml"] = (D, out, tgt, md)
+        st.session_state["ml_pl"] = None
+        if md == "predict":
+            mt_ = pd.DataFrame({k: v["metrics"] for k, v in out.items() if k != "분위수 회귀"}).T
+            ls_, sw_ = mt_["롱 비중"].mean(), mt_["연간 회전율"].mean() * D.horizon / ANN / 2     # 회전율 2단위 = 전환 1회
+            st.session_state["ml_pl"] = A.placebo_sharpe(D.y_te + D.y_mu, ANN, D.horizon, D.cost, n_models=len(mt_),
+                                                         long_share=ls_ if np.isfinite(ls_) else 0.5, switch=sw_ if np.isfinite(sw_) else 0.5)
         st.session_state["ml_wf"] = wfres
         st.session_state["ml_vs"] = bool(vs)
 
@@ -888,10 +898,21 @@ def tab_ml():
         met = pd.DataFrame({k: v["metrics"] for k, v in out.items()}).T
         st.markdown("##### 성과 지표")
         best = met["OOS R² (vs 학습평균)"].idxmax() if met["OOS R² (vs 학습평균)"].notna().any() else None
-        st.dataframe(met.style.format("{:.4f}", na_rep="–").apply(
-            lambda s: ["font-weight:700" if s.name == best else "" for _ in s], axis=1))
+        pl = st.session_state.get("ml_pl") if md_ == "predict" else None
+        if pl:
+            n_ = pl["n_models"]
+            met.loc["위약 · 무작위 부호 95% 분위", ["부호전략 Sharpe", "부호전략 Sharpe (비용 후)"]] = [pl["single95_gross"], pl["single95_net"]]
+            met.loc[f"위약 · 모델 {n_}개 중 최댓값 95% 분위", ["부호전략 Sharpe", "부호전략 Sharpe (비용 후)"]] = [pl["max95_gross"], pl["max95_net"]]
+        st.dataframe(met.map(lambda v: "–" if pd.isna(v) else f"{v:.4f}").style.apply(
+            lambda s: ["font-weight:700" if s.name == best else ("color:#898781;font-style:italic" if s.name.startswith("위약") else "") for _ in s], axis=1))
         if best:
             st.caption(f"굵게 = 테스트 OOS R² 최고 모델: **{best}**")
+        if pl:
+            beat = met.drop(index=[i for i in met.index if i.startswith("위약")])["부호전략 Sharpe (비용 후)"] > pl["max95_net"]
+            st.caption(f"**다중 비교 기준선** — 위약 = 같은 테스트 구간에서 무작위 ±1 포지션 (롱 비중 {pl['long_share']:.0%}·전환 확률 {pl['switch']:.0%}를 모델 평균에 맞춤, {pl['B']:,}회). "
+                       f"모델 1개의 Sharpe(비용 후)가 '무작위 부호 95% 분위'({pl['single95_net']:+.2f})를 넘으면 단독으로는 운 이상이지만, "
+                       f"{pl['n_models']}개 중 최고를 골랐다면 '최댓값 95% 분위'({pl['max95_net']:+.2f})를 넘어야 운과 구별됩니다 → "
+                       + (f"넘은 모델: **{', '.join(beat[beat].index)}**" if beat.any() else "**넘은 모델 없음** (최고 성과도 운의 범위)"))
         if md_ == "predict":
             st.caption(f"**부호전략 정의** — 단일 자산 롱/숏 타이밍: 포지션 = sign(예측 수익률) ∈ {{+1, −1}} (명목 100%, 레버리지·비중최적화 없음), "
                        f"리밸런싱 = {freq_lbl} 매 기간{f'(h={D.horizon}이면 {D.horizon}기마다)' if D.horizon > 1 else ''}, "
@@ -1026,7 +1047,7 @@ def tab_portfolio():
     VMS = {"과거 창 공분산 (Ledoit-Wolf)": "lw", "EWMA (λ=0.94)": "EWMA", "HAR-RV": "HAR-RV", "MIDAS-RV (권장)": "MIDAS-RV"}
     vm_l = v1_.selectbox("품목 변동성 예측", list(VMS), 0, key="pf_vm",
                          help="상관구조는 과거 창(Ledoit-Wolf)에서, 품목별 변동성만 일간 walk-forward 예측으로 교체. "
-                              "MIDAS-RV는 일간 실현분산 252개 시차를 Beta 가중으로 요약 — ③ 변동성 탭의 예측 경주에서 가장 정확.")
+                              "MIDAS-RV는 일간 실현분산 252개 시차를 Beta 가중으로 요약 — ◆ 리스크 '변동성 모형 검증'의 예측 경주 참고.")
     vt = v2_.number_input("목표 변동성 (연, 0 = 사용 안 함)", 0.0, 0.5, 0.0, 0.01, format="%.2f", key="pf_vt",
                           help="예측 포트폴리오 변동성이 목표가 되도록 전체 노출을 배율 조정 (변동성 타기팅). 위기 때 자동 축소, 평온기 확대.")
     mlev = v3_.number_input("최대 배율", 0.5, 5.0, 2.0, 0.25, key="pf_mlev", disabled=vt == 0)
@@ -1292,51 +1313,17 @@ def tab_panel():
 # ============================================================================
 def tab_midas(vol_only: bool = True):
     import midas as M
-    st.subheader("MIDAS — 일간 데이터로 월간 목표 예측 · 변동성 예측 경주 · GARCH-MIDAS")
+    st.subheader("MIDAS — 일간 데이터로 월간 목표 예측 · GARCH-MIDAS (장기·단기 변동성 분해)")
     st.caption("MIDAS는 수백 개의 일간 시차를 Beta 가중치(모수 1~2개)로 요약해 월간 목표를 예측 — 월 평균으로 뭉개지 않고 최근 정보에 더 큰 비중. "
                "결정 시점 = 월말 종가, 모든 예측은 확장창 walk-forward (그 시점까지의 데이터로만 재추정).")
     ids_c = [i for i in COMMOD_IDS if GROUP.get(i) not in ("Freight",)]
     if vol_only:
-        sec = st.radio("분석", ["① 변동성 예측 경주", "② GARCH-MIDAS (장기·단기 변동성 분해)"], horizontal=True, key="md_sec")
+        st.info("변동성 예측 경주(RiskMetrics·품목별 λ·HMM·Kalman·GARCH·HAR-RV·MIDAS-RV, QLIKE·DM·MCS 검증)는 "
+                "**◆ 리스크 → '변동성 모형 검증'** 탭으로 일원화했습니다. 여기서는 GARCH-MIDAS 장기·단기 분해만 다룹니다.")
+        sec = "② GARCH-MIDAS"
     else:
         sec = "③ MIDAS 수익 예측"
-    if sec.startswith("①"):
-        c1_, c2_, c3_ = st.columns([2, 1, 1])
-        vids = c1_.multiselect("품목", ids_c, default=[i for i in ["yf:CL=F", "yf:ZC=F", "yf:ZS=F", "yf:HG=F", "yf:GC=F"] if i in NAME],
-                               format_func=lbl, key="md_vids")
-        h = c2_.number_input("예측 기간 (영업일)", 5, 63, 21, key="md_h")
-        K = c3_.number_input("MIDAS 일간 시차 K", 21, 504, 252, 21, key="md_K")
-        use_g = st.checkbox("GARCH(1,1) 포함 (품목당 수십 초)", True, key="md_g")
-        if st.button("▶ 변동성 예측 경주", type="primary", key="md_vrun") and vids:
-            out = {}
-            prog = st.progress(0.0)
-            for j, i in enumerate(vids):
-                prog.progress(j / len(vids), f"{short(i)} …")
-                rr = _panel((i,), "B", "logret", start, end, extra_bytes, ROLL)[i]
-                out[i] = M.vol_race(rr, int(h), int(K), 60, garch=use_g)
-            prog.empty()
-            st.session_state["md_v"] = out
-        if "md_v" in st.session_state:
-            out = st.session_state["md_v"]
-            summ = pd.DataFrame({short(i): o["metrics"]["QLIKE (낮을수록 좋음)"] for i, o in out.items()})
-            st.markdown("##### QLIKE (낮을수록 좋음, 품목 × 모델) — 변동성 예측 표준 손실함수 (Patton 2011)")
-            st.dataframe(summ.style.format("{:.3f}").highlight_min(axis=0, props="font-weight:700"))
-            best = summ.idxmin().value_counts()
-            st.caption("품목별 최고 모델 빈도: " + ", ".join(f"{k} {v}개" for k, v in best.items()) +
-                       " · DM t < −2 이면 HAR 대비 유의하게 우수.")
-            sel = st.selectbox("상세 품목", list(out), format_func=short, key="md_vsel")
-            o = out[sel]
-            st.dataframe(o["metrics"].style.format("{:.3f}", na_rep="–"))
-            T = o["table"]; ann_ = lambda v: np.sqrt(v * 252 / o["h"])
-            f = go.Figure([go.Scatter(x=T.index, y=ann_(T["RV"]), name="실현 (다음 기간)", line=dict(color="#898781", width=1.2))] +
-                          [go.Scatter(x=T.index, y=ann_(T[m]), name=m, line=dict(color=PAL[j % 8], width=1.4))
-                           for j, m in enumerate([c for c in M.VOL_MODELS if c in T])])
-            st.plotly_chart(shade(fig_layout(f, 360, title=f"{short(sel)} 변동성 예측 vs 실현 (연율 %)"), T.index), key="md_vchart")
-            wts = o["midas_weights"]
-            f = go.Figure(go.Bar(x=np.arange(1, len(wts) + 1), y=wts, marker_color=PAL[0]))
-            st.plotly_chart(fig_layout(f, 240, title=f"MIDAS 가중치 — 몇 영업일 전 수익률²까지 반영하나 (θ2 = {o['midas_theta']:.1f})",
-                                       xaxis_title="시차 (영업일 전)", hovermode="x"), key="md_w")
-    elif sec.startswith("②"):
+    if sec.startswith("②"):
         c1_, c2_, c3_ = st.columns(3)
         gid = c1_.selectbox("품목", ids_c, ids_c.index("yf:CL=F") if "yf:CL=F" in ids_c else 0, format_func=lbl, key="md_gid")
         mac_opts = ["(자기) 월 실현분산"] + [i for i in ALL_IDS if GROUP.get(i) in ("Macro", "FX")]
@@ -1475,7 +1462,7 @@ def tab_data():
 | **모형 평균** | **Complete Subset** · **BMA** · **Stacking** | 작은 모형 수천 개 평균 / 사후확률 가중 + 변수별 포함확률 PIP / OOF 기반 최적 가중 | 변수 선택 불확실성을 평균으로 흡수 |
 | **베이지안 연속 축소** | **Horseshoe** · **Minnesota BVAR** | 작은 계수만 강하게 축소 + 신용구간 / 먼 시차·타 변수일수록 강하게 축소 | 계수를 0으로 잘라내지 않음 |
 | **패널 (④ 탭 · 여러 품목)** | Pooled OLS·Ridge·Lasso·EN·PCR·GBM·RF·MLP | 모든 품목을 함께 학습, 특성(모멘텀·변동성·왜도·실현롤수익·COT·계절성)의 시점별 순위 → 품목 간 상대 수익 | 순위 IC·상하위 롱숏으로 평가 (Gu-Kelly-Xiu 2020) |
-| **혼합 주기 (③ 변동성 · ④ 수익 예측)** | MIDAS 회귀 · MIDAS-RV · GARCH-MIDAS | 일간 시차를 Beta 가중으로 요약 / 변동성 예측 경주(HAR·GARCH·EWMA 대비) / 장기·단기 변동성 분해 | 변동성 예측은 QLIKE·DM 검정 |
+| **혼합 주기 (③ 변동성 · ④ 수익 예측)** | MIDAS 회귀 · MIDAS-RV · GARCH-MIDAS | 일간 시차를 Beta 가중으로 요약 / 변동성 예측 경주는 ◆ 리스크 탭 / 장기·단기 변동성 분해 | 변동성 예측은 QLIKE·DM 검정 |
 | **레짐·비선형 (② 레짐 · ④ 탭 모델)** | Markov-switching 회귀 · Threshold(TAR) · STAR | 숨은 레짐 / 관측 변수 임계값 / 매끄러운 전환에 따라 기울기가 달라짐 | 선형성 검정: sup-F 부트스트랩(Hansen), LM(Luukkonen) |
 | **부스팅·커널 (④ 탭 모델)** | LightGBM(+TreeSHAP) · Gaussian Process · Kernel Ridge | 비선형·상호작용 자동 포착, SHAP으로 시점별 변수 기여 분해, GP는 예측 불확실성 동시 산출 | 조기종료·CV는 학습구간 내부 |
 | **예측구간 (④ 탭)** | 분할 conformal · 적응형 ACI (Gibbs-Candès 2021) | 분포 가정 없이 목표 커버리지 보장, 국면 변화 시 폭 자동 조정 | 실현된 오차만 사용 |
@@ -1568,9 +1555,12 @@ def tab_procure():
     c1_, c2_, c3_ = st.columns([2, 1.6, 0.8])
     ids = c1_.multiselect("구매 품목", ids_av, default=[i for i in ["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F"] if i in ids_av],
                           format_func=lambda i: PR.BUY_IDS[i], key="pc_ids")
-    preset = c2_.selectbox("전략 프리셋", list(PR.PRESETS), 0, key="pc_preset",
+    adv_p = c2_.checkbox("고급: 비교용 프리셋 (보수적·공격적) 표시", False, key="pc_adv",
+                         help="보수적·공격적은 단계별 검증에서 '추천'보다 절감이 작았던 비교용 설정 (⑥ 실험 결과 → 구매 타이밍)")
+    preset = c2_.selectbox("전략 프리셋", list(PR.PRESETS) if adv_p else PR.BASIC_PRESETS, 0, key="pc_preset",
                            help="추천: 단계별 검증에서 전·후반 모두 균등 매수보다 나았고 꼬리 위험도 가장 작은 조합. "
-                                "균형: 싸면서 반등을 시작할 때. 보수적: 꼬리 위험 최소. 공격적: 가장 쌀 때 크게(꼬리 위험 큼)")
+                                "균형: 싸면서 반등을 시작할 때 (상대가치 데이터 없이 가격만으로). "
+                                "고급 — 보수적: 계절성 추가, 공격적: 가격 위치만 2배 (꼬리 위험 큼)")
     weeks = c3_.number_input("구매 기간 (주)", 2, 52, 13, key="pc_weeks", help="이 기간 안에 필요한 물량을 모두 산다는 가정")
     P0 = PR.PRESETS[preset]
     with st.expander("신호 · 위험 판단 · 기간 설정 (프리셋 값에서 조정)", expanded=False):
@@ -1962,10 +1952,14 @@ def tab_experiments():
     st.subheader("실험 결과 — 설정을 바꿔가며 같은 백테스트 엔진으로 비교한 결과")
     st.caption("모든 실험은 미래정보 차단(다음 거래일 체결·walk-forward)·같은 비용 가정. 데이터가 갱신되면 '재실행'으로 최신화. "
                "주의: 표에서 가장 좋은 설정을 골라 쓰면 과적합 — 여러 조건에서 일관되게 좋은 설정을 고를 것.")
-    sec = st.radio("실험", ["구매 신호 고도화 (단계별)", "구매 타이밍", "철강 원료·구리 상대가치", "리스크 모형", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징"],
+    sec = st.radio("실험", ["구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "리스크 모형", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징"],
                    horizontal=True, key="ex_sec")
     pct = lambda cols: {c: "{:.2%}" for c in cols}
-    if sec == "구매 신호 고도화 (단계별)":
+    pc_view = None
+    if sec == "구매 타이밍 (프리셋 · 단계별)":
+        pc_view = st.radio("보기", ["단계별 고도화 (기준에서 한 가지씩)", "프리셋 · 신호 비교 (13·26주, 품목별)"], horizontal=True, key="ex_pc_view",
+                           help="두 실험 모두 곡물 6품목 · 같은 백테스트 엔진. 단계별 = '추천' 프리셋이 나온 근거, 프리셋 비교 = 최종 프리셋과 단순 신호의 기간별 비교")
+    if pc_view and pc_view.startswith("단계별"):
         st.markdown("##### 구매 신호 고도화 — 기준(균형 프리셋)에서 한 가지씩 바꿨을 때의 효과 (6품목 × 13주 구매 기간, 2008~)")
         df = _exp_header("procure_steps")
         if df is None:
@@ -1983,8 +1977,8 @@ def tab_experiments():
         st.caption("읽는 법: 상대가치(실제 시세 관계)만 후반에도 뚜렷 — 같은 아이디어를 롤보정 상대성과로 만들면 효과가 사라짐 → 크러시 마진·대체 가격비 같은 "
                    "경제적 관계가 핵심. MIDAS 위험 판단·6개월 창·최근가중 계절은 소폭 개선과 꼬리 위험 감소. 보유비용 3bp/주는 결과에 거의 영향 없음 "
                    "(규칙이 매수 시점을 크게 앞당기지 않음). '추천' 프리셋 = 상대가치 40% + 위치 27% + 반등 18% + 최근가중 계절 15%, MIDAS 위험, 6개월 창.")
-    elif sec == "구매 타이밍":
-        st.markdown("##### 구매 타이밍 — 신호·공격성별 평균 매입가 절감 (균등 매수 대비, bp)")
+    elif pc_view:
+        st.markdown("##### 프리셋 · 신호별 평균 매입가 절감 (균등 매수 대비, bp)")
         df = _exp_header("procure")
         if df is None:
             return
@@ -2001,7 +1995,8 @@ def tab_experiments():
         with st.expander("품목별 상세"):
             st.dataframe(d.set_index(["품목", "신호", "기간"]).drop(columns="구매기간주").style.format(
                 {"평균절감bp": "{:+.1f}", "중앙값bp": "{:+.1f}", "균등보다싸게": "{:.0%}", "하위5bp": "{:+.0f}", "사후최저bp": "{:+.0f}", "일괄매수bp": "{:+.0f}"}))
-        st.caption("읽는 법: '추세만'이 음수 = 오를 때 서둘러 사면 손해. '가격 위치'는 평균은 크지만 '하위 5%'(꼬리 손실)도 큼. 국소 저점(위치+반등)은 수익·꼬리의 절충. "
+        st.caption("읽는 법: '추세만'이 음수 = 오를 때 서둘러 사면 손해. '가격 위치'·'공격적'은 평균은 크지만 '하위 5%'(꼬리 손실)도 큼. "
+                   "보수적·공격적은 '추천'보다 열위라 구매 타이밍 탭에서는 고급 옵션으로만 노출. "
                    "사후 최저(수백 bp)는 이론 상한 — 현실 규칙과의 격차가 '타이밍 예측의 한계'.")
     elif sec == "철강 원료·구리 상대가치":
         st.markdown("##### 철광석·점결탄·구리 — '추천' 프리셋에서 상대가치 정의만 바꿨을 때 (균등 매수 대비, bp)")
@@ -2125,7 +2120,7 @@ def page_structure():
 
 
 def page_vol():
-    a, b, c = st.tabs(["단변량 GARCH · 레버리지", "다변량 GARCH (DCC · ADCC · BEKK)", "변동성 예측 (MIDAS · HAR · GARCH-MIDAS)"])
+    a, b, c = st.tabs(["단변량 GARCH · 레버리지", "다변량 GARCH (DCC · ADCC · BEKK)", "GARCH-MIDAS (장기·단기 변동성 분해)"])
     with a:
         tab_vol()
     with b:

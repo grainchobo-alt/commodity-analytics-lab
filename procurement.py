@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
+import risk as RK
+
 BUY_IDS = {"yf:ZC=F": "옥수수", "yf:ZW=F": "밀 (CBOT SRW)", "yf:KE=F": "밀 (KC HRW)", "yf:ZS=F": "대두",
            "yf:ZM=F": "대두박", "yf:ZL=F": "대두유",
            "yf:TIO=F": "철광석 (SGX 62%)", "ak:JM0": "점결탄 (DCE)", "yf:HG=F": "구리 (COMEX)"}
@@ -41,6 +43,7 @@ PRESETS = {"추천 (고도화: 상대가치+계절+MIDAS)": dict(w=_REC_W, k=1.0
                                      risk="ewma", lookback=252, season="all"),
            "공격적 (가격 위치만, 2배)": dict(w={"value": 1.0, "turn": 0.0, "season": 0.0, "relval": 0.0, "trend": 0.0}, k=2.0,
                                        risk="ewma", lookback=252, season="all")}
+BASIC_PRESETS = ["추천 (고도화: 상대가치+계절+MIDAS)", "균형 (국소 저점 = 위치+반등)"]   # 기본 노출. 보수적·공격적 = 검증상 열위 → 고급 옵션
 COMP_LBL = {"value": "가격 위치 (쌀수록↑)", "turn": "단기 반등 (저점 확인)", "relval": "상대가치 (대체재 대비 쌀수록↑)",
             "season": "계절성 (저가 시즌↑)", "trend": "12개월 추세 (참고)"}
 RISK_MODES = {"EWMA 변동성 분위": "ewma", "MIDAS 변동성 예측 분위": "midas", "HMM 위기 레짐 확률": "hmm"}
@@ -116,10 +119,9 @@ def rel_series(Lr: pd.DataFrame, i: str, La: pd.DataFrame | None = None, mode: s
 
 def hmm_crisis_prob(p_adj: pd.Series, min_years: int = 5, seed: int = 0) -> pd.Series:
     """2-레짐 가우시안 HMM (일간 수익률). 매년 초 그 이전 데이터로만 재추정 → 그해 각 날짜의 '필터' 확률
-    P(고변동 레짐 | r₁..r_t) (평활 확률은 미래를 쓰므로 사용 안 함)."""
+    P(고변동 레짐 | r₁..r_t) (평활 확률은 미래를 쓰므로 사용 안 함). 전방 필터는 risk.hmm_filter와 공용."""
     from hmmlearn.hmm import GaussianHMM
-    r = (np.log(p_adj.dropna()).diff() * 100).dropna()
-    r = r[r.index.dayofweek < 5]
+    r = RK.returns(p_adj)
     x = r.values; idx = r.index; yrs = idx.year.values
     out = np.full(len(r), np.nan)
     for y in sorted(set(yrs)):
@@ -127,24 +129,15 @@ def hmm_crisis_prob(p_adj: pd.Series, min_years: int = 5, seed: int = 0) -> pd.S
         if tr.sum() < 252 * min_years:
             continue
         m = GaussianHMM(2, "diag", n_iter=100, random_state=seed).fit(x[tr][:, None])
-        mu = m.means_.ravel(); sd = np.sqrt(np.array([np.ravel(c)[0] for c in m.covars_]))
-        hi = int(np.argmax(sd))
         seg = np.flatnonzero(yrs <= y)
-        lb = norm.logpdf(x[seg][:, None], mu[None, :], sd[None, :])
-        A = m.transmat_; a = m.startprob_ * np.exp(lb[0] - lb[0].max()); a /= a.sum()
         cur = yrs[seg] == y
-        filt = np.empty(len(seg)); filt[0] = a[hi]
-        for t in range(1, len(seg)):
-            a = (a @ A) * np.exp(lb[t] - lb[t].max()); a /= a.sum(); filt[t] = a[hi]
-        out[seg[cur]] = filt[cur]
+        out[seg[cur]] = RK.hmm_filter(x[seg], m)[cur, -1]                 # 마지막 열 = 고변동 레짐
     return pd.Series(out, index=idx)
 
 
 def midas_var(p_adj: pd.Series, h: int = 5) -> pd.Series:
     import midas as MD
-    r = (np.log(p_adj.dropna()).diff() * 100).dropna()
-    r = r[r.index.dayofweek < 5]
-    return MD.daily_vol_forecasts(r.rename(p_adj.name), h=h)["MIDAS-RV"]
+    return MD.daily_vol_forecasts(RK.returns(p_adj), h=h)["MIDAS-RV"]
 
 
 def inputs(La: pd.DataFrame, Lr: pd.DataFrame, i: str, risk: str = "ewma", rel_mode: str = "price") -> dict:
@@ -196,7 +189,7 @@ def signals(p_adj: pd.Series, lookback: int = 252, rel: pd.Series | None = None,
         out["relval"] = pct if rel_sign > 0 else 1 - pct
     else:
         out["relval"] = np.nan
-    ew = r.ewm(alpha=0.06, adjust=False).std()
+    ew = RK.ewma_std(r)                                               # RiskMetrics λ=0.94
     out["vol_ann"] = ew * np.sqrt(252)
     out["vol_pct"] = ew.rolling(756, min_periods=126).rank(pct=True)
     if vol_fc is not None:
@@ -294,7 +287,6 @@ def summarize(B: pd.DataFrame, weeks: int, step: int, halflife_years: float | No
 def band_4w(p_adj: pd.Series, sig: pd.DataFrame, last, h: int = 20) -> tuple[float, float]:
     """향후 h영업일 가격의 90% 범위 배수 (하단, 상단). 정규 ±1.645σ 대신 '표준화 h일 수익률의 경험적 5%·95% 분위'
     (그 시점까지 실현이 끝난 표본만) → 꼬리가 두꺼운 품목(철광석 등)의 범위가 실제 적중률 90%에 가깝게 넓어짐."""
-    import risk as RK
     sd = sig["vol_ann"] / np.sqrt(252) * 100
     qlo, qhi = RK.hday_band(RK.returns(p_adj), sd, h, asof=last)
     s = float(sd.loc[last]) * np.sqrt(h) / 100

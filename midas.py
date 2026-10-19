@@ -1,12 +1,12 @@
-"""B-2. MIDAS (혼합 주기) — 일간 데이터로 월간 목표를 예측 · 변동성 예측 경주 · GARCH-MIDAS
+"""B-2. MIDAS (혼합 주기) — 일간 데이터로 월간 목표를 예측 · 일간 변동성 예측 · GARCH-MIDAS
 
   Beta 시차 가중치 (Ghysels, Santa-Clara & Valkanov 2004/2006):
       w_k ∝ x_k^(θ1−1) (1−x_k)^(θ2−1),  x_k = k/(K+1),  k = 1(가장 최근) … K,  Σw = 1
       θ1=1, θ2>1 이면 최근일수록 큰 단조 감소 — 몇 개의 모수로 수백 개 일간 시차를 요약
   MIDAS 회귀  : y_{m+1} = β0 + Σ_j β_j Σ_k w_k(θ_j) x_{j, t−k+1}    (θ는 비선형최소제곱, β는 θ가 주어지면 OLS)
-  변동성 경주 : 다음 h영업일 실현분산 RV = Σ r² 을 MIDAS-RV · HAR-RV(Corsi 2009) · GARCH(1,1) · EWMA(λ=0.94) · 과거1개월로 예측
-                → 확장창 walk-forward (매월 재추정), RMSE · QLIKE · Mincer-Zarnowitz R² · Diebold-Mariano(대 HAR)
-                  예측 하한 = 학습구간 최소 실현분산의 50% (선형 HAR의 음수 예측이 QLIKE를 폭발시키는 것 방지)
+  일간 변동성 : 매 거래일 다음 h영업일 일평균 분산을 EWMA(RiskMetrics) · HAR-RV(Corsi 2009) · MIDAS-RV로 예측
+                (daily_vol_forecasts, 월말마다 walk-forward 재추정) → 구매 타이밍 위험·포트폴리오 변동성 모형·◆ 리스크 경주에 사용.
+                모형 간 예측 경주(QLIKE·DM·MCS)는 risk.vol_models / ◆ 리스크 탭으로 일원화.
   GARCH-MIDAS : r_t = μ + √(τ_m g_t) ε_t,   g_t = (1−α−β) + α (r_{t−1}−μ)²/τ_m + β g_{t−1}
                 log τ_m = m + θ Σ_{k=1}^{K} φ_k(w) X_{m−k}   (X = 월 실현분산 또는 거시 변수, φ = Beta(1,w))
                 → 장기(τ) vs 단기(g) 분해, 분산비 VR = Var(log τ)/Var(log τg)
@@ -20,6 +20,7 @@ from numba import njit
 from scipy.optimize import minimize
 
 import analytics as A
+import risk as RK
 
 
 def beta_weights(K: int, t1: float, t2: float) -> np.ndarray:
@@ -82,66 +83,8 @@ def _midas_pred(b, ws, Lnew):
 
 
 # ============================================================================
-# 변동성 예측 경주
+# 일간 변동성 예측 (구매 타이밍 위험·포트폴리오 변동성 모형·◆ 리스크 경주의 HAR·MIDAS)
 # ============================================================================
-VOL_MODELS = ["MIDAS-RV", "HAR-RV", "GARCH(1,1)", "EWMA (λ=0.94)", "과거 1개월 (랜덤워크)"]
-
-
-def vol_race(r: pd.Series, h: int = 21, K: int = 252, min_train: int = 60, start=None, garch: bool = True) -> dict:
-    """r: 일간 로그수익률(%) — 월말마다 다음 h영업일 실현분산을 예측. 반환: 예측표·지표·MIDAS 가중치."""
-    r = r.dropna()
-    r2 = r ** 2
-    dec = pd.DatetimeIndex(pd.Series(r.index, index=r.index).groupby(r.index.to_period("M")).max().values)
-    pos = r.index.get_indexer(dec)
-    rv_next = np.array([r2.iloc[p + 1:p + 1 + h].sum() if p + h < len(r) else np.nan for p in pos])
-    rv_d = r2.reindex(dec).values
-    rv_w = r2.rolling(5).sum().reindex(dec).values / 5
-    rv_m = r2.rolling(21).sum().reindex(dec).values / 21
-    L = hf_lags(r2, dec, K)
-    ok = ~np.isnan(L).any(1) & ~np.isnan(rv_m)
-    if start is not None:
-        ok &= dec >= pd.Timestamp(start) - pd.DateOffset(years=50)
-    rows = []
-    idx = np.flatnonzero(ok)
-    lam = 0.94
-    ew = r2.ewm(alpha=1 - lam, adjust=False).mean().reindex(dec).values
-    gpar = None
-    for n_i, i in enumerate(idx):
-        if np.isnan(rv_next[i]) or n_i < min_train:
-            continue
-        tr = idx[:n_i]
-        tr = tr[~np.isnan(rv_next[tr])]
-        tr = tr[(pos[tr] + h) <= pos[i]]                       # 목표가 결정일 이전에 실현된 표본만
-        if len(tr) < min_train:
-            continue
-        f = {}
-        mid = midas_fit(rv_next[tr], [L[tr]])
-        f["MIDAS-RV"] = float(mid["predict"]([L[[i]]])[0])
-        Xh = np.column_stack([np.ones(len(tr)), rv_d[tr], rv_w[tr], rv_m[tr]])
-        bh = np.linalg.lstsq(Xh, rv_next[tr], rcond=None)[0]
-        f["HAR-RV"] = float(np.array([1, rv_d[i], rv_w[i], rv_m[i]]) @ bh)
-        f["EWMA (λ=0.94)"] = float(ew[i] * h)
-        f["과거 1개월 (랜덤워크)"] = float(rv_m[i] * h)
-        if garch:
-            from arch import arch_model
-            hist = r.iloc[:pos[i] + 1].iloc[-2520:]               # 최근 10년 일간으로 매월 재추정
-            if n_i % 3 == 0 or gpar is None:                      # 분기마다 모수 재추정, 매월 상태 갱신
-                gres = arch_model(hist, mean="Constant", vol="GARCH", p=1, q=1, dist="normal").fit(disp="off")
-                gpar = gres.params
-            am = arch_model(hist, mean="Constant", vol="GARCH", p=1, q=1, dist="normal")
-            fc = am.fix(gpar).forecast(horizon=h, reindex=False)
-            f["GARCH(1,1)"] = float(fc.variance.values[-1].sum())
-        floor = 0.5 * float(np.nanmin(rv_next[tr][rv_next[tr] > 0]))    # 선형 모형(HAR 등)의 음수·0 예측 방지
-        for k_ in f:
-            f[k_] = max(f[k_], floor)
-        rows.append(dict(date=dec[i], RV=rv_next[i], **f))
-    T = pd.DataFrame(rows).set_index("date")
-    models = [m for m in VOL_MODELS if m in T]
-    met = vol_metrics(T, models)
-    mid_full = midas_fit(rv_next[idx][~np.isnan(rv_next[idx])], [L[idx][~np.isnan(rv_next[idx])]])
-    return dict(table=T, metrics=met, midas_weights=mid_full["weights"][0], midas_theta=float(mid_full["theta"][0]), h=h, K=K)
-
-
 _DVF_CACHE: dict = {}
 
 
@@ -156,7 +99,7 @@ def daily_vol_forecasts(r: pd.Series, h: int = 5, K: int = 252, min_train: int =
     r2 = r ** 2; n = len(r); days = r.index
     tgt = (r2.rolling(h).sum().shift(-h) / h).values                   # t+1..t+h 일평균 실현분산
     rv_d, rv_w, rv_m = r2.values, r2.rolling(5).mean().values, r2.rolling(21).mean().values
-    ew = r2.ewm(alpha=0.06, adjust=False).mean().values                # RiskMetrics λ=0.94
+    ew = RK.ewma_var(r).values                                         # RiskMetrics λ=0.94 (공용)
     L = hf_lags(r2, days, K)
     me = pd.Series(np.arange(n), index=days).groupby(days.to_period("M")).max().values
     ok = ~np.isnan(L).any(1) & ~np.isnan(rv_m)
@@ -181,25 +124,6 @@ def daily_vol_forecasts(r: pd.Series, h: int = 5, K: int = 252, min_train: int =
     res = pd.DataFrame(out, index=days, columns=["EWMA", "HAR-RV", "MIDAS-RV"])
     _DVF_CACHE[key] = res
     return res
-
-
-def vol_metrics(T: pd.DataFrame, models: list[str], bench: str = "HAR-RV") -> pd.DataFrame:
-    rows = {}
-    rv = T["RV"].values
-    q_b = rv / T[bench].values - np.log(rv / T[bench].values) - 1
-    for m in models:
-        f = T[m].values
-        qlike = rv / f - np.log(rv / f) - 1
-        mz = np.corrcoef(f, rv)[0, 1] ** 2
-        d = qlike - q_b
-        n = len(d); lag = int(np.floor(n ** (1 / 3)))
-        gam = [np.mean((d - d.mean())[k:] * (d - d.mean())[:n - k]) for k in range(lag + 1)]
-        lrv = gam[0] + 2 * sum((1 - k / (lag + 1)) * gam[k] for k in range(1, lag + 1))
-        dm = d.mean() / np.sqrt(lrv / n) if lrv > 0 and m != bench else np.nan
-        rows[m] = {"RMSE (변동성, 연율%)": float(np.sqrt(np.mean((np.sqrt(f * 252 / 21) - np.sqrt(rv * 252 / 21)) ** 2))),
-                   "QLIKE (낮을수록 좋음)": float(qlike.mean()), "MZ R²": float(mz),
-                   "DM t (대 HAR, QLIKE)": float(dm), "예측 수": int(n)}
-    return pd.DataFrame(rows).T
 
 
 # ============================================================================

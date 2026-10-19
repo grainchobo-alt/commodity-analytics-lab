@@ -469,6 +469,34 @@ def strategy_stats(p_raw, y_raw, ann: int, h: int = 1, cost: float = 0.0) -> dic
             "롱 비중": float(np.mean(pos > 0)), "연간 회전율": float(turn.mean() * ann / h)}
 
 
+def placebo_sharpe(y_raw, ann: int, h: int = 1, cost: float = 0.0, n_models: int = 1, long_share: float = 0.5,
+                   switch: float = 0.5, B: int = 1000, seed: int = 0) -> dict:
+    """무작위 부호 위약: 같은 테스트 구간에서 포지션 = 무작위 ±1 (2상태 마르코프 사슬: 롱 비중 long_share, 기간당 전환 확률 switch —
+    모델들의 평균 롱 비중·회전율에 맞춰 비용 부담도 같게)인 전략의 Sharpe 분포.
+    single95 = 위약 1개의 95% 분위, max95 = 위약 n_models개 중 최댓값의 95% 분위 (모델 n개를 시도해 최고를 고를 때의 운 기준선).
+    모델 Sharpe가 max95를 넘지 못하면 '여러 모델 중 최고'라는 사실만으로는 운과 구별되지 않음 (다중 비교 착시)."""
+    yn = np.asarray(y_raw, float)[::h]; T = len(yn)
+    p = float(np.clip(long_share, 0.02, 0.98)); s_ = float(np.clip(switch, 1e-3, 2 * min(p, 1 - p)))
+    a, b = s_ / (2 * p), s_ / (2 * (1 - p))                              # P(롱→숏), P(숏→롱): 정상 롱 비중 p, 평균 전환 확률 s_
+    rng = np.random.default_rng(seed)
+    n = max(int(n_models), 1)
+    sr = {"gross": np.empty((n, B)), "net": np.empty((n, B))}
+    for j in range(n):                                                   # 모델 1개 몫씩 (메모리 B×T)
+        U = rng.random((B, T)); pos = np.empty((B, T)); pos[:, 0] = np.where(U[:, 0] < p, 1.0, -1.0)
+        for t in range(1, T):
+            flip = U[:, t] < np.where(pos[:, t - 1] > 0, a, b)
+            pos[:, t] = np.where(flip, -pos[:, t - 1], pos[:, t - 1])
+        turn = np.abs(np.diff(np.c_[np.zeros(B), pos], axis=1))
+        for nm, R in [("gross", pos * yn), ("net", pos * yn - turn * cost)]:
+            sr[nm][j] = R.mean(1) / R.std(1) * np.sqrt(ann / h)
+    out = {}
+    for nm, S in sr.items():
+        out[f"single95_{nm}"] = float(np.quantile(S[0], 0.95))
+        out[f"max95_{nm}"] = float(np.quantile(S.max(0), 0.95))
+    out.update(n_models=n, B=B, long_share=p, switch=s_)
+    return out
+
+
 def _metrics(y_tr, p_tr, y_te, p_te, ann, h=1, D=None):
     """y·p는 학습평균으로 중심화된 값. 전략 지표는 원래 수준(+학습평균)으로 되돌려 계산.
     설명(동시점) 모드는 Xₜ와 Yₜ가 같은 기간이라 실제 거래 불가 → 전략 지표를 계산하지 않음."""
@@ -796,6 +824,9 @@ ML_MODELS = ["LightGBM", "Gaussian Process", "Kernel Ridge"]                    
 REGIME_MODELS = ["Markov-switching 회귀", "Threshold 회귀 (TAR)", "STAR (평활 전이)"]   # C. 레짐·비선형
 MODEL_LIST = ["OLS", "Ridge", "Lasso", "Elastic Net", "Adaptive Lasso", "SCAD", "MCP"] + DENSE_MODELS + [
               "분위수 회귀", "Kalman TVP", "Hidden Markov (HMM)"] + REGIME_MODELS + ["Random Forest", "Gradient Boosting"] + ML_MODELS + ["LSTM"]
+# ④ 기본 노출 = 모형군별 대표 7개 (기준·축소·선택·요인·시변·레짐·부스팅). 나머지는 '고급' 확장 영역 — 많이 돌릴수록 최고값은 운으로도 높아짐
+CORE_MODELS = ["OLS", "Ridge", "Lasso", "PLS (부분최소제곱)", "Kalman TVP", "Hidden Markov (HMM)", "LightGBM"]
+ADV_MODELS = [m for m in MODEL_LIST if m not in CORE_MODELS]
 
 
 def _run_regime(name: str, D: Design, ann: int, **hp):

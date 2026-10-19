@@ -1,4 +1,4 @@
-"""B-2 MIDAS 검증 — 시뮬레이션으로 가중치·모수 복원, 실데이터 변동성 경주."""
+"""B-2 MIDAS 검증 — 시뮬레이션으로 가중치·모수 복원, 실데이터 GARCH-MIDAS."""
 import sys, time, warnings
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -44,16 +44,8 @@ th = gm["params"].loc["θ (장기 민감도)", "계수"]
 assert 0.35 < th < 0.9 and gm["params"].loc["α", "계수"] < 0.12, gm["params"]
 ok(f"GARCH-MIDAS 복원: θ = {th:.2f} (참 0.6), α = {gm['params'].loc['α','계수']:.3f} (참 0.06), β = {gm['params'].loc['β','계수']:.3f} (참 0.90), VR = {gm['VR']:.2f}")
 
-# ---- 4) 실데이터: 변동성 경주 (WTI, 옥수수) -------------------------------------------------
+# ---- 4) 실데이터: GARCH-MIDAS (변동성 예측 경주는 ◆ 리스크 risk.vol_models로 일원화 → tests/test_risk.py) ----
 L = A.load_levels(); cat = A.load_catalog(); U = dict(zip(cat.id, cat.unit))
-for i in ["yf:CL=F", "yf:ZC=F"]:
-    rr = A.make_panel(L, [i], U, "B", "logret", "2001-01-01")[i]
-    vr = M.vol_race(rr, h=21, K=252, min_train=60)
-    print(f"\n   {i} 변동성 예측 (월말 → 다음 21영업일, {len(vr['table'])}개 외표본 예측), MIDAS θ2 = {vr['midas_theta']:.1f}")
-    print(vr["metrics"].round(3).to_string())
-    T = vr["table"]
-    assert (T.index[1:] > T.index[:-1]).all() and T.notna().all().all()
-ok("실데이터 변동성 경주 실행")
 gm = M.garch_midas(A.make_panel(L, ["yf:CL=F"], U, "B", "logret", "2001-01-01")["yf:CL=F"], None, K=24)
 print(gm["params"].round(4).to_string(), f"\n   VR(장기 성분 비중) = {gm['VR']:.2f}")
 ok("실데이터 GARCH-MIDAS (WTI, 월 실현분산 24개월)")

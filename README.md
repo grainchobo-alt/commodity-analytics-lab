@@ -26,14 +26,14 @@
 | `portfolio.py` | 원자재 바스켓 백테스트: Newton-Raphson 평균-분산-비용 최적화(롱온리·롱숏·종목상한), 선물 틱 기준 거래·롤 비용, 다음 거래일 실행(미래정보 차단), ETF 기반 선물 초과수익 손익 |
 | `models_dense.py` | A그룹: PCR·PLS·3PRF·Complete Subset·BMA·Horseshoe·Minnesota BVAR·Stacking |
 | `panel.py` | B그룹: 원자재 패널(순위 특성) 예측, Fama-MacBeth·고정효과 OLS·섹터 기울기 |
-| `midas.py` | B그룹: MIDAS 회귀·변동성 예측 경주(HAR·GARCH·MIDAS)·GARCH-MIDAS |
+| `midas.py` | B그룹: MIDAS 회귀·일간 변동성 예측(EWMA·HAR·MIDAS-RV)·GARCH-MIDAS |
 | `regime.py` | C그룹: Markov-switching 회귀·TAR·STAR·TVP-VAR 연결성 |
 | `models_ml.py` | D그룹: LightGBM(+TreeSHAP)·Gaussian Process·Kernel Ridge, Conformal 예측구간(분할·적응형 ACI) |
 | `reports.py` | 기관 리포트 수집·평가: USDA WASDE(1997~)·EIA STEO 빈티지(2010~), 발표일 이벤트 스터디 |
-| `risk.py` | ◆ 리스크: 시변 감쇠 λ(EWMA 롤링·HMM 3상태·Kalman TVP-AR(1)), GARCH·HAR·MIDAS 비교, QLIKE·DM·MCS·LR·부호 편향·마할라노비스, VaR/ES(정규·t·FHS·EVT·HS)와 Kupiec·Christoffersen·ES 백테스트, 꼬리 의존·스트레스·물량 위험 |
+| `risk.py` | ◆ 리스크 (공용 EWMA·HMM 필터·수익률 함수 포함): 시변 감쇠 λ(EWMA 롤링·HMM 3상태·Kalman TVP-AR(1)), GARCH·HAR·MIDAS 비교, QLIKE·DM·MCS·LR·부호 편향·마할라노비스, VaR/ES(정규·t·FHS·EVT·HS)와 Kupiec·Christoffersen·ES 백테스트, 꼬리 의존·스트레스·물량 위험 |
 | `procurement.py` | ★ 구매 타이밍 (곡물 6 + 철광석·점결탄·구리): 매수 점수(가격 위치·단기 반등·상대가치·계절성·추세), 기간 내 매수 속도 규칙, 균등 매수 대비 평균 매입가 절감 백테스트 |
 | `experiments.py` | ⑥ 실험 결과: 구매 타이밍·모멘텀 기간·거래 규칙·변동성 사이징·리스크 버짓 비교 실험 (`python experiments.py [이름]`) |
-| `app.py` | Streamlit 분석 앱 — ★ 구매 타이밍 / ◆ 리스크 (VaR·꼬리) / ① 시장 구조·동조성(상관·PCA·DY·TVP-VAR·FAVAR) / ② 레짐(Markov·HMM·MS 회귀·Kalman·TAR·STAR) / ③ 변동성·공분산(GARCH·DCC·BEKK·MIDAS) / ④ 수익률 예측(단일 품목·패널·MIDAS 회귀) / ⑤ 포트폴리오 / ⑥ 실험 결과 / ⑦ 모델 도감 / ⑧ 데이터·방법론 |
+| `app.py` | Streamlit 분석 앱 — ★ 구매 타이밍 / ◆ 리스크 (VaR·꼬리) / ① 시장 구조·동조성(상관·PCA·DY·TVP-VAR·FAVAR) / ② 레짐(Markov·HMM·MS 회귀·Kalman·TAR·STAR) / ③ 변동성·공분산(GARCH·DCC·BEKK·GARCH-MIDAS) / ④ 수익률 예측(단일 품목 대표 7 + 고급 모델·위약 기준선, 패널, MIDAS 회귀) / ⑤ 포트폴리오 / ⑥ 실험 결과 / ⑦ 모델 도감 / ⑧ 데이터·방법론 |
 | `model_atlas.py` | ⑥ 모델 도감: 31개 모델·방법론의 원리를 합성 데이터 시각화·수식·용도·함정으로 설명 |
 | `tests/` | `python tests/test_<모듈>.py` (analytics, lookahead, dense, panel, midas, regime, ml, reports, portfolio, app 등) |
 | `test_sources.py` | 데이터 소스 연결 점검 |
