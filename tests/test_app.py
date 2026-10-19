@@ -23,7 +23,20 @@ at.selectbox(key="pc_detail").set_value("yf:ZM=F").run(); check(at, "구매 타�
 at.number_input(key="pc_rem").set_value(12000.0).run(); check(at, "구매 타이밍: 매수량 계산기")
 at.selectbox(key="pc_y0").set_value(2016).run(); check(at, "구매 타이밍: 검증 시작 2016")
 at.number_input(key="pc_carry").set_value(3.0).run(); check(at, "구매 타이밍: 보유비용 3bp/주")
-for sec in ["구매 신호 고도화 (단계별)", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍"]:
+# ◆ 리스크
+at.button(key="rk_run").click().run(); check(at, "리스크: 옥수수 8개 변동성 모형 추정")
+at.selectbox(key="rk_base").set_value("GARCH(1,1)").run(); check(at, "리스크: DM 기준 GARCH")
+at.selectbox(key="rk_zm").set_value("HMM 3상태 λ").run(); check(at, "리스크: HMM 잔차 진단")
+at.button(key="rk_mrun").click().run(); check(at, "리스크: 여러 품목 LR·마할라노비스")
+at.radio(key="rk_side").set_value("보유 재고 (가격 하락 위험)").run(); check(at, "리스크: 보유 재고 VaR")
+at.selectbox(key="rk_h").set_value(20).run(); at.selectbox(key="rk_alpha").set_value(0.95).run(); check(at, "리스크: 20일 95% VaR")
+at.selectbox(key="rk_vm").set_value("Kalman TVP-AR(1) + EWMA").run(); check(at, "리스크: Kalman σ VaR")
+at.select_slider(key="rk_q").set_value(0.10).run(); check(at, "리스크: 꼬리 의존 10%")
+at.radio(key="rk_dir").set_value("보유 재고 (가격 하락이 손실)").run(); check(at, "리스크: 재고 물량 위험")
+at.selectbox(key="rk_ph").set_value(60).run(); check(at, "리스크: 60일 물량 VaR")
+at.selectbox(key="rk_id").set_value("yf:TIO=F").run()
+at.button(key="rk_run").click().run(); check(at, "리스크: 철광석 재추정")
+for sec in ["구매 신호 고도화 (단계별)", "철강 원료·구리 상대가치", "리스크 모형", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍"]:
     at.radio(key="ex_sec").set_value(sec).run(); check(at, f"실험 결과: {sec}")
 
 at.button(key="dybtn").click().run(); check(at, "DY 스필오버")

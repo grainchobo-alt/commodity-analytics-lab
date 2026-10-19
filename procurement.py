@@ -291,6 +291,16 @@ def summarize(B: pd.DataFrame, weeks: int, step: int, halflife_years: float | No
     return out
 
 
+def band_4w(p_adj: pd.Series, sig: pd.DataFrame, last, h: int = 20) -> tuple[float, float]:
+    """향후 h영업일 가격의 90% 범위 배수 (하단, 상단). 정규 ±1.645σ 대신 '표준화 h일 수익률의 경험적 5%·95% 분위'
+    (그 시점까지 실현이 끝난 표본만) → 꼬리가 두꺼운 품목(철광석 등)의 범위가 실제 적중률 90%에 가깝게 넓어짐."""
+    import risk as RK
+    sd = sig["vol_ann"] / np.sqrt(252) * 100
+    qlo, qhi = RK.hday_band(RK.returns(p_adj), sd, h, asof=last)
+    s = float(sd.loc[last]) * np.sqrt(h) / 100
+    return float(np.exp(qlo * s)), float(np.exp(qhi * s))
+
+
 def today_table(La: pd.DataFrame, Lr: pd.DataFrame, ids: list[str], w: dict | None = None, k: float = 1.0, m_max: float = 3.0,
                 weeks_left: int = 13, risk: str = "ewma", season: str = "all", lookback: int = 252, rel_mode: str = "price") -> pd.DataFrame:
     rows = []
@@ -306,13 +316,13 @@ def today_table(La: pd.DataFrame, Lr: pd.DataFrame, ids: list[str], w: dict | No
         p1 = pa.loc[last - pd.DateOffset(years=1):last]
         rk = float(sig["risk"].loc[last])
         mult = pace(float(sc.loc[last]), rk, 1.0, weeks_left, k, m_max) / (1.0 / weeks_left)
+        b_lo, b_hi = band_4w(La[i], sig, last)
         va = float(sig["vol_ann"].loc[last])
         rows.append({"품목": BUY_IDS.get(i, i), "id": i, "기준일": last.date(), "가격 ($/t)": px,
                      "1년 최저 ($/t)": p1.min(), "1년 최고 ($/t)": p1.max(),
                      "매수 점수": float(sc.loc[last]) * 100, **{COMP_LBL[c]: float(sig[c].loc[last]) * 100 for c in COMP_LBL},
                      "위험 지표": rk * 100, "변동성 분위": float(sig["vol_pct"].loc[last]) * 100, "연 변동성": va,
-                     "4주 하단 90% ($/t)": px * np.exp(-1.645 * va * np.sqrt(20 / 252)),
-                     "4주 상단 90% ($/t)": px * np.exp(1.645 * va * np.sqrt(20 / 252)),
+                     "4주 하단 90% ($/t)": px * b_lo, "4주 상단 90% ($/t)": px * b_hi,
                      "권장 속도 (균등 대비 배)": mult, "상대가치 지표": REL_DEF.get(i, ("–",))[0]})
     return pd.DataFrame(rows)
 

@@ -216,6 +216,42 @@ def procurement_metals(progress=None, split="2019-07-01"):
     _save("procure_metals", pd.DataFrame(rows), t0, dict(프리셋="추천", 시작="2013 (점결탄 2015)", 전후반경계=split, 시작간격="4주"))
 
 
+RISK_IDS = ["yf:ZC=F", "yf:ZW=F", "yf:KE=F", "yf:ZS=F", "yf:ZM=F", "yf:ZL=F", "yf:TIO=F", "ak:JM0", "yf:HG=F", "yf:CL=F", "yf:NG=F", "yf:GC=F"]
+
+
+def risk_models(progress=None, start="2010-01-01"):
+    """◆ 리스크: 품목별 (1) 변동성 모형 경주 — QLIKE·DM(기준 RiskMetrics)·MCS, (2) VaR 백테스트 — 1일 99%·20일 95%, 롱·숏(매입 예정),
+    (3) 구매 타이밍 4주 범위 적중률 — 정규 vs 경험적 분위. 모두 walk-forward, 평가 start~."""
+    import risk as RK
+    import procurement as PR
+    t0 = time.time(); La, Lr, U, _ = _data(); rows = []
+    ids = [i for i in RISK_IDS if i in La]
+    for j, i in enumerate(ids):
+        nm = PR.BUY_IDS.get(i, {"yf:CL=F": "WTI 원유", "yf:NG=F": "천연가스", "yf:GC=F": "금"}.get(i, i))
+        r = RK.returns(La[i]); o = RK.vol_models(r); S = o["S"]
+        Lo = RK.qlike(r, S)[S.index >= start].dropna()
+        dm = RK.dm_table(Lo, "RiskMetrics λ=0.94"); pv = RK.mcs(Lo, B=500)
+        for m in S.columns:
+            rows.append(dict(구분="변동성", 품목=nm, 항목=m, QLIKE=Lo[m].mean(), DM_t=dm["DM t"].get(m, 0.0), MCS_p=pv[m],
+                             평균반감기일=float(np.nanmean(RK.hl_days(o["lam"][m][o["lam"].index >= start]))) if m in o["lam"] else np.nan))
+        for side in ["long", "short"]:
+            for a_, h in [(0.99, 1), (0.95, 20)]:
+                V = RK.var_forecasts(r, S["EWMA 롤링 λ (직전 3년)"], a_, side, h, start=start)
+                bt = RK.backtest_table(V)
+                for m, b in bt.iterrows():
+                    rows.append(dict(구분="VaR", 품목=nm, 항목=m, 포지션={"long": "보유 (하락 위험)", "short": "매입 예정 (상승 위험)"}[side],
+                                     기준=f"{h}일 {a_:.0%}", 초과율=b["초과율"], 기대초과율=1 - a_, Kupiec_p=b["Kupiec p (적중률)"],
+                                     Christoffersen_p=b["Christoffersen p (독립성)"], ES_p=b["ES 검정 p (과소추정)"]))
+        if i in PR.BUY_IDS:
+            inp = PR.inputs(La, Lr, i, "midas")
+            sig = PR.signals(La[i], 126, inp["rel"], inp["rel_sign"], inp["vol_fc"], None, "ewm")
+            cv = RK.band_coverage(r, sig["vol_ann"] / np.sqrt(252) * 100, 20, "2008-01-01")
+            rows.append(dict(구분="4주 범위", 품목=nm, 항목="MIDAS σ (추천 프리셋)", 정규적중=cv["정규 적중률"], 경험적적중=cv["경험적 적중률"],
+                             하단이탈=cv["하단 이탈률 (경험적)"], 상단이탈=cv["상단 이탈률 (경험적)"], n=cv["n"]))
+        if progress: progress((j + 1) / len(ids))
+    _save("risk", pd.DataFrame(rows), t0, dict(평가시작=start, 품목=len(ids), VaR_σ="EWMA 롤링 λ (직전 3년)", MCS="T_max, 블록 10일, B=500"))
+
+
 EXPERIMENTS = {
     "procure": dict(title="구매 타이밍 — 신호·공격성별 평균 매입가 절감", file="procurement_compare.csv", fn=procurement, eta="약 1분",
                     cols=["품목", "신호", "구매기간주", "기간", "평균절감bp"]),
@@ -223,6 +259,8 @@ EXPERIMENTS = {
                           eta="약 5~10분", cols=["단계", "변형", "평균절감bp", "하위5bp"]),
     "procure_metals": dict(title="철강 원료·구리 — 상대가치 정의 비교", file="procurement_metals_compare.csv", fn=procurement_metals,
                            eta="약 1분", cols=["품목", "상대가치", "구매기간주", "전반bp", "후반bp"]),
+    "risk": dict(title="리스크 — 변동성 모형 경주 · VaR 백테스트 · 4주 범위 적중률", file="risk_models_compare.csv", fn=risk_models,
+                 eta="약 3~5분", cols=["구분", "품목", "항목"]),
     "momentum": dict(title="모멘텀 기간 비교", file="momentum_lookback_compare.csv", fn=momentum_lookback, eta="약 5~8분",
                      cols=["모드", "모멘텀", "전략", "Sharpe (비용 후)", "연간 회전율(편도 합)"]),
     "rules": dict(title="거래 규칙 비교 (고정 주기 · 무거래 구간 · 부분 조정)", file="rebalance_rule_compare.csv", fn=trade_rules, eta="약 7~10분",
