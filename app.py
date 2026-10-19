@@ -975,6 +975,63 @@ def tab_ml():
         f.add_trace(go.Scatter(x=bh.index, y=bh.values, name="Buy & Hold", line=dict(color="#898781", width=1.2, dash="dot")))
         st.plotly_chart(shade(fig_layout(f, 360, yaxis_title="누적 로그수익률 (%)"), bh.index), key="cum")
 
+
+def ml_meta():
+    """④ 단일 품목 — 모델 선택 메타 전략 (시간·레짐별로 어떤 모델을 쓸지를 과거 OOS 성과만으로 선택)."""
+    import metasel as MS
+    import experiments as EX
+    st.divider()
+    st.markdown("##### 모델 선택 메타 전략 — 시기·레짐에 따라 어떤 모델을 쓸지 고르기 (중첩 walk-forward)")
+    st.caption("후보 모델마다 walk-forward OOS 예측 경로를 만든 뒤, 매 시점 **이미 실현된 OOS 손실만으로** (a) 직전 N개월 손실 최소 모델, "
+               "(b) 지수가중 역MSE 가중 결합, (c) 현재 레짐(HMM 3상태 필터·실현변동성 3분위·평균 쌍별 상관 3분위)에서 과거 성과가 가장 좋았던 모델을 "
+               "고르고 (d) 동일가중 앙상블·(e) 과거 평균과 비교. 위약 = 롱 비중·전환 빈도를 맞춘 무작위 부호, 스누핑 보정 = White RC · Hansen SPA. "
+               "위의 '▶ 모델 실행'(예측 모드)에서 만든 설계(Y·X·시차·비용)를 사용합니다.")
+    ml = st.session_state.get("ml")
+    if not ml or ml[3] != "predict":
+        st.info("먼저 '예측 (미래 수익률)' 모드로 '▶ 모델 실행'을 누르세요."); return
+    D, _, tgt_, _ = ml
+    m1, m2, m3, m4 = st.columns([3, 1, 1, 1])
+    cands = m1.multiselect("후보 모델", [m for m in A.MODEL_LIST if m not in ("LSTM", "분위수 회귀")], MS.CANDIDATES, key="ms_models")
+    nmo = m2.number_input("(a) 선택 창 (개월)", 1, 36, 6, key="ms_n")
+    hl = m3.number_input("(b) 반감기 (개월)", 1, 36, 6, key="ms_hl")
+    stp = m4.number_input("후보 재추정 주기", 5, 500, {"B": 126, "W-FRI": 26, "ME": 6}[FQ], key="ms_step")
+    idx = D.raw.index
+    oos0 = max(pd.Timestamp("2004-01-01"), idx[int(len(idx) * 0.2)])
+    ev0 = oos0 + pd.DateOffset(years=4)
+    st.caption(f"후보 OOS 시작 {oos0:%Y-%m} (이전은 첫 학습) → 메타 선택 예열 4년 → 평가 {ev0:%Y-%m}~{idx.max():%Y-%m}. "
+               f"하위기간 2008~16 / 2017~. 비용 {D.cost * 100:.1f}bp.")
+    if st.button("▶ 메타 전략 백테스트", key="ms_run") and len(cands) >= 2:
+        prog = st.progress(0.0, "후보 모델 walk-forward 중")
+        Lv = _levels(extra_bytes, ROLL)
+        cids = list(dict.fromkeys([tgt_] + [i for i in EX.META_CORR if i in NAME]))
+        Rd = _panel(tuple(cids), "B", "logret", start, end, extra_bytes, ROLL)
+        st.session_state["ml_meta_res"] = MS.run(D, Lv, Rd, tgt_, ANN, int(stp), cands, oos_start=oos0, eval_start=ev0, n_months=int(nmo),
+                                        halflife_months=int(hl), B=500, progress=lambda x: prog.progress(min(1.0, x * 0.95), "후보 모델 walk-forward 중"))
+        prog.empty()
+    o = st.session_state.get("ml_meta_res")
+    if not o:
+        return
+    T = o["table"]
+    st.dataframe(T.style.format({c: "{:.3f}" for c in T.columns if c != "구분"} | {"롱 비중": "{:.0%}", "연간 회전율": "{:.0f}",
+                                 "OOS R² (vs 과거평균)": "{:+.4f}", "위약 p (단일)": "{:.2f}"}, na_rep="–"))
+    pm = o["placebo_max"]
+    st.markdown(f"**'후보 중 최댓값' 위약**: 관측 최고 Sharpe(비용 후) {pm['관측최댓값']:+.2f} ({pm['최고전략']}) vs 위약 최댓값 "
+                f"중앙 {pm['위약최댓값중앙']:+.2f} · 95% 분위 {pm['위약최댓값95']:+.2f} → p = {pm['p']:.2f}"
+                + (" — **운과 구별되지 않음**" if pm["p"] >= 0.05 else " — 위약 대비 유의"))
+    st.dataframe(o["spa"].set_index("귀무가설 기준").style.format({"최고 평균차": "{:+.4f}", "White RC p": "{:.3f}", "Hansen SPA p": "{:.3f}"}))
+    C = MS.cum_net(o["preds"], o["y"], D.horizon, D.cost)
+    f = go.Figure()
+    for j, c in enumerate(C.columns):
+        meta = c.startswith("(")
+        f.add_trace(go.Scatter(x=C.index, y=C[c], name=c, line=dict(color="#898781" if c == "Buy & Hold" else PAL[j % 8],
+                                                                     width=2.4 if meta else 1.0, dash="dot" if c == "Buy & Hold" else None),
+                               visible=True if meta or c == "Buy & Hold" else "legendonly"))
+    st.plotly_chart(shade(fig_layout(f, 380, title=f"누적 순수익 (부호 전략, 비용 {D.cost * 100:.1f}bp 차감) — 후보 모델은 범례 클릭으로 표시",
+                                     yaxis_title="누적 로그수익률 (%)"), C.index), key="ms_cum")
+    with st.expander("메타 전략이 고른 모델 비중"):
+        sh = o["pick"].apply(lambda s: s.value_counts(normalize=True)).T.fillna(0)
+        st.dataframe(sh.style.format("{:.0%}"))
+
 # ============================================================================
 # ⑤ 포트폴리오 백테스트 (멀티 원자재 바스켓, Newton-Raphson 최적 비중)
 # ============================================================================
@@ -1948,11 +2005,21 @@ def _exp_header(name):
     return df
 
 
+META_READ = ("읽는 법 (2026-10-19 실행): 6품목 × 일간·주간 = 156칸 중 **위약 95% 분위를 넘은 전략은 0개**, '후보 중 최댓값' 위약 p는 12개 설정 모두 ≥ 0.47. "
+             "SPA로 'Buy&Hold보다 낫다'·'과거 평균보다 오차가 작다'를 기각한 경우도 없음 → **시기·레짐별 모델 선택으로 얻는 예측력은 운과 구별되지 않음.** "
+             "SPA가 '순수익 > 0'을 기각한 것은 대두박뿐인데, 이는 대두박 자체의 상승 추세(B&H Sharpe 0.6)를 롱 비중이 높은 전략이 따라간 것. "
+             "품목 평균으로는 (e) 과거 평균(사실상 추세 방향 보유)이 두 하위기간 모두 가장 좋고, (c) 레짐 조건부는 (a)·(b)·(d)보다 낫지만 (e)에 못 미침. "
+             "(b) 가중 결합·(d) 동일가중은 예측이 0 근처로 줄어 부호가 자주 바뀌어(회전율↑) 비용 후 최하위. "
+             "단일 분할에서 보이던 Sharpe 0.5는 롱 편향 + 여러 모델 중 최댓값 고르기의 결과로 해석됨. 위약은 각 전략의 롱 비중·전환 빈도를 맞춘 무작위 포지션.")
+EX_DATA = A.DATA
+
+
 def tab_experiments():
     st.subheader("실험 결과 — 설정을 바꿔가며 같은 백테스트 엔진으로 비교한 결과")
     st.caption("모든 실험은 미래정보 차단(다음 거래일 체결·walk-forward)·같은 비용 가정. 데이터가 갱신되면 '재실행'으로 최신화. "
                "주의: 표에서 가장 좋은 설정을 골라 쓰면 과적합 — 여러 조건에서 일관되게 좋은 설정을 고를 것.")
-    sec = st.radio("실험", ["구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "리스크 모형", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징"],
+    sec = st.radio("실험", ["구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "리스크 모형", "모델 선택 메타 전략", "전략 비교 (리스크 버짓)",
+                          "모멘텀 기간", "거래 규칙", "변동성 사이징"],
                    horizontal=True, key="ex_sec")
     pct = lambda cols: {c: "{:.2%}" for c in cols}
     pc_view = None
@@ -2042,6 +2109,54 @@ def tab_experiments():
                    "추정 잡음 때문에 예측이 오히려 나빠짐(λ가 기간마다 다르다는 LR 결과와 별개). ② 1일 99% VaR는 정규가 거의 전부 탈락(꼬리 과소), "
                    "FHS·EVT가 가장 정확(평균 초과율 1.0~1.1%). 20일 95%는 대부분 방법이 통과. ③ 4주 범위는 MIDAS σ 기준 정규도 90% 근처이나, "
                    "경험적 분위가 대두박·대두유·철광석의 적중률을 높임 → 구매 타이밍 탭에 경험적 분위 적용.")
+    elif sec == "모델 선택 메타 전략":
+        st.markdown("##### 모델 선택 메타 전략 — 시기·레짐별로 ML 모델을 고르면 나아지는가 (6품목 × 일간·주간, 평가 2008~, 비용 5bp)")
+        df = _exp_header("metasel")
+        if df is None:
+            return
+        a_, b_ = st.columns([1, 2])
+        fq = a_.radio("빈도", ["일간", "주간"], horizontal=True, key="ex_ms_fq")
+        perf = df[(df.구분 == "성과") & (df.빈도 == fq)]
+        sc = "부호전략 Sharpe (비용 후)"
+        pv = perf.pivot(index="전략", columns="품목", values=sc).reindex(perf.전략.unique())
+        pv.columns = [short(c) for c in pv.columns]
+        q95 = perf.pivot(index="전략", columns="품목", values="위약 95% 분위").reindex(perf.전략.unique())
+        f = go.Figure(go.Heatmap(z=pv.values, x=list(pv.columns), y=list(pv.index), colorscale=DIV, zmid=0, texttemplate="%{z:+.2f}",
+                                 hovertemplate="%{y} · %{x}: %{z:+.3f}<extra></extra>"))
+        f.update_layout(height=120 + 28 * len(pv), margin=dict(l=10, r=10, t=40, b=10), yaxis=dict(autorange="reversed"),
+                        title=f"{fq} 부호전략 Sharpe (비용 후) — 위약 95% 분위를 넘은 칸 수: {int((pv.values > q95.values).sum())} / {pv.size}")
+        st.plotly_chart(f, key="ex_ms_heat")
+        sub = perf.groupby("전략", sort=False)[["Sharpe 비용 후 2008~16", "Sharpe 비용 후 2017~"]].mean()
+        sub["두 기간 모두 +인 품목 수"] = perf.assign(ok=(perf["Sharpe 비용 후 2008~16"] > 0) & (perf["Sharpe 비용 후 2017~"] > 0)).groupby("전략", sort=False)["ok"].sum()
+        sub["OOS R² 중앙값"] = perf.groupby("전략", sort=False)["OOS R² (vs 과거평균)"].median()
+        sub["평균 롱 비중"] = perf.groupby("전략", sort=False)["롱 비중"].mean()
+        st.markdown("**품목 평균 — 하위기간 일관성**")
+        st.dataframe(sub.style.format({"Sharpe 비용 후 2008~16": "{:+.2f}", "Sharpe 비용 후 2017~": "{:+.2f}", "OOS R² 중앙값": "{:+.4f}",
+                                       "평균 롱 비중": "{:.0%}", "두 기간 모두 +인 품목 수": "{:.0f}"}))
+        st.markdown("**데이터 스누핑 보정** — 13개 전략(후보 6 + 메타 7) 중 최고를 골랐을 때도 유의한가")
+        mx = df[(df.구분 == "최댓값 위약") & (df.빈도 == fq)][["품목", "전략", sc, "위약 중앙값", "위약 95% 분위", "위약 p (단일)"]]
+        mx = mx.rename(columns={"전략": "최고 전략", sc: "관측 최고 Sharpe", "위약 중앙값": "위약 최댓값 중앙", "위약 95% 분위": "위약 최댓값 95%", "위약 p (단일)": "p"})
+        mx["품목"] = mx["품목"].map(short)
+        sp = df[(df.구분 == "SPA") & (df.빈도 == fq)].pivot(index="품목", columns="기준", values="Hansen SPA p")
+        sp.index = [short(i) for i in sp.index]; sp.columns = [f"SPA p: {c}" for c in sp.columns]
+        st.dataframe(mx.set_index("품목").join(sp).style.format({c: "{:+.2f}" for c in ["관측 최고 Sharpe", "위약 최댓값 중앙", "위약 최댓값 95%"]}
+                                                                | {"p": "{:.2f}"} | {c: "{:.3f}" for c in sp.columns}))
+        i_ = b_.selectbox("누적 성과 품목", list(perf.품목.unique()), format_func=short, key="ex_ms_id")
+        cf = EX_DATA / "model_selection_cum.parquet"
+        if cf.exists():
+            C = pd.read_parquet(cf); C = C[(C.품목 == i_) & (C.빈도 == fq)].pivot(index="date", columns="전략", values="누적")
+            f = go.Figure()
+            for j, c in enumerate(C.columns):
+                meta = c.startswith("(")
+                f.add_trace(go.Scatter(x=C.index, y=C[c], name=c, line=dict(color="#898781" if c == "Buy & Hold" else PAL[j % 8], width=2.2 if meta else 1.0,
+                                                                             dash="dot" if c == "Buy & Hold" else None),
+                                       visible=True if meta or c == "Buy & Hold" else "legendonly"))
+            st.plotly_chart(shade(fig_layout(f, 380, title=f"{short(i_)} · {fq} — 누적 순수익 (비용 5bp, 후보 모델은 범례 클릭)", yaxis_title="누적 로그수익률 (%)"),
+                                  C.index), key="ex_ms_cum")
+        with st.expander("품목별 전체 표"):
+            t_ = perf[perf.품목 == i_].set_index("전략").drop(columns=["구분", "품목", "빈도", "기준"], errors="ignore").dropna(axis=1, how="all")
+            st.dataframe(t_.style.format("{:.3f}", subset=list(t_.select_dtypes("number").columns)))
+        st.caption(META_READ)
     elif sec == "전략 비교 (리스크 버짓)":
         st.markdown("##### 리스크 버짓(신호 기울기 τ) vs 리스크 패리티 vs 최적화 vs 1/N vs DBC")
         df = _exp_header("rb")
@@ -2133,6 +2248,7 @@ def page_predict():
     a, b, c = st.tabs(["단일 품목 (회귀 · ML · 계량)", "여러 품목 (패널 · 횡단면)", "MIDAS 수익 예측 (혼합 주기)"])
     with a:
         tab_ml()
+        ml_meta()
     with b:
         tab_panel()
     with c:

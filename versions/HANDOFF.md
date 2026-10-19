@@ -2,7 +2,7 @@
 
 > 새 세션은 이 문서를 먼저 읽고 시작한다. 세션을 마칠 때는 **현재 상태 · 남은 과제 · 최근 결정**을 갱신하고 `CHANGELOG.md`에 버전을 추가한다.
 
-- **최종 갱신**: 2026-10-19 · **현재 버전**: v1.2.1 (git 태그)
+- **최종 갱신**: 2026-10-19 · **현재 버전**: v1.3.0 (git 태그)
 - **사용자**: 곡물·에너지·금속·운임을 다루는 **중간 트레이더**(직접 사용 X, 매입 후 재판매). 실무 의사결정 = **"언제, 얼마나 살까"** (숏 아님).
 - **저장소**: https://github.com/grainchobo-alt/commodity-analytics-lab (private, `main`) · 협업자 `seokhwan33`(write, 초대 발송)
 - **작업 폴더**: `C:\Users\user\Desktop\Commodity` (구 폴더 `Desktop\261013`에는 다른 프로젝트 공존 — 삭제 금지)
@@ -12,7 +12,7 @@
 |---|---|
 | 데이터 파이프라인 | 완료 — `run_daily.bat` (collect → clean → roll_adjust → data_quality → export_excel → build_dashboard), 증분 수집 |
 | 분석 앱 (Streamlit, 9탭) | 완료 — `run_lab.bat` → http://localhost:8501 |
-| 테스트 | 전부 통과 (2026-10-19, v1.2.1) — `tests/test_*.py` 15개, 앱 전체 `tests/test_app.py` (~10~20분) |
+| 테스트 | 전부 통과 (2026-10-19, v1.3.0) — `tests/test_*.py` 16개 (v1.3.0 `test_metasel` 추가), 앱 전체 `tests/test_app.py` (~10~20분) |
 | 문서 | `README.md`(설치·구성), `대시보드_기획서.docx`(1장, git 제외), 이 폴더 |
 
 ## 2. 탭 구성 → 모듈
@@ -23,7 +23,7 @@
 | ① 시장 구조·동조성 (상관·PCA·DY·TVP-VAR / FAVAR) | `page_structure` → `tab_comove`, `tab_favar` | `analytics.py`, `regime.py` |
 | ② 레짐 (Markov / HMM·MS·Kalman·TAR·STAR) | `tab_regime` (+ 공용 `model_detail`) | `analytics.py`, `regime.py` |
 | ③ 변동성·공분산 (GARCH / DCC·BEKK / GARCH-MIDAS 분해만) | `page_vol` → `tab_vol`, `tab_mvgarch`, `tab_midas(vol_only=True)` | `analytics.py`, `mvgarch.py`, `midas.py` |
-| ④ 수익률 예측 (단일 품목: 대표 7 + 고급 20모델, 위약 기준선 / 패널 / MIDAS 회귀) | `page_predict` → `tab_ml`, `tab_panel`, `tab_midas(False)` | `analytics.py`, `models_dense.py`, `models_ml.py`, `panel.py` |
+| ④ 수익률 예측 (단일 품목: 대표 7 + 고급 20모델, 위약 기준선 + 모델 선택 메타 전략 / 패널 / MIDAS 회귀) | `page_predict` → `tab_ml` + `ml_meta`, `tab_panel`, `tab_midas(False)` | `analytics.py`, `metasel.py`, `models_dense.py`, `models_ml.py`, `panel.py` |
 | ⑤ 포트폴리오 | `tab_portfolio` | `portfolio.py` |
 | ⑥ 실험 결과 (재실행 버튼, 구매 타이밍 = 단계별·프리셋 비교 한 섹션, 철강 원료·구리 상대가치 포함) | `tab_experiments` | `experiments.py` → `data/*_compare.csv`, `experiments_meta.json` |
 | ⑦ 모델 도감 (31개) | `page_atlas` | `model_atlas.py` |
@@ -32,6 +32,7 @@
 
 ## 3. 핵심 결론 (의사결정에 쓰는 근거)
 - **수익률 방향 예측은 모든 모델군에서 OOS R² ≈ 0** → 방향 베팅 근거로 쓰지 않음. 예측 가능한 것은 **변동성·위험**(MIDAS > HAR > EWMA).
+- **모델 선택 메타 전략(v1.3.0, `metasel.py`)**: 후보 6모델(OLS·Ridge·Lasso·GB·LightGBM·Kalman)을 직전 6개월 손실·지수가중 역MSE·레짐(HMM·실현변동성·평균 상관) 조건부로 골라도 6품목 × 일간·주간 156칸 중 **위약(롱 비중·전환 빈도 일치 무작위 부호) 95% 분위를 넘은 전략 0개**, '후보 중 최댓값' 위약 p ≥ 0.47, SPA로 B&H·과거평균 대비 우위 기각 0건 → **운과 구별되지 않음**. 품목 평균 최선은 (e) 과거 평균(추세 방향 보유). ④ 단일 분할의 Sharpe ~0.5는 롱 편향 + 최댓값 고르기로 설명됨.
 - **포트폴리오**: 리스크 버짓(τ=0.5) ≥ 리스크 패리티 > 평균-분산 최적화. 모멘텀은 12-1개월이 최선, 무거래 구간(20%, 최대 63일)이 회전율 절반에 같은/더 높은 Sharpe. 변동성 타기팅은 위험 안정화용(Sharpe 개선 없음, 롱온리는 악화).
 - **구매 타이밍(추천 프리셋)**: 상대가치 40% + 가격 위치 27% + 단기 반등 18% + 최근가중 계절 15%, MIDAS 위험, 6개월 창 → 균등 매수 대비 +13bp (2008~16 +14 / 2017~ +12, t=2.35, 싸게 산 비율 60%). **상대가치(실제 시세의 크러시 마진·대체 가격비)가 최근에도 유효한 유일한 신호**. 추세 신호는 구매자에게 해로움(→ 가중 0). 대두유는 바이오연료 정책으로 상대가치 효과 없음.
 - **철강 원료·구리(2013~, 전반 ~2019.6 / 후반 2019.7~)**: 철광석 = SGX/DCE 수입 차익 +27bp, 점결탄 = 철근 고로 마진 +23bp — 8·13·26주, 계수 ±에서도 전·후반 모두 +. 구리는 알루미늄 대체 비율이 후반에 음(−)이라 기각했고, 구리/금은 +5bp(t≈1)로 참고 수준. 표본이 짧고 DCE 연속월물은 롤 보정이 없음.
@@ -64,6 +65,7 @@
 7. `Desktop\261013` 폴더의 옛 원자재 파일 정리 (삭제는 사용자 확인 후에만).
 
 ## 7. 최근 결정 로그
+- 2026-10-19 (v1.3.0): ④에 '모델 선택 메타 전략' 추가(사용자 요청: 서브 기간마다 최적 모델이 다르니 시간·레짐별 선택). 위약·White RC·Hansen SPA 모두 유의하지 않아 **방향 예측에는 쓰지 않음**으로 기록. 스누핑 보정은 전략 13개 전체를 한 묶음으로, 위약은 롱 편향·회전율을 맞춘 마르코프 무작위 부호로.
 - 2026-10-19 (v1.2.1): 중복 정리. 변동성 경주는 ◆ 리스크로 일원화(③ 월간 경주 `midas.vol_race` 삭제 — 21일 시계 경주 결과는 v1.2.0 이전 기록으로만 남음), HMM 필터·EWMA는 risk.py 공용(결과 수치 불변 확인). ④ 기본 모델 7개 + 고급 20개, 성과 표에 무작위 부호 위약(단일 95%·N개 최댓값 95%) 기준선. 구매 타이밍 기본 프리셋 2개(보수적·공격적은 고급). ⑥ 구매 타이밍 두 섹션 통합.
 - 2026-10-19 (v1.2.0): ◆ 리스크 탭 추가. H-DCC 공분산 모형은 넣지 않음(사용자: 학계 검증 전 자체 제안 모형). 시변 λ 3종·검정·VaR/ES·꼬리 위험 추가. 구매 타이밍 4주 범위 = 경험적 분위. 구매자 위험은 '가격 상승'(숏 노출)으로 별도 평가.
 - 2026-10-15 (v1.1.0): 구매 신호 9품목 확장. 금속은 곡물과 표본 기간이 달라 별도로 검증(`procure_metals`)하고, 단계별 실험은 곡물 6품목으로 고정. 점결탄 $/t는 그날 환율로 환산(증치세 포함). 개선안에서 GitHub 관련 내용은 제외(CLAUDE.md).

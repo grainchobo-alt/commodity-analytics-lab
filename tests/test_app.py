@@ -39,8 +39,11 @@ at.radio(key="rk_dir").set_value("보유 재고 (가격 하락이 손실)").run(
 at.selectbox(key="rk_ph").set_value(60).run(); check(at, "리스크: 60일 물량 VaR")
 at.selectbox(key="rk_id").set_value("yf:TIO=F").run()
 at.button(key="rk_run").click().run(); check(at, "리스크: 철광석 재추정")
-for sec in ["철강 원료·구리 상대가치", "리스크 모형", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍 (프리셋 · 단계별)"]:
+for sec in ["철강 원료·구리 상대가치", "리스크 모형", "모델 선택 메타 전략", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍 (프리셋 · 단계별)"]:
     at.radio(key="ex_sec").set_value(sec).run(); check(at, f"실험 결과: {sec}")
+at.radio(key="ex_sec").set_value("모델 선택 메타 전략").run()
+at.radio(key="ex_ms_fq").set_value("주간").run(); at.selectbox(key="ex_ms_id").set_value("yf:HG=F").run(); check(at, "실험 결과: 메타 전략 주간·구리")
+at.radio(key="ex_sec").set_value("구매 타이밍 (프리셋 · 단계별)").run()
 at.radio(key="ex_pc_view").set_value("프리셋 · 신호 비교 (13·26주, 품목별)").run(); check(at, "실험 결과: 구매 타이밍 프리셋 비교")
 
 at.button(key="dybtn").click().run(); check(at, "DY 스필오버")
@@ -94,6 +97,10 @@ at.button(key="runml").click().run(); check(at, "추가 특성 + Walk-forward")
 at.selectbox(key="mlsel").set_value("Ridge").run(); check(at, "  상세: Ridge (특성 포함, 잔차 진단)")
 at.checkbox(key="vs").check().run()
 at.button(key="runml").click().run(); check(at, "목표 변동성 표준화")
+at.checkbox(key="vs").uncheck().run(); at.checkbox(key="wf").uncheck().run()
+at.button(key="runml").click().run()
+at.multiselect(key="ms_models").set_value(["OLS", "Ridge", "Kalman TVP"]).run()
+at.button(key="ms_run").click().run(); check(at, "④ 모델 선택 메타 전략 (OLS·Ridge·Kalman, 주간)")
 at.button(key="statbtn").click().run(); check(at, "정상성 진단")
 
 at.button(key="pf_run").click().run(); check(at, "포트폴리오: 모멘텀·롱온리 (주간)")

@@ -3,6 +3,13 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.3.0 — 2026-10-19 — ④ 모델 선택 메타 전략 (시간·레짐별 ML 모델 선택 + 데이터 스누핑 보정)
+- 새 모듈 `metasel.py`: 후보 모델 walk-forward OOS 경로 → 중첩 walk-forward 메타 선택 (a) 직전 N개월 최소손실 (b) 지수가중 역MSE 결합 (c) 레짐 조건부(HMM 3상태 필터·실현변동성 3분위·평균 쌍별 상관 3분위) (d) 동일가중 (e) 과거 평균. 손실은 실현이 끝난 것(s ≤ t−h)만 사용
+- 평가: OOS R², 부호전략 Sharpe(비용 전후)·B&H·롱 비중·하위기간(2008~16 / 2017~); 위약 = 롱 비중·전환 빈도 일치 무작위 부호(단일·'후보 중 최댓값'), White Reality Check·Hansen SPA(정상 부트스트랩)
+- ④ 단일 품목 탭에 '모델 선택 메타 전략' 섹션(`ms_run`), ⑥ 실험 결과에 '모델 선택 메타 전략'(6품목 × 일간·주간, `experiments.py metasel`, 누적 성과 `data/model_selection_cum.parquet`)
+- 결과: 156칸 중 위약 95% 분위 초과 0개, SPA 기각(B&H·과거평균 대비) 0건 → 유의하지 않음(운과 구별 불가)으로 기록
+- 테스트: `tests/test_metasel.py`(가격 교란·손실 교란 미래정보 테스트, SPA 크기·검정력, 위약 검사), `tests/test_app.py`에 새 버튼·섹션 경로
+
 ## v1.2.1 — 2026-10-19 — 중복 기능 정리 · 단순화 (결과 수치 불변)
 - 변동성 예측 경주 일원화: ③ '변동성 예측 (MIDAS·HAR·GARCH-MIDAS)'의 월간 경주(`midas.vol_race`·`vol_metrics` 삭제)를 ◆ 리스크 '변동성 모형 검증'(`risk.vol_models`)으로 통합. ③ 하위 탭은 'GARCH-MIDAS (장기·단기 변동성 분해)'만 남기고 안내 문구
 - HMM 전방 필터 공용화: `procurement.hmm_crisis_prob`(2상태)가 `risk.hmm_filter`(구 `_hmm_filter`)를 사용 — 구매 타이밍 백테스트 차이 < 1e-8bp (HMM 적합 자체의 실행 간 잡음 수준)

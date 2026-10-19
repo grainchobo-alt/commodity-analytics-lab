@@ -252,6 +252,47 @@ def risk_models(progress=None, start="2010-01-01"):
     _save("risk", pd.DataFrame(rows), t0, dict(평가시작=start, 품목=len(ids), VaR_σ="EWMA 롤링 λ (직전 3년)", MCS="T_max, 블록 10일, B=500"))
 
 
+META_IDS = ["yf:ZC=F", "yf:ZS=F", "yf:ZW=F", "yf:ZM=F", "yf:ZL=F", "yf:HG=F"]
+META_FEATS = ["yf:ZS=F", "yf:ZM=F", "yf:ZW=F", "yf:CL=F", "yf:HG=F", "yf:GC=F", "ak:macro_shipping_bdi",
+              "yf:DX-Y.NYB", "fred:VIXCLS", "fred:DGS10", "yf:^GSPC"]          # ④ 탭 기본 설명변수
+META_CORR = ["yf:ZC=F", "yf:ZS=F", "yf:ZM=F", "yf:ZW=F", "yf:ZL=F", "yf:CL=F", "yf:HG=F", "yf:GC=F"]
+
+
+def model_selection(progress=None, oos_start="2004-01-01", eval_start="2008-01-01", B: int = 1000):
+    """④ 모델 선택 메타 전략: 후보 6모델의 walk-forward OOS 경로 → (a) 직전 6개월 최소손실 (b) 지수가중 역MSE 결합
+    (c) 레짐(HMM·실현변동성·평균 상관) 조건부 선택 (d) 동일가중 (e) 과거평균. 일간(재추정 126일)·주간(26주), 비용 5bp, 평가 2008~.
+    위약 = 롱 비중·전환 빈도 일치 무작위 부호, 스누핑 보정 = White RC · Hansen SPA (전 13개 전략 동시)."""
+    import analytics as A
+    import metasel as MS
+    t0 = time.time(); La, Lr, U, _ = _data()
+    Rd = A.make_panel(La, [i for i in META_CORR if i in La], U, "B", "logret", "2000-01-01")
+    rows, curves = [], []
+    jobs = [(i, fq) for i in META_IDS if i in La for fq in ["B", "W-FRI"]]
+    for j, (i, fq) in enumerate(jobs):
+        feats = [f for f in META_FEATS if f != i and f in La]
+        R = A.make_panel(La, [i] + feats, U, fq, "logret", "2000-01-01")
+        D = A.build_design(R, i, feats, "predict", 3, 1, True, 0.7, xlag=1 if fq == "B" else 0)
+        D.cost = 0.05
+        o = MS.run(D, La, Rd, i, A.PPY[fq], 126 if fq == "B" else 26, oos_start=oos_start, eval_start=eval_start, B=B)
+        fql = {"B": "일간", "W-FRI": "주간"}[fq]
+        for s, r in o["table"].iterrows():
+            d_ = r.to_dict(); rows.append(dict(구분="성과", 품목=i, 빈도=fql, 전략=s, 유형=d_.pop("구분"), **d_))
+        pm = o["placebo_max"]
+        rows.append(dict(구분="최댓값 위약", 품목=i, 빈도=fql, 전략=pm["최고전략"], **{"부호전략 Sharpe (비용 후)": pm["관측최댓값"],
+                         "위약 중앙값": pm["위약최댓값중앙"], "위약 95% 분위": pm["위약최댓값95"], "위약 p (단일)": pm["p"]}))
+        for _, r in o["spa"].iterrows():
+            rows.append(dict(구분="SPA", 품목=i, 빈도=fql, 전략=r["최고 전략"], 기준=r["귀무가설 기준"], **{"최고 평균차": r["최고 평균차"],
+                             "White RC p": r["White RC p"], "Hansen SPA p": r["Hansen SPA p"], "전략 수": r["전략 수"]}))
+        C = MS.cum_net(o["preds"], o["y"], D.horizon, D.cost)
+        C = C.stack().rename("누적").reset_index(); C.columns = ["date", "전략", "누적"]
+        C["품목"] = i; C["빈도"] = fql
+        curves.append(C)
+        if progress: progress((j + 1) / len(jobs))
+    pd.concat(curves).to_parquet(DATA / "model_selection_cum.parquet")
+    _save("metasel", pd.DataFrame(rows), t0, dict(후보="OLS·Ridge·Lasso·GB·LightGBM·Kalman", 비용="5bp", OOS시작=oos_start,
+                                                   평가시작=eval_start, 선택창="6개월", 반감기="6개월", 위약B=B))
+
+
 EXPERIMENTS = {
     "procure": dict(title="구매 타이밍 — 신호·공격성별 평균 매입가 절감", file="procurement_compare.csv", fn=procurement, eta="약 1분",
                     cols=["품목", "신호", "구매기간주", "기간", "평균절감bp"]),
@@ -259,6 +300,8 @@ EXPERIMENTS = {
                           eta="약 5~10분", cols=["단계", "변형", "평균절감bp", "하위5bp"]),
     "procure_metals": dict(title="철강 원료·구리 — 상대가치 정의 비교", file="procurement_metals_compare.csv", fn=procurement_metals,
                            eta="약 1분", cols=["품목", "상대가치", "구매기간주", "전반bp", "후반bp"]),
+    "metasel": dict(title="모델 선택 메타 전략 — 시간·레짐별 ML 모델 선택 (위약·SPA 보정)", file="model_selection_compare.csv",
+                    fn=model_selection, eta="약 8~12분", cols=["구분", "품목", "빈도", "전략"]),
     "risk": dict(title="리스크 — 변동성 모형 경주 · VaR 백테스트 · 4주 범위 적중률", file="risk_models_compare.csv", fn=risk_models,
                  eta="약 3~5분", cols=["구분", "품목", "항목"]),
     "momentum": dict(title="모멘텀 기간 비교", file="momentum_lookback_compare.csv", fn=momentum_lookback, eta="약 5~8분",
