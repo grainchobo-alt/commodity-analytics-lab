@@ -352,6 +352,55 @@ def procurement_placebo(progress=None, n_placebo=10, weeks=(13, 26), seed=0):
                                          평가기간="procurement_all 과 동일"))
 
 
+def procurement_grains_recheck(progress=None, start="2008-01-01", split="2017-01-01", n_placebo=10, weeks=(13, 26), seed=0):
+    """곡물 6품목 상대가치 재검증 — '추천' 프리셋 결정에 쓴 원래 기간(2008~, 전반/후반 경계 2017-01-01, procurement_steps 와 동일)에서
+    현재 정의(REL_DEF) · 후보 단일 관계(REL_CANDS) · 다변량 2종 · 대조군(자기 가격 1년 위치) · 위약(다른 섹터 품목과의 가격비 n개)을
+    같은 백테스트로 비교 → rel_adoption 엄격 기준(13·26주 전·후반 개선, ≥5bp, 위약 90% 초과, 대조군 초과)으로 판정.
+    관계 자료가 평가 시작보다 늦게 시작하면(예: DCE) 그 전 구간은 상대가치 없이(가중치 재배분) 평가되며 '관계시작'에 기록."""
+    import procurement as PR
+    t0 = time.time(); La, Lr, U, _ = _data(); rows = []
+    P_ = PR.PRESETS["추천 (고도화: 상대가치+계절+MIDAS)"]
+    rng = np.random.default_rng(seed)
+    st_ = pd.Timestamp(start)
+    for j, i in enumerate(PR.GRAIN_IDS):
+        cur = PR.inputs(La, Lr, i, "ewma", "price")
+        rels = {f"현재 정의: {PR.REL_DEF[i][0]}": (cur["rel"], cur["rel_sign"], "단일")}
+        for c in PR.REL_CANDS.get(i, []):
+            rels[c[0]] = (*PR.rel_option(Lr, i, c[0], La), "단일")
+        for o in (PR.MULTI_AVG, PR.MULTI_COINT):
+            rels[o] = (*PR.rel_option(Lr, i, o, La), "다변량")
+        own = np.log(Lr[i].dropna()); rels[OWN_CTRL] = (own[own.index.dayofweek < 5], -1, "대조군")
+        pool = [k for k, sec in _SECTOR.items() if sec != _SECTOR[i] and k in Lr and Lr[k].first_valid_index() < st_ - pd.DateOffset(years=2)]
+        for k in rng.choice(pool, min(n_placebo, len(pool)), replace=False):
+            rels[f"위약: /{k}"] = (PR.cand_series(Lr, i, ("", "r", k, -1)), -1, "위약")
+        vf = PR.midas_var(La[i])
+        for o, (rel, sg, kind) in [("상대가치 없음", (None, 1, "없음"))] + list(rels.items()):
+            if kind != "없음" and (rel is None or len(rel.dropna()) < 500):
+                continue
+            for wk in weeks:
+                B = PR.backtest(Lr[i], La[i], wk, 4, start=st_, w=P_["w"], k=P_["k"], lookback=P_["lookback"],
+                                inp=dict(rel=rel, rel_sign=sg, vol_fc=vf), season=P_["season"])
+                x = B["절감_규칙"]; nov = x.iloc[::max(1, wk // 4)]
+                rows.append(dict(품목=PR.BUY_IDS[i], id=i, 상대가치=o, 종류=kind, 구매기간주=wk, 평균절감bp=x.mean(),
+                                 t값_비중첩=nov.mean() / nov.std() * np.sqrt(len(nov)), 전반bp=x[x.index < split].mean(),
+                                 후반bp=x[x.index >= split].mean(), 균등보다싸게=(x > 0).mean(),
+                                 관계시작=("" if rel is None else str(rel.dropna().index[0].date())), 기간수=len(x)))
+        if progress: progress((j + 1) / len(PR.GRAIN_IDS))
+    df = pd.DataFrame(rows)
+    b0 = df[df.종류 == "없음"].set_index(["id", "구매기간주"])
+    for c in ["평균절감bp", "전반bp", "후반bp"]:
+        df[f"개선_{c[:-2]}"] = df[c].values - b0[c].reindex(pd.MultiIndex.from_frame(df[["id", "구매기간주"]])).values
+    _save("procure_grains", df, t0, dict(프리셋="추천 (상대가치 정의만 변경)", 시작=start, 전후반경계=split, 구매기간=", ".join(f"{w}주" for w in weeks),
+                                        위약=f"다른 섹터 품목과의 가격비 (품목당 무작위 {n_placebo}개)", 판정="rel_adoption 엄격 기준"))
+
+
+def grains_verdict(df: pd.DataFrame) -> pd.DataFrame:
+    """procurement_grains_recheck 결과 → rel_adoption 판정표 (위약 행을 위약 분포로 사용)."""
+    pl = df[df.종류 == "위약"].rename(columns={"상대가치": "선택지"})
+    g = rel_adoption(df[df.종류 != "위약"], pl)
+    return g.sort_values(["품목", "개선"], ascending=[True, False])
+
+
 RISK_IDS = ["yf:ZC=F", "yf:ZW=F", "yf:KE=F", "yf:ZS=F", "yf:ZM=F", "yf:ZL=F", "yf:TIO=F", "ak:JM0", "yf:HG=F", "yf:CL=F", "yf:NG=F", "yf:GC=F"]
 
 
@@ -454,6 +503,8 @@ EXPERIMENTS = {
                          eta="약 5~8분", cols=["품목", "위치창", "구매창주", "tau", "절감bp"]),
     "procure_placebo": dict(title="구매 상대가치 위약 검증 — 무의미한 관계의 우연 통과율", file="procurement_placebo_compare.csv",
                             fn=procurement_placebo, eta="약 5~10분", cols=["품목", "선택지", "종류", "구매기간주"]),
+    "procure_grains": dict(title="곡물 상대가치 재검증 — 원래 기간(2008~, 경계 2017) 엄격 기준", file="procurement_grains_compare.csv",
+                           fn=procurement_grains_recheck, eta="약 3~6분", cols=["품목", "상대가치", "종류", "구매기간주", "개선_평균절감"]),
     "metasel": dict(title="모델 선택 메타 전략 — 시간·레짐별 ML 모델 선택 (위약·SPA 보정)", file="model_selection_compare.csv",
                     fn=model_selection, eta="약 8~12분", cols=["구분", "품목", "빈도", "전략"]),
     "risk": dict(title="리스크 — 변동성 모형 경주 · VaR 백테스트 · 4주 범위 적중률", file="risk_models_compare.csv", fn=risk_models,
