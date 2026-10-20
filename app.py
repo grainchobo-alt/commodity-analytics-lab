@@ -1827,9 +1827,9 @@ def _defer_ev(tau: float, p_star: float, auc_min: float):
 def tab_procure():
     import procurement as PR
     st.subheader("구매 타이밍 — 지금 살까, 미룰까")
-    st.caption("매주 금요일 한 번의 구매 판단: ① 지금 가격이 매력적인가(점수 ≥ 문턱 τ — 가격 위치·반등·계절·상대가치) → 지금 매수. "
-               "② 매력적이지 않고, 그 품목이 '미루는 기간 안에 지금보다 쌀 확률'을 과거에 맞혀 온 품목이면(학습 기간 AUC > 기준) 확률 ≥ p* 일 때 미루기 권고. "
-               "③ 그 외에는 평소대로 매수 — 예측력이 없는 품목은 가격 매력도만으로 판단. 미루는 기간(1–4주)·계절 특성은 품목마다 학습 기간(2008–2016)으로 고르고 "
+    st.caption("매주 금요일 한 번의 구매 판단을 3색으로: 🟢 적극 매수 = 가격 매력 점수 ≥ 문턱 τ (국소 저점권 추정). "
+               "🔴 매수 보류 = 점수 < τ 이고, '미루는 기간 안에 지금보다 쌀 확률' ≥ p* (단, 그 확률의 과거 정확도가 설정한 AUC 기준치를 넘는 품목만). "
+               "🟡 판단 유보 = 그 외 — 지금 살지 미룰지 근거가 부족, 필요 물량·일정에 따라 결정. 미루는 기간(1–4주)·계절 특성은 품목마다 학습 기간(2008–2016)으로 고르고 "
                "시험 기간(2017–) 성과를 함께 표시. 점수·확률은 그 시점까지의 데이터만 사용, 체결은 결정일(금) 다음 거래일 종가.")
     ids_av = [i for i in PR.BUY_IDS if i in NAME]
     c1_, c2_, c3_ = st.columns([2, 1.6, 0.8])
@@ -1894,15 +1894,22 @@ def tab_procure():
                         help="높일수록 확신이 클 때만 미룸(미루는 횟수 ↓). 기본값 = 학습 기간(2008–2016)에 판단당 절감이 가장 컸던 값")
     auc_min = cq2.slider("미루기 권고 활성화 — 학습 기간 하락 예측 AUC >", 0.50, 0.60, float(EX.DEFER_AUC_MIN), 0.01, key="pc_aucmin",
                          help="품목마다 8개 조합(미루는 기간 1–4주 × 계절 특성 유무) 중 학습 AUC가 가장 높은 것을 고르므로, 예측력이 전혀 없어도 "
-                              "최댓값이 0.53을 넘을 확률이 67%(0.55는 22%) → 기본 0.55. 이 기준을 못 넘는 품목은 '예측력 없음, 가격 매력도만으로 판단'")
+                              "최댓값이 0.53을 넘을 확률이 67%(0.55는 22%) → 기본 0.55. 이 기준을 못 넘는 품목은 '설정 AUC 기준치 미달' — 🔴 보류 판단을 하지 않고 🟢/🟡만 표시")
     g_tau = min((0.5, 0.6), key=lambda v: abs(v - tau)); g_p = min((0.5, 0.55, 0.6, 0.65), key=lambda v: abs(v - p_star))
     ev = _defer_ev(g_tau, g_p, float(auc_min))
     if ev.empty:
         st.warning("⑥ 실험 결과 '미루기 권고' 결과가 없습니다 — ⑥에서 재실행하면 품목별 근거(AUC·시험 성과)가 표시됩니다.")
     elif (g_tau, g_p) != (round(tau, 2), round(p_star, 2)):
         st.caption(f"근거표(과거 AUC·시험 성과)는 실험 격자의 가장 가까운 설정(τ {g_tau:.2f}, p* {g_p:.2f}) 기준 — 아래 '과거 성과 검증'은 지금 설정 그대로 다시 계산.")
+    tl = tau * 100
+    lg1, lg2, lg3 = st.columns(3)
+    lg1.success(f"🟢 **적극 매수** — 가격 매력 점수 **{tl:.0f}–100**  \n국소 저점권으로 추정 → 지금 사기 좋은 가격")
+    lg2.warning(f"🟡 **판단 유보** — 점수 **0–{tl - 1:.0f}** 이고, 쌀 확률 **{p_star:.0%} 미만** 또는 설정 AUC 기준치({auc_min:.2f}) 미달  \n"
+                "지금 살지 미룰지 근거 부족 → 필요 물량·일정에 따라 결정")
+    lg3.error(f"🔴 **매수 보류** — 점수 **0–{tl - 1:.0f}** 이고, 미루는 기간 안에 지금보다 쌀 확률 **{p_star:.0%}–100%**  \n"
+              f"(학습 AUC > {auc_min:.2f} 품목만) → 품목별 기간(1–4주)만큼 미루기")
     ncol = min(len(T), 3)
-    plan, cfg = [], {}
+    plan, cfg, pts = [], {}, []
     for j, r in T.iterrows():
         if j % ncol == 0:
             qc = st.columns(ncol)
@@ -1917,15 +1924,15 @@ def tab_procure():
         W_, F = _proc_defer(i, tuple(sorted(w.items())), risk, lb_of(i), season, h, seaf, ROLL)
         pdn = float(F["p_down"].iloc[-1]) if len(F) and np.isfinite(F["p_down"].iloc[-1]) else np.nan
         if s_ >= tau * 100:
-            dec, why = "🟢 지금 매수 — 가격 매력적", f"점수 {s_:.0f} ≥ 문턱 {tau * 100:.0f} (국소 저점권)"
+            dec, why = "🟢 적극 매수", f"점수 {s_:.0f} ≥ 문턱 {tau * 100:.0f} — 국소 저점권으로 추정, 지금 사기 좋은 가격"
         elif active and np.isfinite(pdn) and pdn >= p_star:
-            dec, why = f"⏸ {h}주 미루기 권고", f"점수 {s_:.0f} < 문턱 {tau * 100:.0f} · {h}주 안에 지금보다 쌀 확률 {pdn:.0%} ≥ 기준 {p_star:.0%}"
+            dec, why = f"🔴 매수 보류 ({h}주)", f"점수 {s_:.0f} < 문턱 {tau * 100:.0f} 이고 {h}주 안에 지금보다 쌀 확률 {pdn:.0%} ≥ 기준 {p_star:.0%} → {h}주 미루기"
         elif active:
-            dec, why = "🟡 평소대로 매수", f"점수 {s_:.0f} < 문턱이지만 {h}주 하락 확률 {pdn:.0%} < 기준 {p_star:.0%} — 기다릴 근거 부족"
+            dec, why = "🟡 판단 유보", f"점수 {s_:.0f} < 문턱 {tau * 100:.0f} · {h}주 안에 더 쌀 확률 {pdn:.0%} < 기준 {p_star:.0%} — 미룰 근거도, 서두를 근거도 부족"
         else:
-            dec, why = "🟡 평소대로 매수 — 예측력 없음", (f"가격 매력도만으로 판단 (점수 {s_:.0f} < 문턱 {tau * 100:.0f}). 이 품목은 '쌀 확률' 예측의 과거 정확도가 "
-                                                    f"기준 미달(학습 AUC {e_['학습AUC']:.2f} ≤ {auc_min:.2f})이라 미루기를 권하지 않음" if e_ is not None
-                                                    else "가격 매력도만으로 판단 — 이 품목은 미루기 실험 대상(2005년 이전 자료) 밖")
+            dec, why = "🟡 판단 유보 · AUC 기준치 미달", (f"점수 {s_:.0f} < 문턱 {tau * 100:.0f}. 이 품목의 '더 쌀 확률'은 과거 정확도가 설정한 AUC 기준치에 못 미쳐"
+                                                     f"(학습 AUC {e_['학습AUC']:.2f} ≤ {auc_min:.2f}) 🔴 보류 판단에 쓰지 않음 — 가격 매력도만으로 판단" if e_ is not None
+                                                     else f"점수 {s_:.0f} < 문턱 {tau * 100:.0f}. 이 품목은 '더 쌀 확률' 검증 대상(2005년 이전 자료) 밖 — 가격 매력도만으로 판단")
         box.metric(dec, f"${qty * r['가격'] / 1e6:,.2f}M", f"{qty:,.0f} {u} × ${r['가격']:,.1f}{r['단위'][1:]}", delta_color="off")
         srow = sigs[i].loc[sigs[i].dropna(subset=["value"]).index.max()]
         ew = PR.eff_weights(srow, w)
@@ -1934,7 +1941,7 @@ def tab_procure():
             ev_txt = (f"{h}주 안에 더 쌀 확률 **{pdn:.0%}** ← 근거: {h}주 시계{' · 계절 특성' if seaf else ''} (학습으로 선택) · "
                       f"학습 AUC {e_['학습AUC']:.2f} / 시험 AUC {e_['시험AUC']:.2f} · 시험(2017–) 판단당 {e_['시험절감bp']:+.1f}bp "
                       f"(같은 비율 무작위로 미룸 {e_['시험위약bp']:+.1f}bp), 미룬 비율 {e_['시험미룸비율']:.0%}"
-                      + ("" if active else " — **활성화 기준 미달**"))
+                      + ("" if active else f" — **설정 AUC 기준치({auc_min:.2f}) 미달 → 보류 판단 대상 아님**"))
         else:
             ev_txt = "하락 확률 근거 없음 (미루기 실험 대상 밖)"
         box.caption(f"{why}  \n점수 근거: {PR.reason(srow, w)}  \n{ev_txt}  \n"
@@ -1944,22 +1951,41 @@ def tab_procure():
         plan.append({"품목": r["품목"], "판단": dec, "매수 점수": s_, "문턱": tau * 100, "미루는 기간 (주)": h, "계절 특성": "사용" if seaf else "–",
                      "더 쌀 확률": pdn, "학습 AUC": e_["학습AUC"] if e_ is not None else np.nan, "시험 AUC": e_["시험AUC"] if e_ is not None else np.nan,
                      "시험 절감 (bp)": e_["시험절감bp"] if e_ is not None else np.nan, "시험 위약 (bp)": e_["시험위약bp"] if e_ is not None else np.nan,
-                     "미루기 권고": "활성" if active else "예측력 없음", "점수 근거": PR.reason(srow, w)})
+                     "보류 판단": "적용" if active else "설정 AUC 기준치 미달", "점수 근거": PR.reason(srow, w)})
+        pts.append(dict(품목=r["품목"], 점수=s_, 확률=pdn * 100 if np.isfinite(pdn) else np.nan, 적용=active, 판단=dec))
     st.dataframe(pd.DataFrame(plan).set_index("품목").style.format(
         {"매수 점수": "{:.0f}", "문턱": "{:.0f}", "더 쌀 확률": "{:.0%}", "학습 AUC": "{:.3f}", "시험 AUC": "{:.3f}", "시험 절감 (bp)": "{:+.1f}",
          "시험 위약 (bp)": "{:+.1f}"}, na_rep="–"))
-    st.caption("읽는 법: 🟢 = 지금 가격이 위치·반등·계절·상대가치로 보아 국소 저점권. ⏸ = 가격이 매력적이지 않고, 과거에 '쌀 확률'을 맞혀 온 품목에서 그 확률이 기준 이상. "
-               "🟡 = 기다릴 근거 부족 → 평소대로. 확률은 매년 그 이전 자료로만 학습한 로지스틱 회귀(점수·구성요소·최근 수익률·변동성 [+ 연중 주차])이며 AUC 0.5 = 동전 던지기. "
+    if pts:
+        Pm = pd.DataFrame(pts)
+        f = go.Figure()
+        f.add_shape(type="rect", x0=tl, x1=100, y0=0, y1=100, fillcolor="rgba(46,160,67,0.18)", line_width=0, layer="below")
+        f.add_shape(type="rect", x0=0, x1=tl, y0=p_star * 100, y1=100, fillcolor="rgba(218,54,51,0.18)", line_width=0, layer="below")
+        f.add_shape(type="rect", x0=0, x1=tl, y0=0, y1=p_star * 100, fillcolor="rgba(210,153,34,0.18)", line_width=0, layer="below")
+        for x_, y_, t_ in [(tl + (100 - tl) / 2, 95, "🟢 적극 매수"), (tl / 2, 97, "🔴 매수 보류"), (tl / 2, 5, "🟡 판단 유보")]:
+            f.add_annotation(x=x_, y=y_, text=t_, showarrow=False, font=dict(size=13))
+        for ok_, nm_, sym in [(True, "AUC 기준 충족 (🔴 가능)", "circle"), (False, "AUC 기준치 미달 (🟢/🟡만)", "circle-open")]:
+            q = Pm[Pm["적용"] == ok_]
+            if len(q):
+                f.add_trace(go.Scatter(x=q["점수"], y=q["확률"].fillna(50), mode="markers+text", text=q["품목"], textposition="top center",
+                                       marker=dict(size=13, symbol=sym, color=PAL[0] if ok_ else "#898781", line=dict(width=2)), name=nm_,
+                                       hovertemplate="%{text}<br>점수 %{x:.0f} · 더 쌀 확률 %{y:.0f}%<extra></extra>"))
+        st.plotly_chart(fig_layout(f, 380, title=f"이번 주 위치: 가격 매력 점수 × 미루는 기간 안에 더 쌀 확률 (문턱 τ {tl:.0f}점 · p* {p_star:.0%})",
+                                   xaxis=dict(title="가격 매력 점수 (높을수록 쌈)", range=[0, 100]), yaxis=dict(title="더 쌀 확률 (%)", range=[0, 100]),
+                                   hovermode="closest"), key="pc_map")
+        st.caption("빈 원 = 설정 AUC 기준치 미달 품목 — 확률이 빨간 영역에 있어도 과거 정확도가 기준에 못 미쳐 🔴 보류 판단을 하지 않음 (🟢 아니면 🟡).")
+    st.caption("읽는 법: 🟢 = 지금 가격이 위치·반등·계절·상대가치로 보아 국소 저점권. 🔴 = 가격이 매력적이지 않고, 과거에 '쌀 확률'을 맞혀 온 품목에서 그 확률이 기준 이상. "
+               "🟡 = 살지 미룰지 근거 부족. 확률은 매년 그 이전 자료로만 학습한 로지스틱 회귀(점수·구성요소·최근 수익률·변동성 [+ 연중 주차])이며 AUC 0.5 = 동전 던지기. "
                "'시험 절감' = 2017년 이후 이 규칙을 따랐을 때 '바로 산 경우' 대비 판단 1회당 평균 매입가 차이, '위약' = 같은 비율을 무작위로 미뤘을 때 (가격이 오르는 국면에선 음수).")
     with st.expander(f"품목별 '더 쌀 확률' 예측 정확도 (AUC) — 전체 {len(ev)}품목, 학습 2008–2016 · 시험 2017–"):
         if len(ev):
             A_ = ev.copy()
-            A_["미루기 권고"] = np.where(A_["학습AUC"] > auc_min, "✅ 활성", "– 예측력 없음")
+            A_["보류 판단"] = np.where(A_["학습AUC"] > auc_min, "✅ 적용", "– 설정 AUC 기준치 미달")
             A_["시험 판정"] = np.where((A_["시험AUC"] > 0.53) & (A_["시험절감bp"] > A_["시험위약bp"]), "✅ 시험에서도 통함",
                                       np.where(A_["시험AUC"] < 0.5, "⚠️ 시험에서 동전 던지기 이하", "– 약함"))
             A_["미루는 기간"] = A_["미룸주"].astype(str) + "주" + np.where(A_["계절특성"], " · 계절", "")
             A_ = A_.sort_values("학습AUC", ascending=False)[["품목", "군", "미루는 기간", "학습AUC", "시험AUC", "시험절감bp", "시험위약bp", "시험미룸비율",
-                                                          "시험적중률", "미루기 권고", "시험 판정"]]
+                                                          "시험적중률", "보류 판단", "시험 판정"]]
             st.dataframe(A_.rename(columns={"학습AUC": "학습 AUC", "시험AUC": "시험 AUC", "시험절감bp": "시험 판단당 절감 (bp)", "시험위약bp": "무작위 미룸 (bp)",
                                             "시험미룸비율": "시험 미룬 비율", "시험적중률": "미룬 경우 적중률"}).set_index("품목").style.format(
                 {"학습 AUC": "{:.3f}", "시험 AUC": "{:.3f}", "시험 판단당 절감 (bp)": "{:+.1f}", "무작위 미룸 (bp)": "{:+.1f}", "시험 미룬 비율": "{:.0%}",
@@ -2347,7 +2373,7 @@ EX_OVERVIEW = [
     ("구매", "미루기 권고 (재고 무관 · 1~4주)", "재고를 빼고 '지금 가격이 매력적인가 + 미루는 기간(1~4주) 안에 지금보다 쌀 확률'로 구매를 미루면 바로 사는 것보다 싼가? 계절 특성은 도움이 되나?",
      "곡물 하락 예측 AUC ≈ 0.48~0.51 (예측력 없음). 품목마다 학습 기간으로 시계·특성을 고르고 학습 AUC > 0.55인 9품목(휘발유·생우·돈육·오렌지주스·면화 등)만 쓰면 "
      "시험 2017~ 판단당 +23bp vs 무작위 미룸 −14bp. 계절 특성은 3~4주 시계에서 AUC +0.02. 전 품목 일괄 적용은 학습 +6bp → 시험 −1.5bp (과적합)",
-     "★ 구매 타이밍 '지금 살까, 미룰까' (τ 0.60, p* 0.55, 품목별 시계, AUC 0.55 미만은 '예측력 없음')", "⚠️ 일부만 (근거 있는 품목만)"),
+     "★ 구매 타이밍 '지금 살까, 미룰까' (τ 0.60, p* 0.55, 품목별 시계, AUC 0.55 이하는 '설정 AUC 기준치 미달' → 🟢/🟡만)", "⚠️ 일부만 (근거 있는 품목만)"),
     ("구매", "구매 타이밍 (프리셋 · 단계별)", "기준 프리셋에서 신호를 하나씩 바꾸면 매입가가 얼마나 싸지나? 어떤 프리셋이 가장 좋나?",
      "상대가치(크러시 마진·옥수수/밀 비율)만 전·후반 모두 뚜렷. '추세만'은 손해, 공격적 프리셋은 꼬리 손실 큼",
      "★ 구매 타이밍 '추천' 프리셋의 근거", "✅ 채택"),
