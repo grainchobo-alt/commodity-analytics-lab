@@ -24,7 +24,12 @@ for pz in ["보수적 (위치+반등+계절)", "공격적 (가격 위치만, 2�
 at.checkbox(key="pc_adv").uncheck().run(); check(at, "구매 타이밍: 기본 프리셋 2개로 복귀")
 at.number_input(key="pc_weeks").set_value(26).run(); check(at, "구매 타이밍: 26주 기간 백테스트")
 at.selectbox(key="pc_detail").set_value("yf:ZM=F").run(); check(at, "구매 타이밍: 대두박 상세")
-at.number_input(key="pc_rem").set_value(12000.0).run(); check(at, "구매 타이밍: 매수량 계산기")
+at.number_input(key="pc_q_yf:ZC=F").set_value(12000.0).run(); at.number_input(key="pc_wl").set_value(1).run()
+assert at.number_input(key="pc_q_yf:ZC=F").value == 12000.0; check(at, "구매 타이밍: 이번 주 매수 계획 (마지막 주 = 전량)")
+at.number_input(key="pc_wl").set_value(13).run()
+at.multiselect(key="pc_ids").set_value(["yf:ZC=F", "yf:BZ=F", "yf:HO=F", "yf:PA=F"]).run(); check(at, "구매 타이밍: 상대가치 없는 품목(경유·팔라듐) 가중치 재배분")
+assert any("가중치 재배분" in c.value for c in at.caption)
+at.multiselect(key="pc_ids").set_value(["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F"]).run()
 at.selectbox(key="pc_y0").set_value(2016).run(); check(at, "구매 타이밍: 검증 시작 2016")
 at.number_input(key="pc_carry").set_value(3.0).run(); check(at, "구매 타이밍: 보유비용 3bp/주")
 # ◆ 리스크

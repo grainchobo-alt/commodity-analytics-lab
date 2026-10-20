@@ -1797,7 +1797,8 @@ def tab_procure():
                    "점결탄↔철근 고로 마진, 구리↔금)의 1년 분위 — 대두유는 바이오연료 정책으로 관계 자체가 이동해 효과가 약하고, "
                    "구리는 대체재(알루미늄) 관계가 최근 기각돼 구리/금만 참고 수준. 점결탄은 DCE 위안 가격을 그날 환율로 달러 환산(증치세 포함), "
                    "철강 원료 3품목은 데이터가 2010~2013년부터라 검증 기간이 짧음. "
-                   "확장 품목(에너지·귀금속·소프트·축산·DCE 등)은 후보 관계 중 13·26주 모두 전·후반 개선된 것만 채택(돈육/옥수수, 가스/원유, 생우/송아지 등), "
+                   "확장 품목(에너지·귀금속·소프트·축산·DCE 등)은 후보 관계 중 두 기간 개선 + 무관한 가격비(위약)·자기 가격 대조군을 모두 넘은 것만 채택"
+                   "(가스/원유, 생우/송아지, 알루미늄/구리, 브렌트 경유 크랙 등 10품목), "
                    "통과 관계가 없는 품목은 상대가치 없이 가격 위치·반등·계절로만 판단 → ⑥ 실험 결과 '전 품목 구매 타이밍'.")
     risk = PR.RISK_MODES[risk_l]; lookback = {"6개월": 126, "1년": 252, "2년": 504}[lb_l]; season = PR.SEASON_MODES[sea_l]
     if not ids:
@@ -1808,9 +1809,9 @@ def tab_procure():
         inp = _proc_inputs(i, risk, "price", ROLL, extra_bytes)
         return PR.signals(La_[i], lookback, inp["rel"], inp["rel_sign"], inp["vol_fc"], inp["crisis"], season), inp
 
-    rows = []
+    rows, sigs = [], {}
     for i in ids:
-        sig, inp = sig_of(i)
+        sig, inp = sig_of(i); sigs[i] = sig
         sc = PR.score(sig, w)
         last = sig.dropna(subset=["value"]).index.max()
         pa = PR.usd_t(Lr_, i); px = float(pa.loc[:last].iloc[-1]); p1 = pa.loc[last - pd.DateOffset(years=1):last]
@@ -1821,20 +1822,40 @@ def tab_procure():
                      "4주 하단 90%": px * b_lo, "4주 상단 90%": px * b_hi,
                      "권장 속도 (균등 대비 배)": PR.pace(float(sc.loc[last]), rk, 1.0, int(weeks), k, 3.0) * int(weeks)})
     T = pd.DataFrame(rows)
-    st.markdown(f"##### 오늘의 구매 신호 (기준일 {T['기준일'].max()} · {preset})")
+    st.markdown(f"##### 이번 주 매수 계획 (기준일 {T['기준일'].max()} · {preset})")
     light = lambda s: "🟢 적극 매수" if s >= 65 else ("🟡 평소대로" if s >= 35 else "🔴 매수 늦춤")
-    ncol = min(len(T), 6)
+    # ---- 이번 주 매수 계획: 남은 물량을 넣으면 이번 주 살 양을 바로 계산 ----
+    wl = st.number_input("남은 기간 (주, 이번 주 포함)", 1, 52, int(weeks), key="pc_wl",
+                         help="목표 기간 중 남은 주 수. 마지막 주에는 남은 물량을 전부 삼")
+    ncol = min(len(T), 4)
+    plan = []
     for j, r in T.iterrows():
         if j % ncol == 0:
-            mc = st.columns(ncol)
-        mc_ = mc[j % ncol]
-        mc_.metric(f"{r['품목']}", f"${r['가격']:,.0f}{r['단위'][1:]}", f"점수 {r['매수 점수']:.0f} · {light(r['매수 점수'])}", delta_color="off")
-        mc_.caption(f"이번 주 권장: 균등 대비 **{r['권장 속도 (균등 대비 배)']:.2f}배** · 4주 90% 범위 ${r['4주 하단 90%']:,.0f}~{r['4주 상단 90%']:,.0f}")
-    show = T.drop(columns=["id"]).set_index("품목")
-    st.dataframe(show.style.format({c: "{:,.1f}" for c in show.columns if show[c].dtype.kind == "f"} | {"권장 속도 (균등 대비 배)": "{:.2f}"}))
-    st.caption(f"점수 = 구성 요소의 가중 평균 (0~100, 가중치 0인 요소는 참고 표시). 위험 지표 = {risk_l} (높을수록 균등 매수에 가깝게 보수적). "
-               "'4주 90% 범위' = 현재 변동성 × 과거 '표준화 4주 수익률'의 경험적 5%·95% 분위 (정규 ±1.645σ는 꼬리가 두꺼워 실제 적중률 86~87%, "
-               "철광석 75%에 그쳐 보정) → 하단 근처 지정가 매수 주문 참고. 적중률 검증: ◆ 리스크 탭.")
+            qc = st.columns(ncol)
+        box = qc[j % ncol].container(border=True)
+        u = "온스" if r["단위"] == "$/oz" else "톤"
+        rem = box.number_input(f"{r['품목']} — 남은 필요 물량 ({u})", 0.0, 1e8, 30000.0, 1000.0, key=f"pc_q_{r['id']}")
+        q = PR.pace(r["매수 점수"] / 100, r["위험 지표"] / 100, rem, int(wl), k, 3.0)
+        eq = rem / int(wl)
+        box.metric(f"이번 주 매수량 · {light(r['매수 점수'])}", f"{q:,.0f} {u}", f"균등 {eq:,.0f} {u} 대비 {q - eq:+,.0f}" if rem else None, delta_color="off")
+        srow = sigs[r["id"]].loc[sigs[r["id"]].dropna(subset=["value"]).index.max()]
+        ew = PR.eff_weights(srow, w)
+        box.caption(f"점수 **{r['매수 점수']:.0f}** — {PR.reason(srow, w)}  \n"
+                    f"현재가 \\${r['가격']:,.0f}{r['단위'][1:]} · 4주 90% 범위 \\${r['4주 하단 90%']:,.0f}~{r['4주 상단 90%']:,.0f}"
+                    + ("" if "relval" in ew or w.get("relval", 0) == 0 else
+                       "  \n상대가치 관계 없음 → 가중치 재배분: " + " · ".join(f"{PR.COMP_LBL[c].split(' (')[0]} {v:.0%}" for c, v in ew.items())))
+        plan.append({"품목": r["품목"], "신호": light(r["매수 점수"]), "매수 점수": r["매수 점수"], f"남은 물량": rem, "이번 주 매수량": q,
+                     "균등 매수량": eq, "매수 후 남은 물량": rem - q, "단위": u, "판단 근거": PR.reason(srow, w)})
+    st.dataframe(pd.DataFrame(plan).set_index("품목").style.format({"매수 점수": "{:.0f}", "남은 물량": "{:,.0f}", "이번 주 매수량": "{:,.0f}",
+                                                                   "균등 매수량": "{:,.0f}", "매수 후 남은 물량": "{:,.0f}"}))
+    st.caption(f"이번 주 매수량 = 남은 물량 ÷ 남은 주 × 배율, 배율 = 1 + k·확신·(2·점수 − 1) (0~3배), 확신 = 1 − 0.5·위험 지표({risk_l}) — "
+               "점수 50이면 균등, 높을수록 더 사고 낮을수록 덜 삼. 마지막 주는 전량. 판단 근거 = 점수에 가장 크게 작용한 구성요소 (65 이상 유리 · 35 이하 불리).")
+    with st.expander("신호 구성 상세표 (구성요소 점수 · 위험 · 4주 범위)"):
+        show = T.drop(columns=["id", "권장 속도 (균등 대비 배)"]).set_index("품목")
+        st.dataframe(show.style.format({c: "{:,.1f}" for c in show.columns if show[c].dtype.kind == "f"}))
+        st.caption(f"점수 = 구성 요소의 가중 평균 (0~100, 가중치 0인 요소는 참고 표시, 값이 없는 요소는 빼고 재배분). 위험 지표 = {risk_l}. "
+                   "'4주 90% 범위' = 현재 변동성 × 과거 '표준화 4주 수익률'의 경험적 5%·95% 분위 (정규 ±1.645σ는 꼬리가 두꺼워 실제 적중률 86~87%, "
+                   "철광석 75%에 그쳐 보정) → 하단 근처 지정가 매수 주문 참고. 적중률 검증: ◆ 리스크 탭.")
 
     st.markdown("##### 펀더멘털 맥락 (참고 — 점수에는 미반영)")
     FD = PR.fundamentals(ids)
@@ -1842,15 +1863,6 @@ def tab_procure():
                                  | {"재고/사용비율 (%)": "{:.1f}", "같은 달 과거 분위": "{:.0%}", "펀드 순포지션 (% OI)": "{:+.1f}"}, na_rep="–"))
     st.caption("WASDE 재고/사용비율이 낮을수록(분위↓) 수급이 빡빡 → 가격 상방 위험. 펀드 포지션 z가 크면 투기적 매수가 몰린 상태 → 되돌림 위험. "
                "검증 결과 이 지표들의 '발표 이후' 가격 예측력은 과거 20년에서 재현되지 않아 점수에 넣지 않고, 위험 맥락으로만 표시 (대두 계열은 미국 수급표 기준).")
-
-    st.markdown("##### 이번 주 매수량 계산기")
-    k1_, k2_, k3_, k4_ = st.columns(4)
-    ci = k1_.selectbox("품목", list(T["id"]), format_func=lambda i: PR.BUY_IDS[i], key="pc_calc_id")
-    rem = k2_.number_input("남은 필요 물량 (톤, 귀금속은 온스)", 0.0, 1e7, 30000.0, 1000.0, key="pc_rem")
-    wl = k3_.number_input("남은 기간 (주)", 1, 52, int(weeks), key="pc_wl")
-    row = T.set_index("id").loc[ci]
-    q = PR.pace(row["매수 점수"] / 100, row["위험 지표"] / 100, rem, int(wl), k, 3.0)
-    k4_.metric("이번 주 권장 매수", f"{q:,.0f} t", f"균등 {rem / wl:,.0f} t 대비 {q / (rem / wl) if rem else 0:.2f}배", delta_color="off")
 
     st.markdown("##### 신호 상세")
     di = st.selectbox("품목 선택", list(T["id"]), format_func=lambda i: PR.BUY_IDS[i], key="pc_detail")
@@ -2198,8 +2210,8 @@ EX_OVERVIEW = [
      "철광석 = SGX/DCE 차익, 점결탄 = 고로 마진이 두 기간 모두 +. 구리/알루미늄은 후반에 무너짐, 구리/금은 작음",
      "★ 금속 3품목의 상대가치 정의", "✅ 채택 (구리는 참고)"),
     ("구매", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 외 에너지·귀금속·소프트·축산·DCE 품목에도 상대가치가 통하나? 대체재 하나 대신 여러 관계를 묶으면(다변량) 나아지나?",
-     "34품목 중 19개에서 통과 관계 있음(돈육/옥수수·가스/원유·생우/송아지가 뚜렷). 다변량은 단일 관계들의 '평균' 수준 — 최고 단일보다 낫지는 않지만 "
-     "통과율이 높아(40% vs 30%) 관계를 미리 알 수 없을 때 안전한 선택",
+     "무관한 가격비(위약)도 31%가 '두 기간 개선'을 통과 → 위약·자기 가격 대조군을 넘은 관계만 인정하면 확장 28품목 중 10개(가스/원유·생우/송아지·"
+     "알루미늄/구리·브렌트 경유 크랙 등). 다변량은 단일 관계 평균 수준. 기존 곡물 정의도 엄격 기준으론 대두 크러시만 통과 → 재검증 필요",
      "★ 구매 타이밍 전 품목 선택 + 품목별 채택 관계", "⚠️ 일부만"),
     ("리스크", "리스크 모형", "변동성 예측·VaR·4주 가격 범위는 어떤 모형이 실제로 잘 맞았나?",
      "1일 분산 = GARCH(1,1) 최상, 99% VaR는 정규분포 탈락·FHS/EVT 정확, 4주 범위는 경험적 분위가 적중률 개선",
@@ -2411,11 +2423,13 @@ def tab_experiments():
         df = _exp_header("procure_all")
         if df is None:
             return
-        d = df[df.종류 != "없음"].copy()
-        g = d.groupby(["품목", "id", "상대가치", "종류"]).agg(전반=("개선_전반", "min"), 후반=("개선_후반", "min"), 개선=("개선_평균절감", "mean")).reset_index()
-        g["통과"] = (g.전반 > 0) & (g.후반 > 0)
+        import experiments as EX
+        dpl, _m = EX.load("procure_placebo")
+        G = EX.rel_adoption(df, dpl)
+        g = G[G.종류 != "대조군"].copy()
+        g["통과"] = g.엄격채택
         g["채택"] = [PR.REL_CHOSEN.get(i) == o or (i in PR.REL_DEF and i not in PR.REL_CHOSEN and o.endswith("(현재)")) for i, o in zip(g.id, g.상대가치)]
-        typ = st.radio("보기", ["품목 × 선택지 (개선 bp)", "단일 vs 다변량 요약"], horizontal=True, key="ex_pa_view")
+        typ = st.radio("보기", ["품목 × 선택지 (개선 bp)", "판정 근거 (위약 · 자기 가격 대조군)", "단일 vs 다변량 요약"], horizontal=True, key="ex_pa_view")
         if typ.startswith("품목"):
             g["선택지"] = np.where(g.종류 == "다변량", g.상대가치.str.replace("다변량: ", "◆ ", regex=False), "단일 " + g.groupby("품목").cumcount().add(1).astype(str))
             M = g.pivot(index="품목", columns="선택지", values="개선")
@@ -2430,8 +2444,22 @@ def tab_experiments():
             f = go.Figure(go.Heatmap(z=M.values, x=list(M.columns), y=list(M.index), zmin=-vm, zmax=vm, colorscale=DIV, text=txt, texttemplate="%{text}",
                                      customdata=L_.values, hovertemplate="%{y} · %{customdata}<br>개선 %{z:+.1f}bp<extra></extra>", colorbar=dict(thickness=12)))
             f.update_layout(height=140 + 24 * len(M), margin=dict(l=10, r=10, t=40, b=10), yaxis=dict(autorange="reversed", dtick=1),
-                            title="'상대가치 없음' 대비 평균 개선 (bp, 13·26주 평균) — ✓ = 13·26주 모두 전·후반 개선, ★ = 대시보드 채택 (마우스 = 관계 이름)")
+                            title="'상대가치 없음' 대비 평균 개선 (bp, 13·26주 평균) — ✓ = 엄격 기준 통과, ★ = 대시보드 채택 (마우스 = 관계 이름)")
             st.plotly_chart(f, key="ex_pa_heat")
+        elif typ.startswith("판정"):
+            B_ = g.sort_values("개선", ascending=False).groupby("품목").head(1).set_index("품목")
+            B_ = B_[["상대가치", "개선", "위약90", "대조군개선", "두기간통과", "엄격채택"]].sort_values("개선", ascending=False)
+            f = go.Figure()
+            f.add_trace(go.Bar(y=B_.index, x=B_.개선, orientation="h", name="최고 후보 개선", marker_color=[PAL[2] if v else "#898781" for v in B_.엄격채택],
+                               customdata=B_.상대가치, hovertemplate="%{y} · %{customdata}: %{x:+.1f}bp<extra></extra>"))
+            f.add_trace(go.Scatter(y=B_.index, x=B_.위약90, mode="markers", name="위약 90% (무관한 품목 가격비)", marker=dict(symbol="line-ns-open", size=14, color=PAL[7])))
+            f.add_trace(go.Scatter(y=B_.index, x=B_.대조군개선, mode="markers", name="대조군 (자기 가격 1년 위치)", marker=dict(symbol="diamond", size=8, color=PAL[3])))
+            f.update_layout(height=140 + 22 * len(B_), margin=dict(l=10, r=10, t=40, b=10), yaxis=dict(autorange="reversed", dtick=1),
+                            title="품목별 최고 후보 vs 기준선 — 초록 막대 = 위약 90%·대조군을 모두 넘어 채택")
+            st.plotly_chart(f, key="ex_pa_judge")
+            st.dataframe(B_.style.format({"개선": "{:+.1f}", "위약90": "{:+.1f}", "대조군개선": "{:+.1f}"}, na_rep="–"))
+            st.caption("위약 = 그 품목과 경제적 연결이 없는 다른 섹터 품목(10개 무작위)과의 가격비를 상대가치로 넣은 결과 — 무의미한 관계도 36%가 '두 기간 개선'을 통과. "
+                       "이유: 내 품목 / 아무 품목 비율의 분위는 내 가격의 1년 위치를 상당 부분 담음 → 대조군(자기 가격 1년 위치)과 위약을 모두 넘어야 '대체재 정보'로 인정.")
         else:
             k = g.groupby(["품목", "종류"]).개선.agg(["mean", "max"]).unstack()
             k.columns = [f"{b} {a}" for a, b in k.columns]
@@ -2441,19 +2469,23 @@ def tab_experiments():
                 f.add_trace(go.Bar(x=list(k.index), y=k[c], name=nm, marker_color=[PAL[0], "#898781", PAL[1]][j]))
             f.add_hline(y=0, line_color="#898781")
             st.plotly_chart(fig_layout(f, 360, barmode="group", title="품목별 개선 (bp) — 다변량은 단일 평균과 비슷, 사후 최고 단일보다는 낮음", hovermode="x"), key="ex_pa_bar")
-            pr = g.groupby("종류").통과.mean()
+            pr = G[G.종류.isin(["단일", "다변량"])].groupby("종류").두기간통과.mean()
             c1, c2, c3 = st.columns(3)
-            c1.metric("통과율 · 단일 관계", f"{pr.get('단일', np.nan):.0%}")
-            c2.metric("통과율 · 다변량", f"{pr.get('다변량', np.nan):.0%}")
-            c3.metric("통과 관계가 있는 품목", f"{g[g.통과].품목.nunique()} / {g.품목.nunique()}")
+            c1.metric("두 기간 통과율 · 단일 / 다변량", f"{pr.get('단일', np.nan):.0%} / {pr.get('다변량', np.nan):.0%}")
+            if dpl is not None:
+                pg = dpl[dpl.종류 == "위약"].groupby(["id", "선택지"]).agg(a=("개선_전반", "min"), b=("개선_후반", "min"))
+                c2.metric("두 기간 통과율 · 위약 (무관한 관계)", f"{((pg.a > 0) & (pg.b > 0)).mean():.0%}")
+            c3.metric("엄격 기준 통과 품목", f"{g[g.통과].품목.nunique()} / {g.품목.nunique()}")
         with st.expander("전체 표 (구매 기간별)"):
             st.dataframe(df.set_index(["품목", "상대가치", "구매기간주"]).drop(columns=["id"]).style.format(
                 {c: "{:+.1f}" for c in df.columns if c.endswith("bp") or c.startswith("개선")} | {"t값_비중첩": "{:+.2f}", "균등보다싸게": "{:.0%}"}, na_rep="–"))
-        st.caption("읽는 법: 같은 품목 안의 선택지는 같은 평가 기간(모든 관계 자료가 쌓인 뒤, 2008~)으로 비교, 전·후반 = 그 기간의 중간에서 2등분. "
+        st.caption("엄격 채택 = ① 13·26주 모두 전·후반 개선 ② +5bp 이상 ③ 위약 90% 초과 ④ 자기 가격 대조군 초과. "
+                   "읽는 법: 같은 품목 안의 선택지는 같은 평가 기간(모든 관계 자료가 쌓인 뒤, 2008~)으로 비교, 전·후반 = 그 기간의 중간에서 2등분. "
                    "다변량 = ① 후보 관계들의 1년 분위를 평균 ② 대체재·원료 가격으로 '적정가'를 매월 직전 3년 회귀(공적분)해 잔차가 낮으면 쌈. "
-                   "축산(돈육/옥수수·생우/송아지)·천연가스(가스/원유)·휘발유(휘발유/경유)는 사료비·연료 대체라는 경제적 연결이 뚜렷해 효과가 큼. "
-                   "금·팔라듐·코코아·경유는 어떤 관계도 일관되지 않아 상대가치 없이 사용. 곡물 6·철광석·점결탄·구리는 기존 검증 정의 유지 — "
-                   "이 실험의 공통 기간(2009~, DCE 자료 필요)에서는 옥수수/밀의 13주 후반 개선이 −7bp로 약해 재검토 대상. "
+                   "천연가스(가스/원유)·생우(비육 마진)·알루미늄(대 구리)·브렌트(경유 크랙)는 연료·사료·대체재라는 경제적 연결이 뚜렷하고 대조군을 크게 넘음. "
+                   "돈육/옥수수(+66bp)·귀리/밀·백금/금은 자기 가격 1년 위치만으로도 거의 같은 개선 → 대체재 정보가 아니라 가격 위치 효과로 판정해 기각. "
+                   "WTI·휘발유는 무관한 가격비로도 +22~38bp가 나와 기각. 곡물 6·철광석·점결탄·구리는 기존 검증 정의 유지 — "
+                   "엄격 기준으로는 대두 크러시만 통과(옥수수/밀은 13주 후반 −7bp)해 재검토 대상. "
                    "품목마다 2~5개 중 최고를 골랐으므로 채택 관계의 개선 폭은 실제보다 낙관적일 수 있음.")
     elif sec == "최신 시계열 모델 · 예측 목표":
         st.markdown("##### 최신 시계열 파운데이션 모델 vs 기준 모델 — 목표를 바꾸면 예측력이 생기나 (9개 구매 품목, 2012~ walk-forward, 매주 금요일 결정)")

@@ -162,32 +162,38 @@ REL_CANDS = {
     "yf:ZO=F": [("귀리/옥수수 (사료 대체)", "r", "yf:ZC=F", -1), ("귀리/밀", "r", "yf:ZW=F", -1)],
     "yf:ZR=F": [("쌀/밀 (식용 곡물)", "r", "yf:ZW=F", -1), ("쌀/옥수수", "r", "yf:ZC=F", -1)],
     "yf:CL=F": [("WTI/브렌트", "r", "yf:BZ=F", -1), ("3-2-1 정제마진 (높을수록 원유 쌈)", "f", _crack321, +1), ("원유/천연가스", "r", "yf:NG=F", -1)],
-    "yf:BZ=F": [("브렌트/WTI", "r", "yf:CL=F", -1), ("3-2-1 정제마진 (브렌트)", "f", _crack321b, +1)],
+    "yf:BZ=F": [("브렌트/WTI", "r", "yf:CL=F", -1), ("3-2-1 정제마진 (브렌트)", "f", _crack321b, +1),
+                ("경유 크랙 (브렌트, 높을수록 원유 쌈)", "f", lambda L: L["yf:HO=F"] * 42 - L["yf:BZ=F"], +1), ("브렌트/천연가스", "r", "yf:NG=F", -1)],
     "yf:HO=F": [("경유 크랙 (경유 − 원유, 낮을수록 경유 쌈)", "f", lambda L: L["yf:HO=F"] * 42 - L["yf:CL=F"], -1),
-                ("경유/원유", "r", "yf:CL=F", -1), ("경유/휘발유", "r", "yf:RB=F", -1)],
+                ("경유/원유", "r", "yf:CL=F", -1), ("경유/휘발유", "r", "yf:RB=F", -1), ("경유/브렌트", "r", "yf:BZ=F", -1),
+                ("경유/천연가스 (난방 연료 대체)", "r", "yf:NG=F", -1)],
     "yf:RB=F": [("휘발유 크랙 (휘발유 − 원유)", "f", lambda L: L["yf:RB=F"] * 42 - L["yf:CL=F"], -1),
                 ("휘발유/원유", "r", "yf:CL=F", -1), ("휘발유/경유", "r", "yf:HO=F", -1)],
     "yf:NG=F": [("가스/원유 (열량 대비)", "r", "yf:CL=F", -1), ("가스/난방유", "r", "yf:HO=F", -1)],
-    "yf:GC=F": [("금/은", "r", "yf:SI=F", -1), ("금/백금", "r", "yf:PL=F", -1), ("금/구리", "r", "yf:HG=F", -1)],
+    "yf:GC=F": [("금/은", "r", "yf:SI=F", -1), ("금/백금", "r", "yf:PL=F", -1), ("금/구리", "r", "yf:HG=F", -1),
+                ("금/원유", "r", "yf:CL=F", -1), ("금/S&P500", "r", "yf:^GSPC", -1)],
     "yf:SI=F": [("은/금", "r", "yf:GC=F", -1), ("은/구리 (산업 수요)", "r", "yf:HG=F", -1)],
     "yf:PL=F": [("백금/팔라듐 (촉매 대체)", "r", "yf:PA=F", -1), ("백금/금", "r", "yf:GC=F", -1)],
-    "yf:PA=F": [("팔라듐/백금 (촉매 대체)", "r", "yf:PL=F", -1), ("팔라듐/금", "r", "yf:GC=F", -1)],
+    "yf:PA=F": [("팔라듐/백금 (촉매 대체)", "r", "yf:PL=F", -1), ("팔라듐/금", "r", "yf:GC=F", -1), ("팔라듐/구리 (산업 수요)", "r", "yf:HG=F", -1)],
     "yf:ALI=F": [("알루미늄/구리 (대체재)", "r", "yf:HG=F", -1), ("알루미늄/원유 (에너지 원가)", "r", "yf:CL=F", -1)],
     "yf:HG=F": [("구리/금 (현재)", "r", "yf:GC=F", -1), ("구리/알루미늄", "r", "yf:ALI=F", -1), ("구리/은", "r", "yf:SI=F", -1)],
-    "yf:CC=F": [("코코아/원당 (초콜릿 원료)", "r", "yf:SB=F", -1), ("코코아/커피", "r", "yf:KC=F", -1)],
+    "yf:CC=F": [("코코아/원당 (초콜릿 원료)", "r", "yf:SB=F", -1), ("코코아/커피", "r", "yf:KC=F", -1), ("코코아/대두유 (유지 대체)", "r", "yf:ZL=F", -1)],
     "yf:KC=F": [("커피/코코아", "r", "yf:CC=F", -1), ("커피/원당", "r", "yf:SB=F", -1)],
     "yf:CT=F": [("면화/원유 (폴리에스터 대체)", "r", "yf:CL=F", -1), ("면화/옥수수 (재배면적)", "r", "yf:ZC=F", -1),
                 ("면화/대두 (재배면적)", "r", "yf:ZS=F", -1)],
     "yf:SB=F": [("원당/원유 (브라질 에탄올 패리티)", "r", "yf:CL=F", -1), ("원당/옥수수 (HFCS)", "r", "yf:ZC=F", -1)],
-    "yf:OJ=F": [("오렌지주스/원당", "r", "yf:SB=F", -1)],
+    "yf:OJ=F": [("오렌지주스/원당", "r", "yf:SB=F", -1), ("오렌지주스/커피 (음료)", "r", "yf:KC=F", -1)],
     "yf:LE=F": [("생우/비육 송아지 (비육 마진)", "r", "yf:GF=F", -1), ("생우/돈육 (육류 대체)", "r", "yf:HE=F", -1), ("생우/옥수수 (사료비)", "r", "yf:ZC=F", -1)],
-    "yf:GF=F": [("비육 송아지/생우", "r", "yf:LE=F", -1), ("비육 송아지/옥수수 (사료비 ↑ → 송아지 ↓)", "r", "yf:ZC=F", -1)],
+    "yf:GF=F": [("비육 송아지/생우", "r", "yf:LE=F", -1), ("비육 송아지/옥수수 (사료비 ↑ → 송아지 ↓)", "r", "yf:ZC=F", -1),
+                ("비육 마진 (생우 − 송아지 − 사료, 높을수록 송아지 쌈)", "f",
+                 lambda L: 12.5 * L["yf:LE=F"] - 7.5 * L["yf:GF=F"] - 50 * L["yf:ZC=F"] / 100, +1)],
     "yf:HE=F": [("돈육/옥수수 (hog-corn ratio)", "r", "yf:ZC=F", -1), ("돈육/대두박", "r", "yf:ZM=F", -1), ("돈육/생우", "r", "yf:LE=F", -1)],
     "ak:A0": [("DCE/CBOT 대두 (수입 패리티)", "r", "yf:ZS=F", -1), ("DCE 대두/옥수수", "r", "ak:C0", -1)],
-    "ak:C0": [("DCE/CBOT 옥수수 (수입 패리티)", "r", "yf:ZC=F", -1), ("DCE 옥수수/대두박", "r", "ak:M0", -1)],
+    "ak:C0": [("DCE/CBOT 옥수수 (수입 패리티)", "r", "yf:ZC=F", -1), ("DCE 옥수수/대두박", "r", "ak:M0", -1), ("DCE 옥수수/대두", "r", "ak:A0", -1)],
     "ak:M0": [("DCE 대두박/대두", "r", "ak:A0", -1), ("DCE/CBOT 대두박", "r", "yf:ZM=F", -1), ("DCE 대두박/옥수수", "r", "ak:C0", -1)],
     "ak:Y0": [("DCE 대두유/대두", "r", "ak:A0", -1), ("DCE/CBOT 대두유", "r", "yf:ZL=F", -1)],
-    "ak:I0": [("DCE/SGX 철광석 (수입 패리티)", "r", "yf:TIO=F", -1), ("철광석/철근", "r", "ak:RB0", -1)],
+    "ak:I0": [("DCE/SGX 철광석 (수입 패리티)", "r", "yf:TIO=F", -1), ("철광석/철근", "r", "ak:RB0", -1),
+              ("철근 고로 마진 (높을수록 철광석 쌈)", "f", lambda L: L["ak:RB0"] - 1.6 * L["ak:I0"] - 0.5 * L["ak:J0"], +1)],
     "ak:J0": [("코크스/점결탄 (코킹 마진, 낮을수록 코크스 쌈)", "r", "ak:JM0", -1), ("코크스/철근", "r", "ak:RB0", -1)],
     "ak:RB0": [("철근 고로 마진 (낮을수록 철근 쌈)", "f", lambda L: L["ak:RB0"] - 1.6 * L["ak:I0"] - 0.5 * L["ak:J0"], -1),
                ("철근/철광석", "r", "ak:I0", -1)],
@@ -272,14 +278,15 @@ def rel_option(Lr: pd.DataFrame, i: str, name: str, La=None) -> tuple[pd.Series 
     return None, 1
 
 
-# 확장 품목의 채택 상대가치 (experiments.procurement_all, 2026-10-20): '추천' 프리셋에서 상대가치만 바꿔
-# 13·26주 구매 기간 모두 전반·후반이 '상대가치 없음'보다 좋고 평균 개선 ≥ 5bp 인 선택지 중 최대 개선. 나머지 확장 품목은 상대가치 없음
-# (가중치는 나머지 구성요소로 자동 재배분). 곡물 6·철광석·점결탄·구리는 기존 검증 정의 유지 (더 긴 표본 2008~ / 2013~ 기준).
-# 주의: 품목마다 2~5개 후보 중 최고를 골랐으므로 개선 폭은 낙관적 (선택 편향) — 다변량 평균은 고르지 않은 '평균적' 선택.
-REL_CHOSEN = {"yf:HE=F": "돈육/옥수수 (hog-corn ratio)", "yf:NG=F": "가스/원유 (열량 대비)", "yf:LE=F": "생우/비육 송아지 (비육 마진)",
-              "yf:RB=F": "휘발유/경유", "ak:M0": "DCE 대두박/옥수수", "yf:ALI=F": "알루미늄/구리 (대체재)", "yf:ZR=F": "쌀/밀 (식용 곡물)",
-              "yf:ZO=F": "귀리/밀", "yf:CL=F": MULTI_COINT, "yf:PL=F": "백금/금", "yf:KC=F": MULTI_AVG, "ak:A0": "DCE/CBOT 대두 (수입 패리티)",
-              "ak:J0": MULTI_AVG, "yf:SB=F": "원당/원유 (브라질 에탄올 패리티)", "ak:Y0": MULTI_COINT}
+# 확장 품목의 채택 상대가치 (experiments.procurement_all + procurement_placebo, 2026-10-20, v1.6.1 엄격 기준 = experiments.rel_adoption):
+# '추천' 프리셋에서 상대가치만 바꿔 ① 13·26주 모두 전반·후반이 '상대가치 없음'보다 좋고 ② 평균 개선 ≥ 5bp ③ 무관한 품목과의 가격비(위약)
+# 개선의 90% 분위 초과 ④ 대조군(자기 가격 1년 위치)보다 큰 선택지 중 최대 개선. 나머지 확장 품목은 상대가치 없음 (가중치 자동 재배분).
+# 위약 검증: 무관한 가격비도 31%가 ①을 통과 — '내 품목/아무 품목' 비율이 내 가격의 1년 위치를 담기 때문 → ③④ 없이는 채택 불가.
+#   (돈육/옥수수 +66bp는 대조군 +53bp·위약 90% +66bp로 대부분 자기 가격 효과 → 기각. WTI는 위약 90%가 +22bp로 높아 기각)
+# 곡물 6·철광석·점결탄·구리는 기존 검증 정의 유지 (더 긴 표본 2008~ / 2013~ 기준) — 엄격 기준으로는 대두 크러시만 통과, 재검증 과제.
+REL_CHOSEN = {"yf:NG=F": "가스/원유 (열량 대비)", "yf:LE=F": "생우/비육 송아지 (비육 마진)", "ak:M0": "DCE 대두박/옥수수",
+              "yf:ALI=F": "알루미늄/구리 (대체재)", "yf:ZR=F": "쌀/밀 (식용 곡물)", "yf:BZ=F": "경유 크랙 (브렌트, 높을수록 원유 쌈)",
+              "yf:KC=F": MULTI_AVG, "ak:C0": "DCE 옥수수/대두", "yf:GC=F": MULTI_COINT, "ak:A0": "DCE/CBOT 대두 (수입 패리티)"}
 for _i, _nm in REL_CHOSEN.items():
     _sg = {MULTI_AVG: 0, MULTI_COINT: -1}.get(_nm, next((c[3] for c in REL_CANDS.get(_i, []) if c[0] == _nm), -1))
     REL_DEF[_i] = (_nm + (" (높을수록 쌈)" if _sg > 0 else " (낮을수록 쌈)" if _sg < 0 else " (0~1 점수, 높을수록 쌈)"), _sg)
@@ -385,6 +392,22 @@ def score(sig: pd.DataFrame, w: dict | None = None) -> pd.Series:
     ww = pd.Series({k: w[k] for k in cols})
     num = (S * ww).sum(axis=1, min_count=1); den = S.notna().mul(ww).sum(axis=1)
     return (num / den.replace(0, np.nan)).clip(0, 1)
+
+
+def eff_weights(sig_row: pd.Series, w: dict) -> dict:
+    """그 시점에 실제 쓰인 가중치: 값이 없는 구성요소(예: 상대가치 관계가 없는 품목)는 빠지고 나머지 가중치가 비례 재배분 (score와 동일 규칙)."""
+    act = {c: v for c, v in w.items() if v > 0 and c in sig_row and np.isfinite(sig_row[c])}
+    tot = sum(act.values())
+    return {c: v / tot for c, v in act.items()} if tot else {}
+
+
+def reason(sig_row: pd.Series, w: dict, top: int = 3) -> str:
+    """점수에 가장 크게 작용한 구성요소 → '가격 위치 82 (유리) · 상대가치 30 (불리)' (가중치 × |점수 − 50| 순)."""
+    ew = eff_weights(sig_row, w)
+    short_ = {"value": "가격 위치", "turn": "단기 반등", "relval": "상대가치", "season": "계절성", "trend": "추세"}
+    items = sorted(ew, key=lambda c: -ew[c] * abs(sig_row[c] - 0.5))[:top]
+    tag = lambda v: "유리" if v >= 0.65 else ("불리" if v <= 0.35 else "보통")
+    return " · ".join(f"{short_[c]} {sig_row[c] * 100:.0f} ({tag(sig_row[c])})" for c in items)
 
 
 def pace(score_now: float, risk: float, remaining: float, weeks_left: int, k: float = 1.0, m_max: float = 3.0) -> float:

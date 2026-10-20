@@ -1,0 +1,2 @@
+{"run_id": "20261020-101308-ml-42d9d5ff", "verdict": "good", "note": "Markov 모델 / 부호전략 / Sharpe Ratio 1.19 (부호 적중율 : 0.5387)", "at": "2026-10-20 10:17:03"}
+{"run_id": "20261020-102427-ml-31056c84", "verdict": "neutral", "note": "OLS+Walk Forward 모델 / 부호전략 / Sharpe Ratio 0.789 (부호 적중율 : 0.4749)", "at": "2026-10-20 10:27:47"}

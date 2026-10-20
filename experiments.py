@@ -229,6 +229,7 @@ def procurement_all(progress=None, weeks=(13, 26)):
         if sum(c[1] == "r" for c in PR.REL_CANDS.get(i, [])) >= 2:
             opts += [PR.MULTI_AVG, PR.MULTI_COINT]
         rels = {o: PR.rel_option(Lr, i, o, La) for o in opts[1:]}
+        own = np.log(Lr[i].dropna()); rels[OWN_CTRL] = (own[own.index.dayofweek < 5], -1)   # 대조군: 대체재 정보 없이 자기 가격만
         rels = {o: (r_.dropna(), sg) for o, (r_, sg) in rels.items() if r_ is not None and len(r_.dropna()) > 500}
         firsts = [La[i].first_valid_index() + pd.DateOffset(years=4)] + [r_.index[0] + pd.DateOffset(years=2) for r_, _ in rels.values()]
         st_ = max([pd.Timestamp("2008-01-01")] + firsts)
@@ -243,7 +244,8 @@ def procurement_all(progress=None, weeks=(13, 26)):
                                 inp=dict(rel=rel, rel_sign=sg, vol_fc=vf), season=P_["season"])
                 x = B["절감_규칙"]; nov = x.iloc[::max(1, wk // 4)]
                 mid = x.index[0] + (x.index[-1] - x.index[0]) / 2
-                rows.append(dict(품목=PR.BUY_IDS[i], id=i, 상대가치=o, 종류=("없음" if o == "상대가치 없음" else "다변량" if o.startswith("다변량") else "단일"),
+                rows.append(dict(품목=PR.BUY_IDS[i], id=i, 상대가치=o, 종류=("없음" if o == "상대가치 없음" else "대조군" if o == OWN_CTRL else
+                                                                       "다변량" if o.startswith("다변량") else "단일"),
                                  구매기간주=wk, 평균절감bp=x.mean(), t값_비중첩=nov.mean() / nov.std() * np.sqrt(len(nov)),
                                  전반bp=x[x.index < mid].mean(), 후반bp=x[x.index >= mid].mean(), 하위5bp=x.quantile(0.05),
                                  균등보다싸게=(x > 0).mean(), 평가시작=str(st_.date()), 경계=str(mid.date()), 기간수=len(x)))
@@ -254,6 +256,75 @@ def procurement_all(progress=None, weeks=(13, 26)):
         df[f"개선_{c[:-2]}"] = df[c].values - base[c].reindex(pd.MultiIndex.from_frame(df[["id", "구매기간주"]])).values
     _save("procure_all", df, t0, dict(프리셋="추천 (상대가치 정의만 변경)", 구매기간=", ".join(f"{w}주" for w in weeks), 시작간격="4주",
                                        평가시작="max(2008, 자료 4년 + 관계 2년)", 전후반="품목별 평가 기간 중간"))
+
+
+# 위약용 '경제적 연결이 없는' 상대 품목 풀 (각 품목과 다른 섹터에서 고름)
+_SECTOR = {"yf:ZC=F": "곡물", "yf:ZW=F": "곡물", "yf:KE=F": "곡물", "yf:ZS=F": "곡물", "yf:ZM=F": "곡물", "yf:ZL=F": "곡물", "yf:ZO=F": "곡물", "yf:ZR=F": "곡물",
+           "yf:CL=F": "에너지", "yf:BZ=F": "에너지", "yf:HO=F": "에너지", "yf:RB=F": "에너지", "yf:NG=F": "에너지",
+           "yf:GC=F": "금속", "yf:SI=F": "금속", "yf:PL=F": "금속", "yf:PA=F": "금속", "yf:ALI=F": "금속", "yf:HG=F": "금속", "yf:TIO=F": "금속",
+           "yf:CC=F": "소프트", "yf:KC=F": "소프트", "yf:CT=F": "소프트", "yf:SB=F": "소프트", "yf:OJ=F": "소프트",
+           "yf:LE=F": "축산", "yf:GF=F": "축산", "yf:HE=F": "축산",
+           "ak:A0": "곡물", "ak:C0": "곡물", "ak:M0": "곡물", "ak:Y0": "곡물", "ak:I0": "금속", "ak:J0": "금속", "ak:RB0": "금속", "ak:JM0": "금속"}
+OWN_CTRL = "대조군: 자기 가격 1년 위치"
+
+
+def rel_adoption(df_all: pd.DataFrame, df_pl: pd.DataFrame | None = None, min_gain: float = 5.0) -> pd.DataFrame:
+    """상대가치 선택지별 판정표. 개선 = '상대가치 없음' 대비 bp (13·26주 평균). 엄격 채택 조건 (모두 충족):
+    ① 13·26주 모두 전반·후반 개선 > 0  ② 개선 ≥ min_gain  ③ 그 품목 위약(무관한 품목과의 가격비) 개선의 90% 분위 초과
+    ④ 대조군(자기 가격 1년 위치) 개선 초과 — 대체재 정보 없이 자기 가격만으로도 나오는 효과는 상대가치로 인정하지 않음."""
+    d = df_all[df_all.종류 != "없음"]
+    g = d.groupby(["품목", "id", "상대가치", "종류"]).agg(전반=("개선_전반", "min"), 후반=("개선_후반", "min"), 개선=("개선_평균절감", "mean")).reset_index()
+    g["두기간통과"] = (g.전반 > 0) & (g.후반 > 0)
+    own = g[g.종류 == "대조군"].set_index("id")["개선"]
+    g["대조군개선"] = g.id.map(own)
+    if df_pl is not None and len(df_pl):
+        pl = df_pl[df_pl.종류 == "위약"].groupby(["id", "선택지"]).개선_평균절감.mean().groupby("id").quantile(0.9)
+        g["위약90"] = g.id.map(pl)
+    else:
+        g["위약90"] = np.nan
+    g["엄격채택"] = (g.종류.isin(["단일", "다변량"]) & g.두기간통과 & (g.개선 >= min_gain) & (g.개선 > g.위약90.fillna(np.inf))
+                    & (g.개선 > g.대조군개선.fillna(-np.inf)))
+    return g
+
+
+def procurement_placebo(progress=None, n_placebo=10, weeks=(13, 26), seed=0):
+    """'상대가치 없음' 판정 검증용 위약: 품목마다 경제적 연결이 없는 다른 섹터 품목과의 가격비(무작위 n개)를 상대가치로 넣어 같은 백테스트.
+    → (1) 무의미한 관계도 우연히 '통과'(13·26주 모두 전·후반 개선)하는 비율 = 우연 통과율, (2) 위약 개선의 분포(95% 분위) —
+    실제 후보가 이 기준을 넘는지로 '통과' 판정의 신뢰도를 봄. 평가 기간·경계는 procurement_all 과 동일. 부호 반전(−1 → +1)도 진단으로 기록."""
+    import procurement as PR
+    t0 = time.time(); La, Lr, U, _ = _data(); rows = []
+    P_ = PR.PRESETS["추천 (고도화: 상대가치+계절+MIDAS)"]
+    base = pd.read_csv(DATA / EXPERIMENTS["procure_all"]["file"], encoding="utf-8-sig")
+    win = base.groupby("id")[["평가시작", "경계"]].first()
+    rng = np.random.default_rng(seed)
+    ids = [i for i in win.index if i in La and i in _SECTOR]
+    for j, i in enumerate(ids):
+        st_, mid = pd.Timestamp(win.loc[i, "평가시작"]), pd.Timestamp(win.loc[i, "경계"])
+        pool = [k for k, sec in _SECTOR.items() if sec != _SECTOR[i] and k in Lr and Lr[k].first_valid_index() < st_ - pd.DateOffset(years=2)]
+        pick = list(rng.choice(pool, min(n_placebo, len(pool)), replace=False))
+        vf = PR.midas_var(La[i])
+        opts = [("없음", None, 1, "없음")] + [(f"위약: /{k}", k, -1, "위약") for k in pick] + \
+               [(c[0], None, -c[3], "부호 반전") for c in PR.REL_CANDS.get(i, []) if c[3] != 0]
+        for nm, k, sg, kind in opts:
+            if kind == "위약":
+                rel = PR.cand_series(Lr, i, ("", "r", k, -1))
+            elif kind == "부호 반전":
+                rel = PR.rel_option(Lr, i, nm, La)[0]
+            else:
+                rel = None
+            for wk in weeks:
+                B = PR.backtest(Lr[i], La[i], wk, 4, start=st_, w=P_["w"], k=P_["k"], lookback=P_["lookback"],
+                                inp=dict(rel=rel, rel_sign=sg, vol_fc=vf), season=P_["season"])
+                x = B["절감_규칙"]
+                rows.append(dict(품목=PR.BUY_IDS[i], id=i, 선택지=nm, 종류=kind, 구매기간주=wk, 평균절감bp=x.mean(),
+                                 전반bp=x[x.index < mid].mean(), 후반bp=x[x.index >= mid].mean()))
+        if progress: progress((j + 1) / len(ids))
+    df = pd.DataFrame(rows)
+    b0 = df[df.종류 == "없음"].set_index(["id", "구매기간주"])
+    for c in ["평균절감bp", "전반bp", "후반bp"]:
+        df[f"개선_{c[:-2]}"] = df[c].values - b0[c].reindex(pd.MultiIndex.from_frame(df[["id", "구매기간주"]])).values
+    _save("procure_placebo", df, t0, dict(위약="다른 섹터 품목과의 가격비 (품목당 무작위 %d개)" % n_placebo, 구매기간=", ".join(f"{w}주" for w in weeks),
+                                         평가기간="procurement_all 과 동일"))
 
 
 RISK_IDS = ["yf:ZC=F", "yf:ZW=F", "yf:KE=F", "yf:ZS=F", "yf:ZM=F", "yf:ZL=F", "yf:TIO=F", "ak:JM0", "yf:HG=F", "yf:CL=F", "yf:NG=F", "yf:GC=F"]
@@ -354,6 +425,8 @@ EXPERIMENTS = {
                            eta="약 1분", cols=["품목", "상대가치", "구매기간주", "전반bp", "후반bp"]),
     "procure_all": dict(title="전 품목 구매 타이밍 — 단일 vs 다변량 상대가치", file="procurement_all_compare.csv", fn=procurement_all,
                         eta="약 3~6분", cols=["품목", "상대가치", "구매기간주", "전반bp", "후반bp"]),
+    "procure_placebo": dict(title="구매 상대가치 위약 검증 — 무의미한 관계의 우연 통과율", file="procurement_placebo_compare.csv",
+                            fn=procurement_placebo, eta="약 5~10분", cols=["품목", "선택지", "종류", "구매기간주"]),
     "metasel": dict(title="모델 선택 메타 전략 — 시간·레짐별 ML 모델 선택 (위약·SPA 보정)", file="model_selection_compare.csv",
                     fn=model_selection, eta="약 8~12분", cols=["구분", "품목", "빈도", "전략"]),
     "risk": dict(title="리스크 — 변동성 모형 경주 · VaR 백테스트 · 4주 범위 적중률", file="risk_models_compare.csv", fn=risk_models,
