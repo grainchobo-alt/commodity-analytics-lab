@@ -21,8 +21,12 @@ except Exception:
 PAL = (["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"] if DARK else
        ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"])
 MID = "#383835" if DARK else "#f0efec"
-DIV = [[0, PAL[0]], [0.5, MID], [1, PAL[7]]]      # 음(파랑) - 0(중립 회색) - 양(빨강)
-SEQ = [[0, MID], [1, "#3987e5" if DARK else "#184f95"]]
+# 히트맵 색: 단색 2개를 잇는 대신 여러 색상(hue)을 거치게 해 0.1·0.3·0.5 같은 중간값도 구분되게 함
+DIV = ([[0, "#c6ecff"], [0.12, "#6cb8f5"], [0.27, "#2f7fd8"], [0.41, "#1d4a8a"], [0.5, "#2b2b2b"],      # 다크: icefire 계열
+        [0.59, "#8a2b2b"], [0.73, "#d6452f"], [0.88, "#f59a3c"], [1, "#ffe28a"]] if DARK else
+       [[0, "#053061"], [0.1, "#2166ac"], [0.2, "#4393c3"], [0.3, "#92c5de"], [0.4, "#d1e5f0"], [0.5, "#f7f7f7"],  # 라이트: RdBu
+        [0.6, "#fddbc7"], [0.7, "#f4a582"], [0.8, "#d6604d"], [0.9, "#b2182b"], [1, "#67001f"]])
+SEQ = "Viridis" if DARK else "YlGnBu"
 CRISIS_FILL = "rgba(137,135,129,0.18)"
 
 
@@ -114,13 +118,57 @@ def fig_layout(fig, h=360, **kw):
     return fig
 
 
-def heat(M: pd.DataFrame, title, zmin=-1, zmax=1, fmt=".2f", h=420, scale=None, text_max=8):
+def vmax_of(*Ms, nodiag=False, step=0.05):
+    """여러 행렬의 |값| 최대 (대각 제외 옵션) → 색 범위를 실제 값 범위에 맞춰 대비를 키움. 같은 값을 넘기면 패널 간 색 비교 가능."""
+    v = 0.0
+    for M in Ms:
+        a = np.abs(np.asarray(M, float))
+        if nodiag and a.ndim == 2 and a.shape[0] == a.shape[1]:
+            a = a[~np.eye(a.shape[0], dtype=bool)]
+        if np.isfinite(a).any():
+            v = max(v, float(np.nanmax(a)))
+    return (np.ceil(v / step) * step) if v > 0 else 1.0
+
+
+def heat(M: pd.DataFrame, title, zmin=None, zmax=None, fmt=".2f", h=420, scale=None, text_max=8, nodiag=False):
+    """zmin/zmax 생략 → 실제 값 범위로 자동 (발산형은 ±max, 비음수면 0~max). nodiag=True → 대각(자기 자신=1)을 비워 색 범위를 쌍별 값에 씀."""
+    Z = M.values.astype(float).copy()
+    if nodiag and Z.shape[0] == Z.shape[1]:
+        np.fill_diagonal(Z, np.nan)
+    if (zmin is None or zmax is None) and scale in (None, DIV, SEQ):     # 그 밖의 색(예: CV 오차)은 Plotly 자동 min~max
+        vm = vmax_of(Z)
+        zmin = (0.0 if scale is SEQ else -vm) if zmin is None else zmin
+        zmax = vm if zmax is None else zmax
     show_text = max(M.shape) <= text_max
-    fig = go.Figure(go.Heatmap(z=M.values, x=[short(c) for c in M.columns], y=[short(i) for i in M.index],
-                               zmin=zmin, zmax=zmax, colorscale=scale or DIV,
+    fig = go.Figure(go.Heatmap(z=Z, x=[short(c) for c in M.columns], y=[short(i) for i in M.index],
+                               zmin=zmin, zmax=zmax, colorscale=scale or DIV, colorbar=dict(thickness=12),
                                texttemplate=("%{z:" + fmt + "}") if show_text else None,
                                textfont=dict(size=10), hovertemplate="%{y} / %{x}: %{z:.3f}<extra></extra>"))
-    fig.update_layout(title=title, height=h, margin=dict(l=10, r=10, t=40, b=10), yaxis=dict(autorange="reversed"))
+    fig.update_layout(title=title, height=h, margin=dict(l=10, r=10, t=40, b=10),
+                      yaxis=dict(autorange="reversed", dtick=1), xaxis=dict(dtick=1, tickangle=-45))
+    return fig
+
+
+def heat_row(mats, titles, ranges, scales=None, groups=None, fmt=".2f", h=470, text_max=8, nodiag=True):
+    """여러 행렬을 한 그림에 나란히 (y 라벨 1번만, 같은 group은 색 막대 공유) → 좁은 3열 배치보다 칸이 크고 비교 쉬움.
+    ranges[i] = (zmin, zmax), groups[i] = 색 축 번호(같으면 같은 색 범위·막대)."""
+    n = len(mats); groups = groups or [1] * n; scales = scales or [DIV] * n
+    fig = make_subplots(1, n, shared_yaxes=True, subplot_titles=titles, horizontal_spacing=0.03)
+    ng = sorted(set(groups))
+    for i, M in enumerate(mats):
+        Z = M.values.astype(float).copy()
+        if nodiag and Z.shape[0] == Z.shape[1]:
+            np.fill_diagonal(Z, np.nan)
+        fig.add_trace(go.Heatmap(z=Z, x=[short(c) for c in M.columns], y=[short(r) for r in M.index], coloraxis=f"coloraxis{'' if groups[i] == 1 else groups[i]}",
+                                 texttemplate=("%{z:" + fmt + "}") if max(M.shape) <= text_max else None, textfont=dict(size=9),
+                                 hovertemplate="%{y} / %{x}: %{z:.3f}<extra></extra>"), 1, i + 1)
+    for j, g in enumerate(ng):
+        i0 = groups.index(g)
+        fig.layout[f"coloraxis{'' if g == 1 else g}"] = dict(colorscale=scales[i0], cmin=ranges[i0][0], cmax=ranges[i0][1],
+                                                            colorbar=dict(thickness=12, len=0.9, x=1.0 + 0.09 * j))
+    fig.update_yaxes(autorange="reversed", dtick=1)
+    fig.update_xaxes(dtick=1, tickangle=-45)
+    fig.update_layout(height=h, margin=dict(l=10, r=10, t=50, b=10))
     return fig
 
 
@@ -152,25 +200,27 @@ def tab_comove():
     m = A.crisis_mask(R.index, shade_sel)
 
     st.markdown("##### 상관행렬: 평시 vs 위기")
-    cc = st.columns(3)
     C_all = R.corr()
     if m.sum() > 20 and (~m).sum() > 20:
         C_n, C_c = R[~m].corr(), R[m].corr()
-        cc[0].plotly_chart(heat(C_n, f"평시 ({(~m).sum():,}개)"), key="h1")
-        cc[1].plotly_chart(heat(C_c, f"위기 구간 ({m.sum():,}개)"), key="h2")
-        cc[2].plotly_chart(heat(C_c - C_n, "차이 (위기 − 평시)", -0.6, 0.6), key="h3")
+        vc, vd = vmax_of(C_n, C_c, nodiag=True), vmax_of(C_c - C_n, nodiag=True)
+        st.plotly_chart(heat_row([C_n, C_c, C_c - C_n], [f"평시 ({(~m).sum():,}개)", f"위기 구간 ({m.sum():,}개)", "차이 (위기 − 평시)"],
+                                 [(-vc, vc), (-vc, vc), (-vd, vd)], groups=[1, 1, 2], h=500), key="h123")
+        st.caption(f"색 범위는 실제 값에 맞춤 (평시·위기 공통 ±{vc:.2f}, 차이 ±{vd:.2f}) · 대각(자기 자신 = 1)은 비움.")
         off = ~np.eye(len(C_n), dtype=bool)
         st.caption(f"평균 쌍별 상관: 평시 {C_n.values[off].mean():.3f} → 위기 {C_c.values[off].mean():.3f}. "
                    "위기 시 상관 상승은 분산효과 감소를 의미(단, 변동성 상승에 따른 상관 편향 — Forbes-Rigobon(2002) — 에 유의).")
     else:
-        cc[0].plotly_chart(heat(C_all, "전체 기간"), key="h0")
+        cc = st.columns(2)
+        cc[0].plotly_chart(heat(C_all, "전체 기간", nodiag=True), key="h0")
         cc[1].info("선택 기간 안에 위기 구간 표본이 부족합니다.")
     if R.shape[1] >= 2:
         import risk as RK
         q_ = st.select_slider("꼬리 의존: 꼬리 분위 q", [0.01, 0.025, 0.05, 0.10], 0.05, key="cm_tdq")
-        t1_, t2_ = st.columns(2)
-        t1_.plotly_chart(heat(RK.tail_dependence(R, q_), f"동반 폭락 P(j 하위 {q_:.0%} | i 하위 {q_:.0%}) — 보유자 위험", 0, 1, scale=SEQ), key="cm_tdl")
-        t2_.plotly_chart(heat(RK.tail_dependence(R, q_, upper=True), f"동반 급등 (상위 {q_:.0%}) — 구매자 위험", 0, 1, scale=SEQ), key="cm_tdu")
+        TL, TU = RK.tail_dependence(R, q_), RK.tail_dependence(R, q_, upper=True)
+        vt = vmax_of(TL, TU, nodiag=True)
+        st.plotly_chart(heat_row([TL, TU], [f"동반 폭락 P(j 하위 {q_:.0%} | i 하위 {q_:.0%}) — 보유자 위험", f"동반 급등 (상위 {q_:.0%}) — 구매자 위험"],
+                                 [(0, vt), (0, vt)], scales=[SEQ, SEQ], h=500), key="cm_td")
         st.caption(f"상관계수 = 평균적 동조, 꼬리 의존 = '극단적인 날에 같이 움직이는가'. 독립이면 {q_:.0%}, 완전 동조면 100% (순위 기반, 빈도 = 사이드바 설정).")
 
     st.markdown("##### 시간에 따른 동조성")
@@ -200,7 +250,7 @@ def tab_comove():
     f.add_trace(go.Scatter(x=[f"PC{i+1}" for i in range(len(ev))], y=np.cumsum(ev) * 100, name="누적",
                            line=dict(color=PAL[1], width=2)))
     cp[0].plotly_chart(fig_layout(f, 380, title="Scree (설명분산 %)", hovermode="x"), key="scree")
-    cp[1].plotly_chart(heat(load.iloc[:, :k].T, "적재값 (Loadings) — PC1≈공통 원자재 요인", -1, 1, h=380), key="load")
+    cp[1].plotly_chart(heat(load.iloc[:, :k].T, "적재값 (Loadings) — PC1≈공통 원자재 요인", h=380), key="load")
     pcs = scores["PC1"].cumsum()
     f = go.Figure(go.Scatter(x=pcs.index, y=pcs.values, line=dict(color=PAL[0], width=2), name="PC1 누적 점수"))
     st.plotly_chart(shade(fig_layout(f, 280, title="PC1 누적 점수 (공통요인 '지수')"), pcs.index), key="pc1")
@@ -217,8 +267,8 @@ def tab_comove():
         tbl, tot = st.session_state["dy"]
         x1, x2 = st.columns([3, 2])
         core = tbl.iloc[:-2, :-1]
-        x1.plotly_chart(heat(core, f"스필오버 표 (%) — 총 스필오버 지수 {tot:.1f}%", 0, max(30, float(np.nanmax(core.values))),
-                             ".1f", scale=SEQ, text_max=12), key="dyh_")
+        x1.plotly_chart(heat(core, f"스필오버 표 (%) — 총 스필오버 지수 {tot:.1f}% (대각 = 자기 몫, 색에서 제외)", 0, None,
+                             ".1f", scale=SEQ, text_max=12, nodiag=True), key="dyh_")
         net = tbl.loc["NET (TO-FROM)"].iloc[:-1].sort_values()
         f = go.Figure(go.Bar(x=net.values, y=[short(i) for i in net.index], orientation="h",
                              marker_color=[PAL[0] if v >= 0 else PAL[1] for v in net.values]))
@@ -467,7 +517,7 @@ def tab_mvgarch():
         pick = st.select_slider("상관행렬 시점", options=list(dates.strftime("%Y-%m-%d")), value=dates[-1].strftime("%Y-%m-%d"), key="mg_dt")
         ti = dates.get_loc(pd.Timestamp(pick))
         Rm = pd.DataFrame(dc["R"][ti], index=cols, columns=cols)
-        st.plotly_chart(heat(Rm, f"DCC 상관행렬 — {pick}  (평균 {dc['avg_corr'].iloc[ti]:.3f})", h=420), key="mg_dheat")
+        st.plotly_chart(heat(Rm, f"DCC 상관행렬 — {pick}  (평균 {dc['avg_corr'].iloc[ti]:.3f})", h=420, nodiag=True), key="mg_dheat")
 
     # ---- ③ BEKK ----
     st.markdown("##### ③ BEKK(1,1) — 충격·변동성 전이")
@@ -603,7 +653,7 @@ def model_detail(sel, o, D, tgt_, out, hp, P=""):
         st.plotly_chart(fig_layout(f, 260, title=f"{sel} — 시계열 CV 오차 (낮을수록 좋음, 최소점이 선택됨)", hovermode="x",
                                    xaxis_title="요인 수 k / 조합 크기 k / λ", yaxis_title="CV MSE 합"), key=P + "dense_cv")
     if "loadings" in ex_:
-        st.plotly_chart(heat(ex_["loadings"].rename(index=nm_).T, f"PCR 선택 주성분 적재값 (k={ex_['k']})", -1, 1,
+        st.plotly_chart(heat(ex_["loadings"].rename(index=nm_).T, f"PCR 선택 주성분 적재값 (k={ex_['k']})", None, None,
                              h=140 + 40 * ex_["loadings"].shape[1], text_max=6), key=P + "dense_load")
     if "pip" in ex_:
         pp = ex_["pip"].rename(index=nm_).sort_values()
@@ -1469,7 +1519,7 @@ def tab_favar():
         e1, e2 = st.columns([1, 2])
         f = go.Figure(go.Bar(x=[f"PC{i+1}" for i in range(min(10, len(fv['ev'])))], y=fv["ev"][:10] * 100, marker_color=PAL[0]))
         e1.plotly_chart(fig_layout(f, 360, title="요인 설명력 (%)", hovermode="x"), key="fscree")
-        e2.plotly_chart(heat(fv["load"].T, "요인 적재값 — 요인 해석용", -1, 1, h=360), key="fload")
+        e2.plotly_chart(heat(fv["load"].T, "요인 적재값 — 요인 해석용", h=360), key="fload")
 
         n = len(fv["names"]); ylab = short(yid_)
         st.markdown(f"##### 요인 충격 → {ylab} 충격반응 (직교화, 1σ 충격, ±1.96 s.e.)")
@@ -2035,16 +2085,75 @@ META_READ = ("읽는 법 (2026-10-19 실행): 6품목 × 일간·주간 = 156칸
              "단일 분할에서 보이던 Sharpe 0.5는 롱 편향 + 여러 모델 중 최댓값 고르기의 결과로 해석됨. 위약은 각 전략의 롱 비중·전환 빈도를 맞춘 무작위 포지션.")
 EX_DATA = A.DATA
 
+# ⑥ 개요: 실험마다 '무엇을 물었고 → 결론 → 대시보드 어디에 반영됐나'. (분류, 실험 이름=radio 값, 질문, 결론, 반영, 판정)
+EX_OVERVIEW = [
+    ("구매", "구매 타이밍 (프리셋 · 단계별)", "기준 프리셋에서 신호를 하나씩 바꾸면 매입가가 얼마나 싸지나? 어떤 프리셋이 가장 좋나?",
+     "상대가치(크러시 마진·옥수수/밀 비율)만 전·후반 모두 뚜렷. '추세만'은 손해, 공격적 프리셋은 꼬리 손실 큼",
+     "★ 구매 타이밍 '추천' 프리셋의 근거", "✅ 채택"),
+    ("구매", "철강 원료·구리 상대가치", "곡물에서 통한 상대가치를 철광석·점결탄·구리에도 쓸 수 있나? 어떤 관계로?",
+     "철광석 = SGX/DCE 차익, 점결탄 = 고로 마진이 두 기간 모두 +. 구리/알루미늄은 후반에 무너짐, 구리/금은 작음",
+     "★ 금속 3품목의 상대가치 정의", "✅ 채택 (구리는 참고)"),
+    ("리스크", "리스크 모형", "변동성 예측·VaR·4주 가격 범위는 어떤 모형이 실제로 잘 맞았나?",
+     "1일 분산 = GARCH(1,1) 최상, 99% VaR는 정규분포 탈락·FHS/EVT 정확, 4주 범위는 경험적 분위가 적중률 개선",
+     "◆ 리스크 기본 σ = GARCH, ★ 4주 범위 = 경험적 분위", "✅ 채택"),
+    ("예측", "모델 선택 메타 전략", "시기·레짐마다 ML 모델을 골라 쓰면 수익률 방향 예측이 나아지나?",
+     "156칸 중 무작위 위약 95%를 넘은 전략 0개 → 모델 선택으로 얻는 예측력은 운과 구별 안 됨",
+     "④ 메타 전략은 '참고용', 기본 기준선 = 과거 평균", "❌ 효과 없음"),
+    ("예측", "최신 시계열 모델 · 예측 목표", "Chronos·TimesFM 같은 최신 모델로, 또는 목표를 바꾸면(변동성·스프레드·순위) 예측이 되나?",
+     "가격 방향 ✖ · 구매 '기다릴까' ✖(AUC 0.5) · 변동성은 GARCH가 여전히 최상 · 철광석 SGX/DCE 스프레드와 품목 순위(IC 0.10)는 일부 예측 가능",
+     "방향 예측 대신 상대가치·변동성에 집중하는 근거", "⚠️ 일부만"),
+    ("포트폴리오", "전략 비교 (리스크 버짓)", "신호를 비중에 얼마나 세게 반영할지(τ)와 리스크 패리티·최적화·1/N 중 무엇이 나은가?",
+     "약한 신호는 τ 작게, 크기 정보가 있는 신호는 τ 크게 → τ = 0.5가 무난",
+     "⑤ 포트폴리오 기본 τ = 0.5", "✅ 채택"),
+    ("포트폴리오", "모멘텀 기간", "모멘텀을 몇 개월로 잴 때 가장 좋은가?",
+     "업계 표준 12-1개월이 최고, 짧을수록 회전율만 늘고 성과 하락",
+     "⑤ 모멘텀 기본값 12-1개월", "✅ 채택"),
+    ("포트폴리오", "거래 규칙", "매일 리밸런싱 vs 필요할 때만 거래(무거래 구간) 중 무엇이 나은가?",
+     "무거래 구간이 비슷한 Sharpe를 훨씬 적은 거래로 달성",
+     "⑤ 무거래 구간 규칙, ④ 무거래 구간 c", "✅ 채택"),
+    ("포트폴리오", "변동성 사이징", "변동성 예측으로 포지션 크기를 조절하면 좋아지나?",
+     "위험(실현 변동성·낙폭)은 확실히 안정, Sharpe는 거의 그대로 (롱온리는 하락)",
+     "⑤ 변동성 타기팅 = 위험 관리용 옵션", "⚠️ 위험 관리용"),
+]
+
+
+def ex_overview():
+    import experiments as EX
+    st.markdown("##### 실험 한눈에 보기 — 무엇을 물었고, 결론은 무엇이고, 대시보드 어디에 반영됐나")
+    st.caption("⑥ 실험 결과 = 다른 탭의 기본값·프리셋을 정한 근거 백테스트 모음 (모두 미래정보 차단·같은 비용 가정). "
+               "실험 이름을 위 버튼에서 고르면 상세 표·그림이 나오고, 데이터가 갱신되면 각 실험의 '재실행'으로 최신화. "
+               "판정은 '두 하위기간 모두 개선 + 무작위 위약보다 나음' 기준.")
+    files = {"구매 타이밍 (프리셋 · 단계별)": "procure_steps", "철강 원료·구리 상대가치": "procure_metals", "리스크 모형": "risk", "모델 선택 메타 전략": "metasel",
+             "최신 시계열 모델 · 예측 목표": "forecast_lab", "전략 비교 (리스크 버짓)": "rb", "모멘텀 기간": "momentum", "거래 규칙": "rules", "변동성 사이징": "vol"}
+    rows = []
+    for grp, nm, q, concl, used, verdict in EX_OVERVIEW:
+        try:
+            run_at = EX.load(files[nm])[1].get("run_at", "–")
+        except Exception:
+            run_at = "–"
+        rows.append({"분류": grp, "실험": nm, "판정": verdict, "질문": q, "결론": concl, "대시보드 반영": used, "마지막 실행": str(run_at)[:16]})
+    T = pd.DataFrame(rows)
+    cnt = T["판정"].str[0].value_counts()
+    c1, c2, c3 = st.columns(3)
+    c1.metric("✅ 채택 (기본값에 반영)", int(cnt.get("✅", 0)))
+    c2.metric("⚠️ 일부만 / 위험 관리용", int(cnt.get("⚠", 0)))
+    c3.metric("❌ 효과 없음 (운과 구별 안 됨)", int(cnt.get("❌", 0)))
+    st.table(T.set_index("실험"))   # 긴 문장이 잘리지 않게 줄바꿈 표
+    st.caption("큰 그림: 가격 '방향'을 맞히려는 시도(ML·메타 전략·최신 시계열 모델)는 모두 운과 구별되지 않았고, 효과가 확인된 것은 "
+               "① 실제 시세 관계(상대가치) ② 변동성·꼬리 위험 추정 ③ 거래를 줄이는 규칙 — 대시보드는 이 세 가지를 중심으로 구성됨.")
+
 
 def tab_experiments():
     st.subheader("실험 결과 — 설정을 바꿔가며 같은 백테스트 엔진으로 비교한 결과")
     st.caption("모든 실험은 미래정보 차단(다음 거래일 체결·walk-forward)·같은 비용 가정. 데이터가 갱신되면 '재실행'으로 최신화. "
                "주의: 표에서 가장 좋은 설정을 골라 쓰면 과적합 — 여러 조건에서 일관되게 좋은 설정을 고를 것.")
-    sec = st.radio("실험", ["구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)",
+    sec = st.radio("실험", ["📋 한눈에 보기", "구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)",
                           "모멘텀 기간", "거래 규칙", "변동성 사이징"],
                    horizontal=True, key="ex_sec")
     pct = lambda cols: {c: "{:.2%}" for c in cols}
     pc_view = None
+    if sec == "📋 한눈에 보기":
+        ex_overview(); return
     if sec == "구매 타이밍 (프리셋 · 단계별)":
         pc_view = st.radio("보기", ["단계별 고도화 (기준에서 한 가지씩)", "프리셋 · 신호 비교 (13·26주, 품목별)"], horizontal=True, key="ex_pc_view",
                            help="두 실험 모두 곡물 6품목 · 같은 백테스트 엔진. 단계별 = '추천' 프리셋이 나온 근거, 프리셋 비교 = 최종 프리셋과 단순 신호의 기간별 비교")

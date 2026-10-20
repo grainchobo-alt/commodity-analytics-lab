@@ -41,7 +41,7 @@ at.radio(key="rk_dir").set_value("보유 재고 (가격 하락이 손실)").run(
 at.selectbox(key="rk_ph").set_value(60).run(); check(at, "리스크: 60일 물량 VaR")
 at.selectbox(key="rk_id").set_value("yf:TIO=F").run()
 at.button(key="rk_run").click().run(); check(at, "리스크: 철광석 재추정")
-for sec in ["철강 원료·구리 상대가치", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍 (프리셋 · 단계별)"]:
+for sec in ["📋 한눈에 보기", "철강 원료·구리 상대가치", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍 (프리셋 · 단계별)"]:
     at.radio(key="ex_sec").set_value(sec).run(); check(at, f"실험 결과: {sec}")
 at.radio(key="ex_sec").set_value("모델 선택 메타 전략").run()
 at.radio(key="ex_ms_fq").set_value("주간").run(); at.selectbox(key="ex_ms_id").set_value("yf:HG=F").run(); check(at, "실험 결과: 메타 전략 주간·구리")
