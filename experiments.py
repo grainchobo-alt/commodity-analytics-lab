@@ -538,6 +538,34 @@ def risk_models(progress=None, start="2010-01-01"):
 META_IDS = ["yf:ZC=F", "yf:ZS=F", "yf:ZW=F", "yf:ZM=F", "yf:ZL=F", "yf:HG=F"]
 META_FEATS = ["yf:ZS=F", "yf:ZM=F", "yf:ZW=F", "yf:CL=F", "yf:HG=F", "yf:GC=F", "ak:macro_shipping_bdi",
               "yf:DX-Y.NYB", "fred:VIXCLS", "fred:DGS10", "yf:^GSPC"]          # ④ 탭 기본 설명변수
+
+def _rmv_one(freq, tgt, K, comm, macro, split):
+    import warnings; warnings.filterwarnings("ignore")
+    import logging; logging.getLogger("hmmlearn").setLevel(logging.ERROR)
+    import analytics as A, regime_mv as RM
+    L = A.load_levels(roll_adjusted=True)
+    X = RM.build_panel(L, comm, macro, freq, WB=RM.load_wb() if freq == "M" else None)
+    T, _ = RM.compare_sets(X, tgt, comm, macro, K, "full", freq, 2, split)
+    T.insert(0, "K", K); T.insert(0, "대상", tgt); T.insert(0, "빈도", "주간 (2000–)" if freq == "W" else "월간 (1990–)")
+    T["표본 시작"] = str(X.index.min().date())
+    return T
+
+
+def regime_mv(progress=None, Ks=(2, 3), split="2017-01-01"):
+    """다변량 레짐(HMM) walk-forward: 대상 품목마다 Y만 · 원자재만 · Y+거시 · 원자재+거시 4개 묶음을 같은 표본에서 비교.
+    주간 = 선물 6품목 + 거시 8개 (2000–), 월간 = 세계은행 6품목 + 거시 8개 (1990–). 매년 재추정, 전방 필터, 위약 = 포지션 블록 섞기."""
+    import regime_mv as RM
+    from joblib import Parallel, delayed
+    t0 = time.time()
+    jobs = [("W", t, K, RM.COMM_W_DEFAULT, RM.MACRO_DEFAULT) for t in RM.COMM_W_DEFAULT for K in Ks] +            [("M", t, K, RM.COMM_M_DEFAULT, RM.MACRO_DEFAULT) for t in RM.COMM_M_DEFAULT for K in Ks]
+    out = Parallel(n_jobs=-1, verbose=0)(delayed(_rmv_one)(f, t, K, c, m, split) for f, t, K, c, m in jobs)
+    if progress:
+        progress(1.0)
+    df = pd.concat(out, ignore_index=True)
+    _save("regime_mv", df, t0, dict(대상="주간 선물 6 · 월간 세계은행 6", 거시="금리Δ 2·장단기차·신용 스프레드·VIX·달러·S&P·BDI",
+                                   K=list(Ks), 분할=split, 재추정="매년"))
+    return df
+
 META_CORR = ["yf:ZC=F", "yf:ZS=F", "yf:ZM=F", "yf:ZW=F", "yf:ZL=F", "yf:CL=F", "yf:HG=F", "yf:GC=F"]
 
 
@@ -601,6 +629,8 @@ EXPERIMENTS = {
                          eta="약 5~8분", cols=["품목", "위치창", "구매창주", "tau", "절감bp"]),
     "procure_inventory": dict(title="재고 기반 반복 구매 — 학습/시험 분리 · 1~2주 예측", file="procurement_inventory_compare.csv",
                               fn=procurement_inventory, eta="약 10~15분", cols=["구분", "품목", "기간"]),
+    "regime_mv": dict(title="다변량 레짐 (원자재 + 거시) — HMM walk-forward · 변수 묶음 비교", file="regime_mv_compare.csv",
+                      fn=regime_mv, eta="약 5~10분", cols=["빈도", "대상", "K", "변수 묶음", "기간"]),
     "procure_defer": dict(title="미루기 권고 (재고 무관) — 가격 매력도 · 2주 하락 확률 · 학습/시험 · 위약", file="procurement_defer_compare.csv",
                           fn=procurement_defer, eta="약 5~8분", cols=["구분", "품목", "기간"]),
     "procure_placebo": dict(title="구매 상대가치 위약 검증 — 무의미한 관계의 우연 통과율", file="procurement_placebo_compare.csv",

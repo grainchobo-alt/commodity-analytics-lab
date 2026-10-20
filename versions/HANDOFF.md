@@ -2,7 +2,7 @@
 
 > 새 세션은 이 문서를 먼저 읽고 시작한다. 세션을 마칠 때는 **현재 상태 · 남은 과제 · 최근 결정**을 갱신하고 `CHANGELOG.md`에 버전을 추가한다.
 
-- **최종 갱신**: 2026-10-20 · **현재 버전**: v1.10.0 (git 태그)
+- **최종 갱신**: 2026-10-21 · **현재 버전**: v1.11.0 (git 태그)
 - **사용자**: 곡물·에너지·금속·운임을 다루는 **중간 트레이더**(직접 사용 X, 매입 후 재판매). 실무 의사결정 = **"언제, 얼마나 살까"** (숏 아님).
 - **저장소**: https://github.com/grainchobo-alt/commodity-analytics-lab (private, `main`) · 협업자 `seokhwan33`(write, 초대 발송)
 - **작업 폴더**: `C:\Users\user\Desktop\Commodity` (구 폴더 `Desktop\261013`에는 다른 프로젝트 공존 — 삭제 금지)
@@ -21,7 +21,7 @@
 | ★ 구매 타이밍 — '지금 살까, 미룰까' (v1.9.0: 재고 무관. 가격 매력 점수 ≥ τ → 매수, 근거 있는 품목만 하락 확률 ≥ p* → 미루기 권고, 36품목) | `tab_procure` (+ `_proc_defer`, `_defer_ev`) | `procurement.py` (`backtest_defer`, `fc_walkforward(season=)`), `experiments.defer_evidence` |
 | ◆ 리스크 (시변 λ · 변동성 예측 경주·검증(유일) · VaR/ES · 꼬리 · 물량 위험) | `tab_risk` | `risk.py` |
 | ① 시장 구조·동조성 (상관·PCA·DY·TVP-VAR / FAVAR) | `page_structure` → `tab_comove`, `tab_favar` | `analytics.py`, `regime.py` |
-| ② 레짐 (Markov / HMM·MS·Kalman·TAR·STAR) | `tab_regime` (+ 공용 `model_detail`) | `analytics.py`, `regime.py` |
+| ② 레짐 (원자재 + 거시 다변량: HMM · MS 회귀 · Kalman TVP · TAR · STAR, v1.11.0) | `tab_regime`·`_rv_hmm`·`_rv_reg` (+ 공용 `model_detail`) | `regime_mv.py`, `analytics.py`, `regime.py` |
 | ③ 변동성·공분산 (GARCH / DCC·BEKK / GARCH-MIDAS 분해만) | `page_vol` → `tab_vol`, `tab_mvgarch`, `tab_midas(vol_only=True)` | `analytics.py`, `mvgarch.py`, `midas.py` |
 | ④ 수익률 예측 (단일 품목: 대표 7 + 고급 20모델, 위약 기준선 + 모델 선택 메타 전략 / 패널 / MIDAS 회귀) | `page_predict` → `tab_ml` + `ml_meta`, `tab_panel`, `tab_midas(False)` | `analytics.py`, `metasel.py`, `models_dense.py`, `models_ml.py`, `panel.py` |
 | ⑤ 포트폴리오 | `tab_portfolio` | `portfolio.py` |
@@ -59,6 +59,7 @@
 - 데이터(`data/`)는 git 제외 → 새 PC에서는 `collect.py --full`, `reports.py --full`, `run_daily.bat`로 재생성.
 
 ## 6. 남은 과제 · 아이디어 (우선순위 순)
+- (v1.11.0 반영) 다변량 레짐 화면 완료 — 후속: 국면별 '더 쌀 확률' AUC 조건부 분석, 레짐을 ★ 구매 카드의 맥락 배지로.
 **▶ 다음 세션 시작점 (2026-10-20 대화에서 합의, 사용자 승인 대기 항목)**
 - A. **메타 전략 버그 진단·수정**: 보낸 화면에서 (a)–(h)가 평가 구간 내내 100% '앙상블(초기)' → 전부 Sharpe 1.100 동일. `metasel.meta_predictions`는 6개 후보 손실이 **모두** 있어야 고름(`S.notna().all(1)`) → 후보 하나의 OOS 경로에 NaN이 끼면 영영 선택 안 됨(유력 가설, 미확인). 같은 설정 재현 → 모델별 NaN 확인 → '그 시점 예측이 있는 모델 중에서 선택' + 앙상블 대체 비율 경고 표시. (앞서 '58 < min_obs 60' 설명은 틀렸음 — (a)는 6개월 손실만 필요)
 - B. **앙상블 개선**: 다수결 + 기권(예: 6개 중 5개 이상 일치 시만 진입), 예측 z-score 표준화 후 평균, Ridge·Lasso처럼 사실상 상수(롱 100%) 예측 모델 자동 제외.
@@ -76,6 +77,7 @@
 7. `Desktop\261013` 폴더의 옛 원자재 파일 정리 (삭제는 사용자 확인 후에만).
 
 ## 7. 최근 결정 로그
+- 2026-10-21 (v1.11.0): 사용자 요청 — HMM·Kalman이 가격 단변량이라 이상 → 원자재 복수 + 거시를 한 패널로 넣는 통합 레짐 화면. 결과: 다변량 국면은 '지금 상태 설명'(VIX·신용 스프레드 스트레스 국면 = 2008·2020·2022)에는 유용하나, 다음 기간 방향 예측은 96칸 중 4칸만 위약 통과(우연 수준) → 구매 점수에는 넣지 않고 맥락 표시로만.
 - 2026-10-20 (v1.10.0): 사용자 요청 — 스크롤이 길어 구매 화면 압축(카드 한 줄 항목·요약표 펼치기), 🟡를 매수 쪽/대기 쪽으로 분리, 지도 라벨 겹침 해소, 설명변수 펼치기, 거시 표 분리, 사이드바 데이터 업데이트 버튼(run_daily의 수집·정제·롤 보정 3단계만; ⑥ 실험 근거표는 갱신 안 됨).
 - 2026-10-20 (v1.9.1): 사용자 요청 — '평소대로 매수'가 모호 → 3색(🟢 적극 매수 점수 ≥ τ / 🔴 매수 보류 점수 < τ·쌀 확률 ≥ p*·AUC 기준 충족 / 🟡 판단 유보 그 외)으로 바꾸고 구간 숫자를 화면에 표시. 🔴는 점수만이 아니라 확률 조건이라 2차원 지도로 표현. 기준 미달 품목은 '예측력 없음' 대신 '설정 AUC 기준치 미달'.
 - 2026-10-20 (v1.9.0): 사용자 요청 — 재고는 고려하지 않고 '가격 매력도 + 향후 1~4주 하락 확률'로 미루기를 권고. ★ 화면에서 재고·저장 상한·구매 간격 제거, 기본 τ 0.60·p* 0.55(학습 기간 선택), 활성화 기준 학습 AUC 0.55(다중 선택 보정 — 사용자가 처음 제시한 0.53보다 상향, 화면에서 조절 가능). 비활성 품목은 '예측력 없음, 가격 매력도만으로 판단'. `backtest_inventory`·`backtest_lump`·`pace`는 실험 함수로만 유지, 앱 캐시 `_proc_week`·`_proc_bt`·`_proc_wait`·`_auc` 삭제.

@@ -414,71 +414,209 @@ def tab_vol():
 RG_MODELS = ["Hidden Markov (HMM)", "Markov-switching 회귀", "Kalman TVP", "Threshold 회귀 (TAR)", "STAR (평활 전이)"]
 
 
+@st.cache_data(show_spinner=False)
+def _rv_panel(comm: tuple, macro: tuple, freq: str, roll: bool):
+    import regime_mv as RM
+    return RM.build_panel(_levels(None, roll), list(comm), list(macro), freq, WB=RM.load_wb() if freq == "M" else None)
+
+
+@st.cache_data(show_spinner=False)
+def _rv_desc(comm: tuple, macro: tuple, freq: str, roll: bool, tgt: str, K: int, cov: str):
+    import regime_mv as RM
+    return RM.describe(_rv_panel(comm, macro, freq, roll), tgt, K, cov)
+
+
+@st.cache_data(show_spinner=False)
+def _rv_bt(comm: tuple, macro: tuple, freq: str, roll: bool, tgt: str, K: int, cov: str):
+    import regime_mv as RM
+    return RM.compare_sets(_rv_panel(comm, macro, freq, roll), tgt, list(comm), list(macro), K, cov, freq)
+
+
+@st.cache_data(show_spinner=False)
+def _rv_price(tgt: str, freq: str):
+    import regime_mv as RM
+    if tgt.startswith("wb:"):
+        return RM.load_wb()[tgt].dropna()
+    return _levels(None, False)[tgt].dropna().resample("W-FRI" if freq == "W" else "ME").last()
+
+
+RV_MODELS = ["Hidden Markov (다변량 레짐)", "Markov-switching 회귀", "Kalman TVP", "Threshold 회귀 (TAR)", "STAR (평활 전이)"]
+RV_COL = ["#2ea043", "#d29922", "#da3633", "#8250df"]
+
+
 def tab_regime():
-    st.subheader("레짐 — 지금은 평시인가, 위기인가 · 국면마다 관계가 달라지는가")
-    st.caption("숨은 상태를 확률로 추정(Markov-switching·HMM), 관계(베타)가 연속적으로 변한다고 보거나(Kalman TVP), "
-               "관측 변수의 임계값으로 국면을 나눔(TAR·STAR). 같은 모델들은 ④ 수익률 예측 탭에서 예측력 비교 후보로도 선택 가능.")
-    s1, s2, s3 = st.tabs(["수익률 레짐 (Markov-switching, Hamilton)", "레짐별 관계 (HMM · MS 회귀 · Kalman TVP · TAR · STAR)",
-                          "변동성 레짐 (HMM 3상태 · 반감기 안정성)"])
-    with s3:
+    import regime_mv as RM
+    st.subheader("레짐 — 원자재 + 거시를 함께 넣고 지금 국면 찾기")
+    st.caption("원자재 수익률과 거시 변수(금리·신용 스프레드·VIX·달러·주가·운임)를 한 패널에 넣고 국면을 추정. "
+               "HMM = 모든 변수의 결합 분포가 달라지는 숨은 국면 · MS 회귀 = 국면마다 Y의 베타가 다름 · Kalman TVP = 베타가 연속적으로 변함 · "
+               "TAR·STAR = 관측 변수(예: VIX)가 문턱을 넘으면 관계가 바뀜")
+    c0, c1, c2 = st.columns([1.1, 2.4, 2.4])
+    fq = c0.radio("빈도", ["주간 (선물, 2000–)", "월간 (세계은행, 1990–)"], key="rv_fq",
+                  help="주간 = Yahoo 선물 근월물(2000년부터). 월간 = 세계은행 Pink Sheet 월평균 가격(1960–) + 거시 월말 값 — VIX가 1990년부터라 공통 표본은 1990–")
+    F = "W" if fq.startswith("주간") else "M"
+    if F == "W":
+        opts = [i for i in COMMOD_IDS if not i.startswith("etf:")]
+        dflt = [i for i in RM.COMM_W_DEFAULT if i in opts]; fmt = lbl
+    else:
+        wbn = RM.wb_names(); opts = sorted(wbn, key=lambda i: wbn[i])
+        dflt = [i for i in RM.COMM_M_DEFAULT if i in opts]; fmt = lambda i: wbn.get(i, i)
+    comm = c1.multiselect("원자재 (복수)", opts, dflt, format_func=fmt, key=f"rv_comm_{F}")
+    mopts = [i for i in RM.MACRO if i == "spread:10y2y" or i in NAME]
+    macro = c2.multiselect("거시 변수 (복수)", mopts, [i for i in RM.MACRO_DEFAULT if i in mopts], format_func=lambda i: RM.MACRO[i][0], key="rv_macro",
+                           help="변환: 금리 = 기간 차분(%p), 장단기 금리차·신용 스프레드 = 수준, VIX = 로그 수준, 나머지 = 로그수익률(%)")
+    if not comm:
+        st.info("원자재를 1개 이상 고르세요."); return
+    d1, d2, d3, d4 = st.columns([1.6, 1.8, 1, 1])
+    tgt = d1.selectbox("대상 품목 (Y)", comm, format_func=fmt, key=f"rv_tgt_{F}", help="레짐 순서(레짐1 = Y 약세)와 백테스트·회귀 모델의 Y")
+    model = d2.selectbox("모델", RV_MODELS, key="rv_model")
+    K = d3.radio("레짐 수", [2, 3, 4], index=1, horizontal=True, key="rv_k")
+    cov = d4.selectbox("HMM 공분산", ["full", "diag"], key="rv_cov", help="full = 변수 간 상관까지 레짐마다 다름 (모수 많음), diag = 변수별 분산만")
+    X = _rv_panel(tuple(comm), tuple(macro), F, ROLL)
+    if len(X) < 120:
+        st.warning(f"공통 표본이 {len(X)}개뿐입니다 — 늦게 시작하는 변수(예: 원/달러 2003–, 광의 달러 2006–)를 빼세요."); return
+    st0 = {c: (_rv_panel((c,), (), F, ROLL) if c in comm else _rv_panel((), (c,), F, ROLL)).index.min() for c in X.columns}
+    late = max(st0, key=st0.get)
+    why = (f"시작점을 정한 변수: {RM.label(late)}" if st0[late] > min(st0.values()) else "1990년 하한에서 시작")
+    st.caption(f"공통 표본 {X.index.min():%Y-%m} – {X.index.max():%Y-%m} · {len(X):,}개 ({'주간' if F == 'W' else '월간'}) · 변수 {X.shape[1]}개 · {why}")
+    if model.startswith("Hidden"):
+        _rv_hmm(X, tgt, K, cov, F, comm, macro, fmt)
+    else:
+        _rv_reg(X, tgt, model, K, F)
+    with st.expander("전 품목 walk-forward 백테스트 — 거시 변수를 넣으면 국면 예측이 나아지나 (⑥ 실험)"):
+        _rv_experiment()
+    with st.expander("변동성 레짐 (단일 품목 HMM 3상태 · 반감기 안정성) — 리스크 탭 HMM λ의 근거"):
         vol_regime()
-    with s1:
-        st.caption("단일 품목 수익률의 평균·분산이 숨은 레짐(평시/위기)에 따라 달라진다고 보고, 시점별 레짐 확률을 추정.")
-        gid = st.selectbox("품목", ALL_IDS, ALL_IDS.index("yf:CL=F") if "yf:CL=F" in ALL_IDS else 0, format_func=lbl, key="rg_id")
-        R1 = panel_or_stop([gid])
-        r = R1[gid] if R1 is not None else None
-        ms1, ms2 = st.columns([1, 4])
-        kreg = ms1.radio("레짐 수", [2, 3], horizontal=True, key="msk")
-        if ms1.button("레짐 추정", type="primary", key="msbtn") and r is not None:
-            with st.spinner("EM/ML 추정 중... (일간·3레짐은 수십 초)"):
-                try:
-                    st.session_state["ms"] = (gid, A.markov_switching(r, kreg))
-                except Exception as ex:
-                    st.error(f"추정 실패: {ex}")
-        if "ms" in st.session_state and st.session_state["ms"][0] == gid:
-            prob, summ = st.session_state["ms"][1]
-            lv = _panel((gid,), FQ, "level", start, end, extra_bytes, False)[gid]   # 가격 표시는 실제 시세
-            f = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.55, 0.45], vertical_spacing=0.05,
-                              subplot_titles=(f"{short(gid)} 가격", "평활 레짐 확률 (마지막 = 최고 변동성 레짐)"))
-            f.add_trace(go.Scatter(x=lv.index, y=lv.values, line=dict(color=PAL[0], width=1.5), name="가격"), 1, 1)
-            for j, c in enumerate(prob.columns):
-                f.add_trace(go.Scatter(x=prob.index, y=prob[c], stackgroup="p", name=c, line=dict(width=0.5, color=PAL[[2, 3, 7][j] if kreg == 3 else [2, 7][j]])), 2, 1)
-            ms2.plotly_chart(fig_layout(f, 460), key="msfig")
-            ms1.dataframe(summ.style.format("{:.3f}"))
-    with s2:
-        st.caption("Y(품목 수익률)와 X(다른 시장)의 관계가 국면에 따라 달라지는지 추정. 설명 모드 = 동시점 베타(헤지 비율)의 국면 의존성.")
-        a1, a2 = st.columns([1, 2])
-        tgt = a1.selectbox("종속변수 (Y)", ALL_IDS, ALL_IDS.index("yf:ZC=F") if "yf:ZC=F" in ALL_IDS else 0, format_func=lbl, key="rg_tgt")
-        fdef = [i for i in ["yf:CL=F", "yf:DX-Y.NYB", "yf:^GSPC", "fred:VIXCLS"] if i in NAME and i != tgt]
-        feats = a2.multiselect("설명변수 (X)", [i for i in ALL_IDS if i != tgt], default=fdef, format_func=lbl, key="rg_feats")
-        b1, b2, b3, b4 = st.columns(4)
-        rms = b1.multiselect("모델", RG_MODELS, default=["Hidden Markov (HMM)", "Kalman TVP", "Threshold 회귀 (TAR)"], key="rg_models")
-        rmode = b2.radio("분석 목적", ["설명 (동시점 베타)", "예측 (다음 기간)"], key="rg_mode")
-        thr = b3.selectbox("TAR·STAR 임계 변수", [tgt] + feats, (1 + feats.index("fred:VIXCLS")) if "fred:VIXCLS" in feats else 0,
-                           format_func=short, key="rg_thr")
-        nst = b4.number_input("레짐 수 (HMM·MS)", 2, 3, 2, key="rg_k")
-        if st.button("▶ 레짐 모델 실행", type="primary", key="rg_run") and rms and feats:
-            R3 = panel_or_stop([tgt] + feats)
-            if R3 is not None:
-                md = "explain" if rmode.startswith("설명") else "predict"
-                D = A.build_design(R3, tgt, feats, md, 1, 1, True, 0.7)
-                hp_ = dict(thr_var=thr, ms_k=int(nst), ms_pc=3, tar_boot=199, hmm_states=int(nst), hmm_cov="full",
-                           kalman_q=1e-4, mode=md)
-                out_ = {}
-                with st.spinner("추정 중..."):
-                    for m in rms:
-                        try:
-                            out_[m] = A.run_model(m, D, ANN, **hp_)
-                        except Exception as ex:
-                            st.error(f"{m} 실패: {ex}")
-                st.session_state["rg_out"] = (D, out_, tgt, md, hp_)
-        if "rg_out" in st.session_state and st.session_state["rg_out"][1]:
-            D, out_, tgt_, md_, hp_ = st.session_state["rg_out"]
-            met = pd.DataFrame({k: v["metrics"] for k, v in out_.items()}).T
-            st.dataframe(met[[c for c in met.columns if c in ("R² (학습)", "R² (테스트)", "RMSE (테스트)", "OOS R² (vs 학습평균)")]]
-                         .style.format("{:.4f}", na_rep="–"))
-            sel = st.selectbox("상세 보기", list(out_), key="rg_sel")
-            model_detail(sel, out_[sel], D, tgt_, out_, hp_, P="rg_")
+
+
+def _rv_hmm(X, tgt, K, cov, F, comm, macro, fmt):
+    import regime_mv as RM
+    with st.spinner("다변량 HMM 추정 중…"):
+        try:
+            d = _rv_desc(tuple(comm), tuple(macro), F, ROLL, tgt, int(K), cov)
+        except Exception as ex:
+            st.error(f"추정 실패: {ex} — 레짐 수를 줄이거나 공분산을 diag로"); return
+    S, Fp, G = d["summary"], d["filt"], d["smooth"]
+    cur = Fp.iloc[-1]; k_now = cur.idxmax(); unit = "주" if F == "W" else "개월"
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric(f"지금 국면 ({Fp.index[-1]:%Y-%m-%d})", f"{k_now} · {cur.max():.0%}", d["names"][k_now], delta_color="off")
+    m2.metric(f"{k_now}의 {fmt(tgt)} 평균 수익률", f"{S.loc[k_now, 'Y 평균 수익률']:+.2f}%/{unit[0] if F == 'W' else '월'}",
+              f"변동성 {S.loc[k_now, 'Y 변동성']:.2f}%", delta_color="off")
+    m3.metric("기대 지속", f"{S.loc[k_now, '기대 지속 (기간)']:.0f}{unit}", f"유지확률 {S.loc[k_now, '유지확률']:.0%}", delta_color="off")
+    m4.metric("과거 비중", f"{S.loc[k_now, '비중']:.0%}", "전 기간 중 이 국면", delta_color="off")
+    # ① 가격 + 국면 음영 + 확률
+    px_ = _rv_price(tgt, F).reindex(G.index, method="ffill")
+    st_ = G.values.argmax(1)
+    f = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.62, 0.38], vertical_spacing=0.06,
+                      subplot_titles=(f"{fmt(tgt)} 가격 — 배경 = 가장 가능성 높은 국면 (전 기간 평활)", "국면 확률 (실선 = 실시간 필터: 그 시점까지 자료만)"))
+    f.add_trace(go.Scatter(x=px_.index, y=px_.values, line=dict(color=PAL[0], width=1.5), name="가격", showlegend=False), 1, 1)
+    b0 = 0
+    for t in range(1, len(st_) + 1):
+        if t == len(st_) or st_[t] != st_[b0]:
+            f.add_vrect(x0=G.index[b0], x1=G.index[min(t, len(st_) - 1)], fillcolor=RV_COL[st_[b0] % 4], opacity=0.28, line_width=0, layer="below", row=1, col=1)
+            b0 = t
+    for j, c in enumerate(G.columns):
+        f.add_trace(go.Scatter(x=G.index, y=G[c], stackgroup="g", line=dict(width=0.3, color=RV_COL[j % 4]), name=f"{c}: {d['names'][c]}",
+                               opacity=0.5), 2, 1)
+        f.add_trace(go.Scatter(x=Fp.index, y=Fp[c], line=dict(width=0.8, color=RV_COL[j % 4], dash="dot"), showlegend=False), 2, 1)
+    st.plotly_chart(fig_layout(f, 520, hovermode="x"), key="rv_fig_ts")
+    # ② 국면 프로파일 · ③ 전이행렬
+    g1, g2 = st.columns([1.15, 1])
+    P = d["profile"].T.copy(); P.index = [RM.label(c) for c in P.index]
+    P.columns = [f"{k}<br>{d['names'][k].replace(' · ', '<br>')}" for k in P.columns]
+    fp = heat(P, "국면 프로파일 — 변수별 평균 (표준화 z, + = 평소보다 높음)", fmt=".1f", h=150 + 30 * len(P), text_max=40)
+    fp.update_layout(xaxis=dict(tickangle=0, tickfont=dict(size=11)), margin=dict(t=40, b=70))
+    g1.plotly_chart(fp, key="rv_fig_prof")
+    g2.plotly_chart(heat(d["trans"], "전이행렬 — 이번 국면(행) → 다음 기간 국면(열)", 0, 1, fmt=".2f", h=330, scale=SEQ), key="rv_fig_tr")
+    g2.dataframe(S.style.format({"Y 평균 수익률": "{:+.3f}", "Y 변동성": "{:.2f}", "유지확률": "{:.1%}", "기대 지속 (기간)": "{:.1f}", "비중": "{:.0%}"}))
+    st.caption(f"레짐1 = {fmt(tgt)} 평균 수익률이 가장 낮은 국면 → 마지막 레짐 = 가장 높은 국면. 위 음영·프로파일은 전 기간 추정(설명용, 미래 자료 포함 평활). "
+               "백테스트는 아래처럼 매년 그 이전 자료로만 재추정 + 실시간 필터.")
+    # ④ walk-forward 백테스트
+    st.markdown("##### walk-forward 백테스트 — 국면으로 다음 기간 방향을 맞히나 (매년 재추정 · 실시간 필터)")
+    st.caption("예측 = 다음 기간 국면 확률(지금 필터 × 전이행렬) × 국면별 Y 평균 수익률. 같은 표본에서 Y만(단변량) · 원자재만 · Y+거시 · 원자재+거시 비교. "
+               "위약 = 포지션을 13기간 블록으로 섞음(롱 비중·지속성 유지).")
+    if st.button("▶ 백테스트 실행 (약 30–90초)", key="rv_bt_run"):
+        st.session_state["rv_bt"] = (tuple(comm), tuple(macro), F, tgt, int(K), cov)
+    if st.session_state.get("rv_bt") == (tuple(comm), tuple(macro), F, tgt, int(K), cov):
+        with st.spinner("4개 변수 묶음 × 매년 재추정 중…"):
+            T, Ws = _rv_bt(tuple(comm), tuple(macro), F, ROLL, tgt, int(K), cov)
+        if len(T):
+            st.dataframe(T.set_index(["변수 묶음", "기간"]).style.format(
+                {"판단 수": "{:.0f}", "변수 수": "{:.0f}", "롱 비중": "{:.0%}", "롱숏 Sharpe": "{:+.2f}", "롱/현금 Sharpe": "{:+.2f}", "B&H Sharpe": "{:+.2f}",
+                 "방향 적중률": "{:.1%}", "OOS R²": "{:+.4f}", "최상−최하 레짐 수익 차": "{:+.2f}", "레짐 차 t": "{:+.2f}", "위약 95%": "{:+.2f}",
+                 "위약 p": "{:.2f}", "전환 횟수/년": "{:.1f}"}, na_rep="–"))
+            y = X[tgt]; f = go.Figure()
+            for j, (nm, W) in enumerate(Ws.items()):
+                m_ = W["E"].notna()
+                r_ = (np.sign(W.loc[m_, "E"].astype(float)) * y.shift(-1)[m_]).fillna(0).cumsum()
+                f.add_trace(go.Scatter(x=r_.index, y=r_.values, name=nm, line=dict(color=PAL[j], width=2 if "거시" in nm else 1.2)))
+            any_ = next(iter(Ws.values())); m_ = any_["E"].notna()
+            bh = y.shift(-1)[m_].fillna(0).cumsum()
+            f.add_trace(go.Scatter(x=bh.index, y=bh.values, name="Buy & Hold", line=dict(color="#898781", dash="dot")))
+            st.plotly_chart(shade(fig_layout(f, 340, title="누적 수익 (롱/숏, %) — 변수 묶음별", hovermode="x"), bh.index), key="rv_fig_bt")
+            full = T[T["기간"] == "전체 OOS"].set_index("변수 묶음")
+            best = full["롱숏 Sharpe"].idxmax()
+            ok = (full["롱숏 Sharpe"] > full["위약 95%"]) & (T[T["기간"] != "전체 OOS"].groupby("변수 묶음")["롱숏 Sharpe"].min().reindex(full.index) > 0)
+            st.info(f"판정: 전체 OOS 최고 = **{best}** (롱숏 Sharpe {full.loc[best, '롱숏 Sharpe']:+.2f}, 위약 95% {full.loc[best, '위약 95%']:+.2f}). "
+                    + ("위약을 넘고 두 하위기간 모두 양수인 묶음: **" + ", ".join(ok[ok].index) + "**" if ok.any() else
+                       "위약을 넘으면서 두 하위기간 모두 양수인 묶음은 **없음** → 이 품목에서는 국면이 '지금 상태 설명'에는 쓸 만해도 방향 예측력은 운과 구별되지 않음.")
+                    + " 4개 묶음 중 최고를 고르는 것 자체가 유리하므로 위약 95%보다 확실히 높아야 의미 있음.")
+
+
+def _rv_reg(X, tgt, model, K, F):
+    import regime_mv as RM
+    others = [c for c in X.columns if c != tgt]
+    if not others:
+        st.info("회귀 모델은 Y 외에 설명변수가 1개 이상 필요합니다."); return
+    thr_def = "fred:VIXCLS" if "fred:VIXCLS" in others else others[0]
+    e1, e2 = st.columns(2)
+    thr = e1.selectbox("TAR·STAR 문턱 변수", others, others.index(thr_def), format_func=RM.label, key="rv_thr")
+    mode = e2.radio("분석 목적", ["설명 (동시점 베타)", "예측 (다음 기간)"], horizontal=True, key="rv_mode")
+    md = "explain" if mode.startswith("설명") else "predict"
+    hp_ = dict(thr_var=thr, ms_k=int(min(K, 3)), ms_pc=3, tar_boot=199, hmm_states=int(K), hmm_cov="full", kalman_q=1e-4, mode=md)
+    if st.button(f"▶ {model} 실행", type="primary", key="rv_reg_run"):
+        D = A.build_design(X, tgt, others, md, 1, 1, True, 0.7)
+        with st.spinner("추정 중…"):
+            try:
+                o = A.run_model(model, D, RM.ANN[F], **hp_)
+                st.session_state["rv_reg"] = (D, {model: o}, tgt, md, hp_, model)
+            except Exception as ex:
+                st.error(f"{model} 실패: {ex}")
+    r = st.session_state.get("rv_reg")
+    if r and r[5] == model and r[2] == tgt:
+        D, out_, tgt_, md_, hp0, _ = r
+        met = pd.DataFrame({k: v["metrics"] for k, v in out_.items()}).T
+        st.dataframe(met[[c for c in met.columns if c in ("R² (학습)", "R² (테스트)", "RMSE (테스트)", "OOS R² (vs 학습평균)", "방향 적중률",
+                                                         "부호전략 Sharpe")]].style.format("{:.4f}", na_rep="–"))
+        model_detail(model, out_[model], D, tgt_, out_, hp0, P="rv_")
+        st.caption("설명 모드 = 같은 시점 관계(국면별 베타·헤지 비율), 예측 모드 = 다음 기간 수익률 (학습 70% / 테스트 30%). "
+                   "Markov-switching은 설명변수를 주성분 3개로 줄여 추정 (국면마다 모수가 늘어나기 때문).")
+
+
+def _rv_experiment():
+    df = _exp_header("regime_mv")
+    if df is None:
+        return
+    full = df[df["기간"] == "전체 OOS"]
+    pv = full.pivot_table(index=["빈도", "대상", "K"], columns="변수 묶음", values="롱숏 Sharpe")
+    pv = pv[[c for c in ["Y만 (단변량)", "원자재만", "Y + 거시", "원자재 + 거시"] if c in pv]]
+    st.dataframe(pv.rename(index=lambda i: _rv_lbl(i) if isinstance(i, str) and ":" in i else i).style.format("{:+.2f}", na_rep="–"), height=38 * (len(pv) + 2))
+    sub = df[df["기간"] != "전체 OOS"]
+    both = sub.groupby(["빈도", "대상", "K", "변수 묶음"])["롱숏 Sharpe"].min()
+    pl = full.set_index(["빈도", "대상", "K", "변수 묶음"])["위약 95%"]
+    sc = full.set_index(["빈도", "대상", "K", "변수 묶음"])["롱숏 Sharpe"]
+    ok = (sc > pl) & (both.reindex(sc.index) > 0)
+    g = full.groupby("변수 묶음")[["롱숏 Sharpe", "B&H Sharpe", "방향 적중률", "OOS R²"]].mean().reindex(["Y만 (단변량)", "원자재만", "Y + 거시", "원자재 + 거시"])
+    st.dataframe(g.style.format({"롱숏 Sharpe": "{:+.3f}", "B&H Sharpe": "{:+.3f}", "방향 적중률": "{:.1%}", "OOS R²": "{:+.4f}"}))
+    st.caption(f"셀 = 전체 OOS 롱숏 Sharpe (주간 OOS 2006–, 월간 OOS 2000–). 위약 95%를 넘고 두 하위기간(분할 2017) 모두 양수인 칸: "
+               f"**{int(ok.sum())} / {len(ok)}** ({', '.join(f'{_rv_lbl(i[1])}·K{i[2]}·{i[3]}' for i in ok[ok].index[:8]) or '없음'}). "
+               "아래 표 = 변수 묶음별 평균 — 거시를 넣었을 때 평균이 오르는지 확인.")
+
+
+def _rv_lbl(i):
+    import regime_mv as RM
+    if i.startswith("wb:"):
+        return RM.wb_names().get(i, i)
+    return NAME.get(i, i)
 
 
 # ============================================================================

@@ -71,11 +71,15 @@ at.radio(key="ex_pc_view").set_value("프리셋 · 신호 비교 (13·26주, 품
 at.button(key="dybtn").click().run(); check(at, "DY 스필오버")
 at.button(key="tvpbtn").click().run(); check(at, "TVP-VAR 연결성")
 at.button(key="levbtn").click().run(); check(at, "레버리지 비교")
-at.button(key="msbtn").click().run(); check(at, "② 레짐: Markov 2레짐")
-at.multiselect(key="rg_models").set_value(["Hidden Markov (HMM)", "Markov-switching 회귀", "Kalman TVP", "Threshold 회귀 (TAR)", "STAR (평활 전이)"]).run()
-at.button(key="rg_run").click().run(); check(at, "② 레짐: 레짐 회귀 5종 실행")
-for m in ["Hidden Markov (HMM)", "Markov-switching 회귀", "Kalman TVP", "Threshold 회귀 (TAR)", "STAR (평활 전이)"]:
-    at.selectbox(key="rg_sel").set_value(m).run(); check(at, f"  ② 레짐 상세: {m}")
+check(at, "② 레짐: 다변량 HMM (원자재 6 + 거시 8, 주간)")
+assert any("지금 국면" in m.label for m in at.metric)
+at.button(key="rv_bt_run").click().run(); check(at, "② 레짐: walk-forward 백테스트 (4개 변수 묶음)")
+at.radio(key="rv_k").set_value(2).run(); check(at, "② 레짐: 2국면")
+for m in ["Markov-switching 회귀", "Kalman TVP", "Threshold 회귀 (TAR)", "STAR (평활 전이)"]:
+    at.selectbox(key="rv_model").set_value(m).run(); at.button(key="rv_reg_run").click().run(); check(at, f"  ② 레짐 회귀: {m}")
+at.selectbox(key="rv_model").set_value("Hidden Markov (다변량 레짐)").run()
+at.radio(key="rv_fq").set_value("월간 (세계은행, 1990–)").run(); check(at, "② 레짐: 월간 1990– (세계은행 + 거시)")
+at.radio(key="rv_fq").set_value("주간 (선물, 2000–)").run()
 for kind in ["EGARCH", "GARCH"]:
     at.selectbox(key="g_kind").set_value(kind).run(); check(at, f"{kind} 모형")
 
