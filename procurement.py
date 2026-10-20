@@ -1,5 +1,6 @@
 """구매 타이밍 (중간 트레이더의 매입 의사결정) — '정해진 기간 안에 필요한 물량을 언제·얼마나 살까'.
 
+v1.7.0부터 대시보드는 벌크(카고 전량 일괄) 구매 판단: backtest_lump — 점수 ≥ τ 첫 주에 전량, 없으면 마감 주 (아래 분할 매수 규칙은 실험용으로 유지).
 평가 기준은 Sharpe가 아니라 '균등 분할 매수(TWAP) 대비 평균 매입가 절감(bp)' (+ 선택: 재판매 시점까지 보유비용).
 매수 점수 (0~1, 높을수록 지금 사기 좋음) = 가중 평균:
   value  : 1 − (최근 lookback일 가격 분위)                  → 쌀수록 ↑
@@ -464,6 +465,83 @@ def backtest(p_act: pd.Series, p_adj: pd.Series, weeks: int = 13, step: int = 4,
     for c in ["규칙", "가격위치만", "일괄", "사후최저"]:
         B[f"절감_{c}"] = (B["균등"] - B[c]) / B["균등"] * 1e4            # bp, +면 균등보다 싸게 삼
     return B
+
+
+# ============================================================================
+# 벌크(일괄) 구매: 한 카고(3~6만 톤)를 한 번에 — '지금 살까, 기다릴까' (v1.7.0)
+# ============================================================================
+LUMP_TAU = 0.60          # 기본 매수 문턱 (experiments.procurement_lump: 곡물·확장 품목 공통으로 두 하위기간 모두 안정적인 값)
+
+
+# 가격 위치 창 품목별 기본값 (procurement_lump, τ=0.6, 8·13주 평균): 1년 창이 6개월보다 전·후반 모두 낫고 +10bp 이상인 품목만 1년.
+# (돈육·귀리는 오히려 6개월이 훨씬 나음 — '자기 가격 1년 위치' 상대가치 대조군 결과와 별개). 두 후보 중 고른 것이라 개선 폭은 다소 낙관적.
+LOOKBACK_1Y = {"yf:ZM=F", "yf:ZW=F", "yf:KE=F", "yf:CT=F", "yf:PA=F", "yf:SB=F", "yf:GC=F", "ak:M0", "ak:J0"}
+
+
+def item_lookback(i: str, default: int = 126) -> int:
+    """'품목별 자동' 가격 위치 창: LOOKBACK_1Y 품목은 1년(252일), 나머지는 프리셋 값."""
+    return 252 if i in LOOKBACK_1Y else default
+
+
+def _fridays(pa: pd.Series, sig_index: pd.DatetimeIndex, start):
+    days = pa.index.intersection(sig_index)
+    fri = pd.Series(days, index=days).groupby(days.to_period("W-FRI")).max()
+    fri = pd.DatetimeIndex(fri.values)
+    fri = fri[fri >= pd.Timestamp(start)]
+    pos = days.get_indexer(fri)
+    exe = [days[i + 1] if i + 1 < len(days) else None for i in pos]
+    return fri, exe
+
+
+def backtest_lump(p_act: pd.Series, p_adj: pd.Series, weeks: int = 13, step: int = 4, start="2008-01-01", tau: float = LUMP_TAU,
+                  w: dict | None = None, lookback: int = 252, inp: dict | None = None, season: str = "all", carry_bp_week: float = 0.0,
+                  score_override: pd.Series | None = None) -> pd.DataFrame:
+    """구매 창(weeks주) 안에서 전량을 한 번에 산다. 규칙: 매주 금요일 점수 ≥ tau 인 첫 주에 전량 매수(다음 거래일 종가), 끝까지 없으면 마지막 주.
+    비교: 평균(창 안 무작위 하루에 산 기대 가격 = 매주 가격 평균) · 즉시(창 첫 주) · 마감(마지막 주) · 사후최저(이론 상한).
+    carry_bp_week: 마감 시점까지의 주당 보유비용 — 일찍 살수록 비용 ↑ (모든 방식 동일 적용)."""
+    inp = inp or {}
+    sig = signals(p_adj, lookback, inp.get("rel"), inp.get("rel_sign", 1), inp.get("vol_fc"), inp.get("crisis"), season)
+    sc = score(sig, w) if score_override is None else score_override.reindex(sig.index)
+    pa = p_act.dropna(); pa = pa[pa > 0]
+    fri, exe = _fridays(pa, sig.index, start)
+    hold = 1 + carry_bp_week / 1e4 * (weeks - 1 - np.arange(weeks))
+    rows = []
+    for s0 in range(0, len(fri) - weeks - 1, step):
+        if exe[s0 + weeks - 1] is None:
+            break
+        px = np.array([pa[exe[j]] for j in range(s0, s0 + weeks)]) * hold
+        scs = np.array([float(sc.get(fri[j], np.nan)) for j in range(s0, s0 + weeks)])
+        hit = np.flatnonzero(np.nan_to_num(scs, nan=-1) >= tau)
+        k = int(hit[0]) if len(hit) else weeks - 1
+        rows.append(dict(start=exe[s0], 규칙=px[k], 매수주=k + 1, 신호매수=bool(len(hit)), 평균=px.mean(), 즉시=px[0], 마감=px[-1], 사후최저=px.min(),
+                         시작점수=scs[0]))
+    B = pd.DataFrame(rows).set_index("start")
+    for c in ["규칙", "즉시", "마감", "사후최저"]:
+        B[f"절감_{c}"] = (B["평균"] - B[c]) / B["평균"] * 1e4            # bp, +면 '창 안 무작위 하루'보다 싸게 삼
+    B["규칙_vs_즉시"] = (B["즉시"] - B["규칙"]) / B["즉시"] * 1e4          # +면 '오늘 바로 사기'보다 기다린 규칙이 쌈
+    return B
+
+
+def wait_stats(p_act: pd.Series, sc: pd.Series, horizon_w: int = 4, start="2008-01-01") -> pd.DataFrame:
+    """과거 금요일마다: 다음 거래일에 바로 샀을 때 vs 향후 horizon_w주 안의 가격. 점수 구간별 요약 (실현이 끝난 과거만):
+    '더 싼 날이 왔을 확률'(최저가 < 오늘 −1%), 향후 최저가까지 평균 하락(%), horizon_w주 뒤 가격 변화 중앙값(%)."""
+    pa = p_act.dropna(); pa = pa[pa > 0]
+    fri, exe = _fridays(pa, sc.dropna().index, start)
+    lp = np.log(pa)
+    rows = []
+    for d, e in zip(fri, exe):
+        if e is None:
+            continue
+        fut = lp.loc[e:].iloc[1:horizon_w * 5 + 1]
+        if len(fut) < horizon_w * 5:
+            break
+        rows.append(dict(date=d, 점수=float(sc.get(d, np.nan)), 최저하락=(np.exp(fut.min() - lp[e]) - 1) * 100,
+                         기말변화=(np.exp(fut.iloc[-1] - lp[e]) - 1) * 100))
+    W_ = pd.DataFrame(rows).dropna()
+    W_["구간"] = pd.cut(W_.점수, [-0.01, 0.35, 0.5, 0.65, 1.01], labels=["35 미만 (비쌈)", "35~50", "50~65", "65 이상 (쌈)"])
+    g = W_.groupby("구간", observed=True)
+    return pd.DataFrame({"표본 수": g.size(), "더 싼 날 올 확률 (−1% 이상)": g.최저하락.apply(lambda x: (x < -1).mean()),
+                         "향후 최저까지 평균 (%)": g.최저하락.mean(), f"{horizon_w}주 뒤 변화 중앙값 (%)": g.기말변화.median()})
 
 
 def summarize(B: pd.DataFrame, weeks: int, step: int, halflife_years: float | None = None) -> dict:

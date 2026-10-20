@@ -21,12 +21,13 @@ except Exception:
 PAL = (["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"] if DARK else
        ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"])
 MID = "#383835" if DARK else "#f0efec"
-# 히트맵 색: 단색 2개를 잇는 대신 여러 색상(hue)을 거치게 해 0.1·0.3·0.5 같은 중간값도 구분되게 함
-DIV = ([[0, "#c6ecff"], [0.12, "#6cb8f5"], [0.27, "#2f7fd8"], [0.41, "#1d4a8a"], [0.5, "#2b2b2b"],      # 다크: icefire 계열
-        [0.59, "#8a2b2b"], [0.73, "#d6452f"], [0.88, "#f59a3c"], [1, "#ffe28a"]] if DARK else
-       [[0, "#053061"], [0.1, "#2166ac"], [0.2, "#4393c3"], [0.3, "#92c5de"], [0.4, "#d1e5f0"], [0.5, "#f7f7f7"],  # 라이트: RdBu
-        [0.6, "#fddbc7"], [0.7, "#f4a582"], [0.8, "#d6604d"], [0.9, "#b2182b"], [1, "#67001f"]])
-SEQ = "Viridis" if DARK else "YlGnBu"
+# 히트맵 색: 무지개(보라→파랑→하늘→청록→초록→연두→노랑→주황→빨강→진홍) — 0.1 단위 차이도 색상 자체가 달라 눈으로 구분 (마우스 없이)
+# 발산형(DIV): 음수 = 보라·파랑 계열, 0 근처 = 초록, 양수 = 노랑·주황·빨강. 순차형(SEQ): 같은 무지개를 0→최대로.
+DIV = [[0.0, "#3b0f70"], [0.1, "#5a2ca0"], [0.2, "#2c5fd6"], [0.3, "#1fa3e0"], [0.4, "#26c6a6"], [0.5, "#5fcf4a"],
+       [0.6, "#c9e02f"], [0.7, "#ffd52e"], [0.8, "#ff9a1f"], [0.9, "#e8381f"], [1.0, "#8e0a24"]]
+SEQ = [[0.0, "#3b0f70"], [0.12, "#2c5fd6"], [0.25, "#1fa3e0"], [0.37, "#26c6a6"], [0.5, "#5fcf4a"], [0.62, "#c9e02f"],
+       [0.75, "#ffd52e"], [0.87, "#ff9a1f"], [1.0, "#e8381f"]]
+
 CRISIS_FILL = "rgba(137,135,129,0.18)"
 
 
@@ -121,7 +122,20 @@ def vmax_of(*Ms, nodiag=False, step=0.05):
     return (np.ceil(v / step) * step) if v > 0 else 1.0
 
 
-def heat(M: pd.DataFrame, title, zmin=None, zmax=None, fmt=".2f", h=420, scale=None, text_max=8, nodiag=False):
+def range_of(*Ms, nodiag=True, step=0.05):
+    """실제 최소~최대 (대각 제외) → 무지개 전체를 실제 값 범위에 펼침 (값이 대부분 양수인 상관행렬에서도 색이 다양해짐)."""
+    vals = []
+    for M in Ms:
+        a = np.asarray(M, float)
+        if nodiag and a.ndim == 2 and a.shape[0] == a.shape[1]:
+            a = a[~np.eye(a.shape[0], dtype=bool)]
+        vals.append(a[np.isfinite(a)])
+    v = np.concatenate(vals) if vals else np.array([0.0])
+    lo, hi = np.floor(v.min() / step) * step, np.ceil(v.max() / step) * step
+    return (lo, hi) if hi > lo else (lo - step, hi + step)
+
+
+def heat(M: pd.DataFrame, title, zmin=None, zmax=None, fmt=".2f", h=420, scale=None, text_max=12, nodiag=False):
     """zmin/zmax 생략 → 실제 값 범위로 자동 (발산형은 ±max, 비음수면 0~max). nodiag=True → 대각(자기 자신=1)을 비워 색 범위를 쌍별 값에 씀."""
     Z = M.values.astype(float).copy()
     if nodiag and Z.shape[0] == Z.shape[1]:
@@ -140,7 +154,7 @@ def heat(M: pd.DataFrame, title, zmin=None, zmax=None, fmt=".2f", h=420, scale=N
     return fig
 
 
-def heat_row(mats, titles, ranges, scales=None, groups=None, fmt=".2f", h=470, text_max=8, nodiag=True):
+def heat_row(mats, titles, ranges, scales=None, groups=None, fmt=".2f", h=470, text_max=12, nodiag=True):
     """여러 행렬을 한 그림에 나란히 (y 라벨 1번만, 같은 group은 색 막대 공유) → 좁은 3열 배치보다 칸이 크고 비교 쉬움.
     ranges[i] = (zmin, zmax), groups[i] = 색 축 번호(같으면 같은 색 범위·막대)."""
     n = len(mats); groups = groups or [1] * n; scales = scales or [DIV] * n
@@ -194,24 +208,25 @@ def tab_comove():
     C_all = R.corr()
     if m.sum() > 20 and (~m).sum() > 20:
         C_n, C_c = R[~m].corr(), R[m].corr()
-        vc, vd = vmax_of(C_n, C_c, nodiag=True), vmax_of(C_c - C_n, nodiag=True)
+        rc, vd = range_of(C_n, C_c), vmax_of(C_c - C_n, nodiag=True)
         st.plotly_chart(heat_row([C_n, C_c, C_c - C_n], [f"평시 ({(~m).sum():,}개)", f"위기 구간 ({m.sum():,}개)", "차이 (위기 − 평시)"],
-                                 [(-vc, vc), (-vc, vc), (-vd, vd)], groups=[1, 1, 2], h=500), key="h123")
-        st.caption(f"색 범위는 실제 값에 맞춤 (평시·위기 공통 ±{vc:.2f}, 차이 ±{vd:.2f}) · 대각(자기 자신 = 1)은 비움.")
+                                 [rc, rc, (-vd, vd)], groups=[1, 1, 2], h=500), key="h123")
+        st.caption(f"색 = 무지개 (보라 낮음 → 초록 → 빨강 높음), 범위는 실제 값에 맞춤 (평시·위기 공통 {rc[0]:+.2f}~{rc[1]:+.2f}, 차이 ±{vd:.2f}) · "
+                   "대각(자기 자신 = 1)은 비움.")
         off = ~np.eye(len(C_n), dtype=bool)
         st.caption(f"평균 쌍별 상관: 평시 {C_n.values[off].mean():.3f} → 위기 {C_c.values[off].mean():.3f}. "
                    "위기 시 상관 상승은 분산효과 감소를 의미(단, 변동성 상승에 따른 상관 편향 — Forbes-Rigobon(2002) — 에 유의).")
     else:
         cc = st.columns(2)
-        cc[0].plotly_chart(heat(C_all, "전체 기간", nodiag=True), key="h0")
+        cc[0].plotly_chart(heat(C_all, "전체 기간", *range_of(C_all), nodiag=True), key="h0")
         cc[1].info("선택 기간 안에 위기 구간 표본이 부족합니다.")
     if R.shape[1] >= 2:
         import risk as RK
         q_ = st.select_slider("꼬리 의존: 꼬리 분위 q", [0.01, 0.025, 0.05, 0.10], 0.05, key="cm_tdq")
         TL, TU = RK.tail_dependence(R, q_), RK.tail_dependence(R, q_, upper=True)
-        vt = vmax_of(TL, TU, nodiag=True)
+        rt = range_of(TL, TU)
         st.plotly_chart(heat_row([TL, TU], [f"동반 폭락 P(j 하위 {q_:.0%} | i 하위 {q_:.0%}) — 보유자 위험", f"동반 급등 (상위 {q_:.0%}) — 구매자 위험"],
-                                 [(0, vt), (0, vt)], scales=[SEQ, SEQ], h=500), key="cm_td")
+                                 [rt, rt], scales=[SEQ, SEQ], h=500), key="cm_td")
         st.caption(f"상관계수 = 평균적 동조, 꼬리 의존 = '극단적인 날에 같이 움직이는가'. 독립이면 {q_:.0%}, 완전 동조면 100% (순위 기반, 빈도 = 사이드바 설정).")
 
     st.markdown("##### 시간에 따른 동조성")
@@ -508,7 +523,7 @@ def tab_mvgarch():
         pick = st.select_slider("상관행렬 시점", options=list(dates.strftime("%Y-%m-%d")), value=dates[-1].strftime("%Y-%m-%d"), key="mg_dt")
         ti = dates.get_loc(pd.Timestamp(pick))
         Rm = pd.DataFrame(dc["R"][ti], index=cols, columns=cols)
-        st.plotly_chart(heat(Rm, f"DCC 상관행렬 — {pick}  (평균 {dc['avg_corr'].iloc[ti]:.3f})", h=420, nodiag=True), key="mg_dheat")
+        st.plotly_chart(heat(Rm, f"DCC 상관행렬 — {pick}  (평균 {dc['avg_corr'].iloc[ti]:.3f})", *range_of(Rm), h=420, nodiag=True), key="mg_dheat")
 
     # ---- ③ BEKK ----
     st.markdown("##### ③ BEKK(1,1) — 충격·변동성 전이")
@@ -839,6 +854,46 @@ def _record_ml(cfg, D, out, wfres, pl, wf_pl):
     title = f"{short(cfg['대상'])} · {freq_lbl} · {'walk-forward' if wfres else '단일 분할'} · 모델 {len(cfg['모델'])}개" + \
             (f" · 특성 {'+'.join(cfg['추가특성'])}" if cfg["추가특성"] else "")
     return RL.record("ml", title, cfg, summ, tables, hints)
+
+
+def _revalidate_ml(cfg: dict, model: str, targets: list[str], progress=None) -> pd.DataFrame:
+    """기록된 ④ 설정을 그대로(같은 설명변수·특성·시차·비용·무거래 구간·walk-forward) 다른 품목에 적용 + 기간 반분.
+    위약 기준 = 원래 실행에서 시도한 모델 수만큼의 '최댓값' 위약 (그 모델을 여러 개 중에서 골랐으므로)."""
+    fq = cfg.get("빈도", FQ); ann = A.ANN[fq]
+    Lv = _levels(None, bool(cfg.get("롤보정", True)))
+    n_try = max(1, len(cfg.get("모델", [model])))
+    hp_ = dict(cfg.get("hp", {})); hp_["mode"] = "predict"
+    rows = []
+    for j, t in enumerate(targets):
+        if progress:
+            progress(j / len(targets), f"재검증: {short(t)}")
+        feats_ = [f for f in cfg["설명변수"] if f != t and f in Lv]
+        fk_ = [k_ for k_ in cfg.get("추가특성", []) if not (k_ == "COT 헤징압력" and t not in A.COT_MAP)
+               and not (k_ == "베이시스(캐리)" and t not in A.BASIS_MAP)]
+        try:
+            Rt = A.make_panel(Lv, [t] + feats_, UNITS, fq, "logret", cfg.get("시작"), cfg.get("끝"))
+            F = A.make_features(Lv, t, UNITS, fq, Rt.index, fk_) if fk_ else None
+            vsw = {"B": 21, "W-FRI": 13, "ME": 6}[fq] if cfg.get("변동성표준화") else None
+            D = A.build_design(Rt, t, feats_, "predict", int(cfg["시차"]), int(cfg["예측기간"]), bool(cfg["자기시차"]), float(cfg["학습비중"]),
+                               extra=F, vol_scale=vsw, xlag=int(cfg.get("비동기보정", 0)))
+            D.cost = float(cfg["비용bp"]) / 100.0; D.band = float(cfg.get("무거래c", 0.0))
+            p_, y_, m_ = A.walk_forward(D, model, ann, int(cfg["재추정주기"]), 0.5, **hp_)
+        except Exception as ex:
+            rows.append({"품목": short(t), "id": t, "오류": str(ex)[:80]}); continue
+        h = D.horizon
+        pos = A.band_positions(p_.iloc[::h].values, D.band); yv = y_.iloc[::h].values
+        net = pos * yv - np.abs(np.diff(np.r_[0, pos])) * D.cost
+        sr = lambda x: float(np.mean(x) / np.std(x) * np.sqrt(ann / h)) if np.std(x) > 0 else np.nan
+        half = len(net) // 2
+        pl = A.placebo_sharpe(y_.values, ann, h, D.cost, n_models=n_try, long_share=m_["롱 비중"], switch=m_["연간 회전율"] * h / ann / 2, B=500)
+        rows.append({"품목": short(t), "id": t, "원래 품목": t == cfg["대상"], "Sharpe (비용 전)": m_["부호전략 Sharpe"], "Sharpe (비용 후)": sr(net),
+                     "전반 (비용 후)": sr(net[:half]), "후반 (비용 후)": sr(net[half:]), "적중률": m_["방향 적중률"], "Buy&Hold": m_["Buy&Hold Sharpe"],
+                     "위약 단일 95%": pl["single95_net"], f"위약 최댓값 95% ({n_try}개)": pl["max95_net"],
+                     "운 이상": sr(net) > pl["max95_net"], "두 기간 +": (sr(net[:half]) > 0) and (sr(net[half:]) > 0),
+                     "평가 기간": f"{y_.index[0]:%Y-%m}~{y_.index[-1]:%Y-%m}"})
+    if progress:
+        progress(1.0, "완료")
+    return pd.DataFrame(rows).set_index("품목")
 
 
 def _restore_ml(cfg):
@@ -1753,19 +1808,30 @@ def _proc_inputs(i: str, risk: str, relm: str, roll: bool, extra_bytes):
 
 
 @st.cache_data(show_spinner=False)
-def _proc_bt(i: str, weeks: int, w_items: tuple, k: float, start: str, risk: str, lookback: int, season: str, carry: float,
+def _proc_bt(i: str, weeks: int, w_items: tuple, tau: float, start: str, risk: str, lookback: int, season: str, carry: float,
              roll: bool, extra_bytes):
+    """벌크 일괄 구매 백테스트 (점수 ≥ τ 첫 주 전량, 없으면 마감 주)."""
     import procurement as PR
     La_, Lr_ = _levels(extra_bytes, True), _levels(extra_bytes, False)
-    return PR.backtest(Lr_[i], La_[i], weeks, 4, start=start, w=dict(w_items), k=k, lookback=lookback,
-                       inp=_proc_inputs(i, risk, "price", roll, extra_bytes), season=season, carry_bp_week=carry)
+    return PR.backtest_lump(Lr_[i], La_[i], weeks, 4, start=start, tau=tau, w=dict(w_items), lookback=lookback,
+                            inp=_proc_inputs(i, risk, "price", roll, extra_bytes), season=season, carry_bp_week=carry)
+
+
+@st.cache_data(show_spinner=False)
+def _proc_wait(i: str, w_items: tuple, risk: str, lookback: int, season: str, horizon: int, roll: bool):
+    import procurement as PR
+    La_, Lr_ = _levels(None, True), _levels(None, False)
+    inp = _proc_inputs(i, risk, "price", roll, None)
+    sig = PR.signals(La_[i], lookback, inp["rel"], inp["rel_sign"], inp["vol_fc"], inp["crisis"], season)
+    return PR.wait_stats(Lr_[i], PR.score(sig, dict(w_items)), horizon)
 
 
 def tab_procure():
     import procurement as PR
-    st.subheader("구매 타이밍 — 필요한 물량을 언제, 얼마나 살까")
-    st.caption("평가 기준 = 같은 기간에 매주 똑같이 나눠 사는 '균등 매수' 대비 평균 매입가 절감(bp). 매수 점수는 그 시점까지의 데이터로만 계산 "
-               "(롤 보정 가격으로 만기 교체 갭 제거, 대체재·크러시 관계는 실제 근월물 시세), 매입가는 실제 근월물 시세, 체결은 결정일(금) 다음 거래일 종가.")
+    st.subheader("구매 타이밍 — 카고 전량을 지금 살까, 기다릴까")
+    st.caption("벌크 구매(3~6만 톤 한 번에) 기준: 매주 금요일 매수 점수가 문턱 τ 이상이면 '지금 전량 매수', 아니면 대기, 마감 주에는 무조건 매수. "
+               "평가 = 구매 창 안 무작위 하루에 샀을 때(주별 가격 평균) 대비 절감 bp와 '오늘 바로 사기' 대비 bp. 점수는 그 시점까지의 데이터만 사용 "
+               "(롤 보정 가격, 대체재·크러시 관계는 실제 근월물 시세), 체결은 결정일(금) 다음 거래일 종가.")
     ids_av = [i for i in PR.BUY_IDS if i in NAME]
     c1_, c2_, c3_ = st.columns([2, 1.6, 0.8])
     ids = c1_.multiselect(f"구매 품목 ({len(ids_av)}개 중 선택)", ids_av, default=[i for i in ["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F"] if i in ids_av],
@@ -1778,16 +1844,20 @@ def tab_procure():
                            help="추천: 단계별 검증에서 전·후반 모두 균등 매수보다 나았고 꼬리 위험도 가장 작은 조합. "
                                 "균형: 싸면서 반등을 시작할 때 (상대가치 데이터 없이 가격만으로). "
                                 "고급 — 보수적: 계절성 추가, 공격적: 가격 위치만 2배 (꼬리 위험 큼)")
-    weeks = c3_.number_input("구매 기간 (주)", 2, 52, 13, key="pc_weeks", help="이 기간 안에 필요한 물량을 모두 산다는 가정")
+    weeks = c3_.number_input("구매 마감까지 (주)", 1, 52, 8, key="pc_weeks", help="이 기간 안에 카고를 사야 함. 1 = 이번 주가 마감 → 지금 매수")
     P0 = PR.PRESETS[preset]
     with st.expander("신호 · 위험 판단 · 기간 설정 (프리셋 값에서 조정)", expanded=False):
         e = st.columns(5)
         w = {c: e[j].slider(PR.COMP_LBL[c], 0.0, 1.0, float(P0["w"].get(c, 0.0)), 0.05, key=f"pc_w_{c}_{preset}") for j, c in enumerate(PR.COMP_LBL)}
         g = st.columns(5)
-        k = g[0].slider("공격성 k", 0.0, 3.0, float(P0["k"]), 0.25, key=f"pc_k_{preset}", help="0 = 균등 매수, 클수록 점수에 따라 크게 당기거나 늦춤 (주당 최대 3배)")
-        risk_l = g[1].selectbox("위험 판단 (공격성 자동 조절)", list(PR.RISK_MODES), list(PR.RISK_MODES.values()).index(P0["risk"]), key=f"pc_risk_{preset}",
-                                help="위험이 높을수록 균등 매수에 가깝게. MIDAS = 일간 실현분산 시차로 예측한 변동성의 3년 분위, HMM = 고변동 레짐 필터 확률 (모두 walk-forward)")
-        lb_l = g[2].selectbox("가격 위치 창", ["6개월", "1년", "2년"], {126: 0, 252: 1, 504: 2}[P0["lookback"]], key=f"pc_lb_{preset}")
+        tau = g[0].slider("매수 문턱 τ (점수)", 0.40, 0.90, float(PR.LUMP_TAU), 0.05, key=f"pc_tau_{preset}",
+                          help="점수가 이 값 이상이면 '지금 전량 매수'. 낮을수록 빨리 삼(대기 위험↓), 높을수록 더 싼 때를 기다림(마감까지 못 사면 마감 주 가격). "
+                               "⑥ 실험 결과 '벌크 구매' 검증: 곡물은 0.55~0.65가 두 하위기간 모두 안정적")
+        k = float(P0["k"])
+        risk_l = g[1].selectbox("변동성·위험 추정", list(PR.RISK_MODES), list(PR.RISK_MODES.values()).index(P0["risk"]), key=f"pc_risk_{preset}",
+                                help="4주 가격 범위·위험 표시에 쓰는 변동성. MIDAS = 일간 실현분산 시차로 예측, HMM = 고변동 레짐 필터 확률 (모두 walk-forward)")
+        lb_l = g[2].selectbox("가격 위치 창", ["품목별 자동", "6개월", "1년", "2년"], 0, key=f"pc_lb_{preset}",
+                              help="품목별 자동 = 대두박·밀·면화·팔라듐·원당·금 등 9품목은 1년, 나머지는 6개월 (⑥ '벌크 구매' 검증에서 전·후반 모두 나은 쪽)")
         sea_l = g[3].selectbox("계절성 산정", list(PR.SEASON_MODES), list(PR.SEASON_MODES.values()).index(P0["season"]), key=f"pc_sea_{preset}",
                                help="남미 작황 확대 등으로 수확기 패턴이 이동 → 최근 가중이 전체 평균보다 소폭 우수")
         carry = g[4].number_input("보유비용 (bp/주)", 0.0, 20.0, 0.0, 0.5, key="pc_carry",
@@ -1800,14 +1870,15 @@ def tab_procure():
                    "확장 품목(에너지·귀금속·소프트·축산·DCE 등)은 후보 관계 중 두 기간 개선 + 무관한 가격비(위약)·자기 가격 대조군을 모두 넘은 것만 채택"
                    "(가스/원유, 생우/송아지, 알루미늄/구리, 브렌트 경유 크랙 등 10품목), "
                    "통과 관계가 없는 품목은 상대가치 없이 가격 위치·반등·계절로만 판단 → ⑥ 실험 결과 '전 품목 구매 타이밍'.")
-    risk = PR.RISK_MODES[risk_l]; lookback = {"6개월": 126, "1년": 252, "2년": 504}[lb_l]; season = PR.SEASON_MODES[sea_l]
+    risk = PR.RISK_MODES[risk_l]; season = PR.SEASON_MODES[sea_l]
+    lb_of = (lambda i: PR.item_lookback(i, int(P0["lookback"]))) if lb_l == "품목별 자동" else (lambda i, v={"6개월": 126, "1년": 252, "2년": 504}[lb_l]: v)
     if not ids:
         st.info("품목을 선택하세요."); return
     La_, Lr_ = _levels(extra_bytes, True), _levels(extra_bytes, False)
 
     def sig_of(i):
         inp = _proc_inputs(i, risk, "price", ROLL, extra_bytes)
-        return PR.signals(La_[i], lookback, inp["rel"], inp["rel_sign"], inp["vol_fc"], inp["crisis"], season), inp
+        return PR.signals(La_[i], lb_of(i), inp["rel"], inp["rel_sign"], inp["vol_fc"], inp["crisis"], season), inp
 
     rows, sigs = [], {}
     for i in ids:
@@ -1819,43 +1890,59 @@ def tab_procure():
         rows.append({"품목": PR.BUY_IDS[i], "id": i, "기준일": last.date(), "단위": PR.unit_of(i), "가격": px, "1년 최저": p1.min(),
                      "1년 최고": p1.max(), "매수 점수": float(sc.loc[last]) * 100,
                      **{PR.COMP_LBL[c]: float(sig[c].loc[last]) * 100 for c in PR.COMP_LBL}, "위험 지표": rk * 100,
-                     "4주 하단 90%": px * b_lo, "4주 상단 90%": px * b_hi,
-                     "권장 속도 (균등 대비 배)": PR.pace(float(sc.loc[last]), rk, 1.0, int(weeks), k, 3.0) * int(weeks)})
+                     "4주 하단 90%": px * b_lo, "4주 상단 90%": px * b_hi, "가격 위치 창": f"{lb_of(i) // 21}개월"})
     T = pd.DataFrame(rows)
-    st.markdown(f"##### 이번 주 매수 계획 (기준일 {T['기준일'].max()} · {preset})")
-    light = lambda s: "🟢 적극 매수" if s >= 65 else ("🟡 평소대로" if s >= 35 else "🔴 매수 늦춤")
-    # ---- 이번 주 매수 계획: 남은 물량을 넣으면 이번 주 살 양을 바로 계산 ----
-    wl = st.number_input("남은 기간 (주, 이번 주 포함)", 1, 52, int(weeks), key="pc_wl",
-                         help="목표 기간 중 남은 주 수. 마지막 주에는 남은 물량을 전부 삼")
-    ncol = min(len(T), 4)
+    st.markdown(f"##### 지금 살까? — 카고 전량 일괄 구매 판단 (기준일 {T['기준일'].max()} · 마감까지 {int(weeks)}주 · 문턱 {tau:.2f})")
+    light = lambda s: "🟢 적극" if s >= 65 else ("🟡 보통" if s >= 35 else "🔴 비쌈")
+    hz = int(min(4, max(1, weeks)))
+    ncol = min(len(T), 3)
     plan = []
     for j, r in T.iterrows():
         if j % ncol == 0:
             qc = st.columns(ncol)
         box = qc[j % ncol].container(border=True)
-        u = "온스" if r["단위"] == "$/oz" else "톤"
-        rem = box.number_input(f"{r['품목']} — 남은 필요 물량 ({u})", 0.0, 1e8, 30000.0, 1000.0, key=f"pc_q_{r['id']}")
-        q = PR.pace(r["매수 점수"] / 100, r["위험 지표"] / 100, rem, int(wl), k, 3.0)
-        eq = rem / int(wl)
-        box.metric(f"이번 주 매수량 · {light(r['매수 점수'])}", f"{q:,.0f} {u}", f"균등 {eq:,.0f} {u} 대비 {q - eq:+,.0f}" if rem else None, delta_color="off")
-        srow = sigs[r["id"]].loc[sigs[r["id"]].dropna(subset=["value"]).index.max()]
+        i = r["id"]; u = "온스" if r["단위"] == "$/oz" else "톤"; s_ = r["매수 점수"]
+        qty = box.number_input(f"{r['품목']} — 카고 물량 ({u})", 0.0, 1e8, 30000.0 if u == "톤" else 10000.0, 5000.0 if u == "톤" else 1000.0, key=f"pc_q_{i}")
+        if weeks <= 1:
+            dec, why = "🔴 마감 주 — 지금 전량 매수", "더 기다릴 시간이 없음"
+        elif s_ >= tau * 100:
+            dec, why = "🟢 지금 전량 매수", f"점수 {s_:.0f} ≥ 문턱 {tau * 100:.0f}"
+        else:
+            dec, why = "⏳ 대기", f"점수 {s_:.0f} < 문턱 {tau * 100:.0f} (−{tau * 100 - s_:.0f}점) · 마감까지 {int(weeks) - 1}주 더 볼 수 있음"
+        cost = qty * r["가격"]
+        box.metric(dec, f"${cost / 1e6:,.2f}M", f"{qty:,.0f} {u} × ${r['가격']:,.1f}{r['단위'][1:]}", delta_color="off")
+        srow = sigs[i].loc[sigs[i].dropna(subset=["value"]).index.max()]
         ew = PR.eff_weights(srow, w)
-        box.caption(f"점수 **{r['매수 점수']:.0f}** — {PR.reason(srow, w)}  \n"
-                    f"현재가 \\${r['가격']:,.0f}{r['단위'][1:]} · 4주 90% 범위 \\${r['4주 하단 90%']:,.0f}~{r['4주 상단 90%']:,.0f}"
+        WS = _proc_wait(i, tuple(sorted(w.items())), risk, lb_of(i), season, hz, ROLL)
+        bk = "35 미만 (비쌈)" if s_ < 35 else "35~50" if s_ < 50 else "50~65" if s_ < 65 else "65 이상 (쌈)"
+        ws = WS.loc[bk] if bk in WS.index else None
+        Bi = _proc_bt(i, int(max(2, min(26, weeks))), tuple(sorted(w.items())), float(tau), "2008-01-01", risk, lb_of(i), season, 0.0, ROLL, extra_bytes)
+        vs_now = float(Bi["규칙_vs_즉시"].mean()) if len(Bi) else np.nan
+        down, up = qty * (r["4주 하단 90%"] - r["가격"]), qty * (r["4주 상단 90%"] - r["가격"])
+        box.caption(f"{why}  \n점수 근거: {PR.reason(srow, w)}  \n"
+                    f"4주 가격 90% 범위 → 카고 금액 **{down / 1e6:+,.2f}M ~ {up / 1e6:+,.2f}M 달러**"
+                    + (f"  \n과거 이 점수대({bk}): {hz}주 안에 1% 이상 더 싼 날이 온 비율 **{ws.iloc[1]:.0%}**, {hz}주 뒤 가격 중앙값 {ws.iloc[3]:+.1f}% (표본 {int(ws.iloc[0])})"
+                       if ws is not None else "")
+                    + (f"  \n이 품목에서 '문턱 규칙'의 과거 성과: 오늘 바로 사기 대비 **{vs_now:+.0f}bp** "
+                       + ("(기다리는 규칙이 유리했음)" if vs_now > 5 else "(기다림의 이득 없음 → 필요하면 바로 사는 편이 나았음)" if vs_now < -5 else "(차이 작음)")
+                       if np.isfinite(vs_now) else "")
                     + ("" if "relval" in ew or w.get("relval", 0) == 0 else
                        "  \n상대가치 관계 없음 → 가중치 재배분: " + " · ".join(f"{PR.COMP_LBL[c].split(' (')[0]} {v:.0%}" for c, v in ew.items())))
-        plan.append({"품목": r["품목"], "신호": light(r["매수 점수"]), "매수 점수": r["매수 점수"], f"남은 물량": rem, "이번 주 매수량": q,
-                     "균등 매수량": eq, "매수 후 남은 물량": rem - q, "단위": u, "판단 근거": PR.reason(srow, w)})
-    st.dataframe(pd.DataFrame(plan).set_index("품목").style.format({"매수 점수": "{:.0f}", "남은 물량": "{:,.0f}", "이번 주 매수량": "{:,.0f}",
-                                                                   "균등 매수량": "{:,.0f}", "매수 후 남은 물량": "{:,.0f}"}))
-    st.caption(f"이번 주 매수량 = 남은 물량 ÷ 남은 주 × 배율, 배율 = 1 + k·확신·(2·점수 − 1) (0~3배), 확신 = 1 − 0.5·위험 지표({risk_l}) — "
-               "점수 50이면 균등, 높을수록 더 사고 낮을수록 덜 삼. 마지막 주는 전량. 판단 근거 = 점수에 가장 크게 작용한 구성요소 (65 이상 유리 · 35 이하 불리).")
+        plan.append({"품목": r["품목"], "판단": dec, "매수 점수": s_, "문턱": tau * 100, "카고 금액 ($M)": cost / 1e6,
+                     "4주 하락 여지 ($M)": down / 1e6, "4주 상승 위험 ($M)": up / 1e6,
+                     f"{hz}주 안 더 싼 날 확률": ws.iloc[1] if ws is not None else np.nan, "규칙 vs 즉시 (bp, 과거)": vs_now, "점수 근거": PR.reason(srow, w)})
+    st.dataframe(pd.DataFrame(plan).set_index("품목").style.format(
+        {"매수 점수": "{:.0f}", "문턱": "{:.0f}", "카고 금액 ($M)": "{:,.2f}", "4주 하락 여지 ($M)": "{:+,.2f}", "4주 상승 위험 ($M)": "{:+,.2f}",
+         f"{hz}주 안 더 싼 날 확률": "{:.0%}", "규칙 vs 즉시 (bp, 과거)": "{:+.0f}"}, na_rep="–"))
+    st.caption("읽는 법: '지금 전량 매수' = 점수가 문턱 이상(가격 위치·상대가치·반등·계절이 우호적). '대기' = 문턱 미만이지만 마감 전이라 더 볼 수 있음 — "
+               "대기의 대가는 '4주 상승 위험'(가격 90% 범위 상단까지 오르면 카고 금액 증가분). '더 싼 날 확률'은 과거 같은 점수대에서 실제로 1% 이상 싼 날이 "
+               "왔던 비율(사후 최저가 기준이라 현실적으로 그날을 맞히긴 어려움). '규칙 vs 즉시' = 이 품목에서 문턱 규칙(마감 주 강제 매수 포함)이 오늘 바로 사는 것보다 "
+               "평균 몇 bp 싸게 샀는지 (2008~, 4주 간격 반복) — 음수면 이 품목은 기다릴수록 손해였던 품목(상승 추세 등).")
     with st.expander("신호 구성 상세표 (구성요소 점수 · 위험 · 4주 범위)"):
-        show = T.drop(columns=["id", "권장 속도 (균등 대비 배)"]).set_index("품목")
+        show = T.drop(columns=["id"]).set_index("품목")
         st.dataframe(show.style.format({c: "{:,.1f}" for c in show.columns if show[c].dtype.kind == "f"}))
         st.caption(f"점수 = 구성 요소의 가중 평균 (0~100, 가중치 0인 요소는 참고 표시, 값이 없는 요소는 빼고 재배분). 위험 지표 = {risk_l}. "
-                   "'4주 90% 범위' = 현재 변동성 × 과거 '표준화 4주 수익률'의 경험적 5%·95% 분위 (정규 ±1.645σ는 꼬리가 두꺼워 실제 적중률 86~87%, "
-                   "철광석 75%에 그쳐 보정) → 하단 근처 지정가 매수 주문 참고. 적중률 검증: ◆ 리스크 탭.")
+                   "'4주 90% 범위' = 현재 변동성 × 과거 '표준화 4주 수익률'의 경험적 5%·95% 분위 → 하단 근처 지정가 주문 참고. 적중률 검증: ◆ 리스크 탭.")
 
     st.markdown("##### 펀더멘털 맥락 (참고 — 점수에는 미반영)")
     FD = PR.fundamentals(ids)
@@ -1894,7 +1981,7 @@ def tab_procure():
     if risk != "ewma":
         rs_ = sig["risk"][sig.index >= lo] * 100
         f = go.Figure(go.Scatter(x=rs_.index, y=rs_.values, fill="tozeroy", line=dict(color=PAL[1], width=1)))
-        st.plotly_chart(fig_layout(f, 200, title=f"위험 지표 ({risk_l}, %) — 높을수록 균등 매수에 가깝게", yaxis_range=[0, 100]), key="pc_risk_fig")
+        st.plotly_chart(fig_layout(f, 200, title=f"위험 지표 ({risk_l}, %) — 높을수록 변동성 큼 (4주 가격 범위 넓음)", yaxis_range=[0, 100]), key="pc_risk_fig")
     m = np.log(La_[di].dropna()).resample("ME").mean()
     rel_m = (m - m.groupby(m.index.year).transform("mean")) * 100
     yy = rel_m.index.year.max()
@@ -1905,34 +1992,42 @@ def tab_procure():
     st.plotly_chart(fig_layout(f, 260, barmode="group", title="계절 패턴: 월평균 가격의 연평균 대비 차이 (%, 롤 보정) — 음수 = 평균적으로 싼 달", hovermode="x"),
                     key="pc_season")
 
-    st.markdown("##### 과거 성과 검증 — 이 설정으로 샀다면?")
+    st.markdown("##### 과거 성과 검증 — 이 문턱 규칙으로 카고를 샀다면?")
     v1_, v2_ = st.columns([1, 3])
-    y0 = v1_.selectbox("검증 시작 연도", [2008, 2012, 2016, 2020], 0, key="pc_y0", help="긴 표본일수록 통계적으로 신뢰. 최근 효과는 아래 3년 이동 차트·최근 가중 평균으로 확인")
-    v2_.caption(f"{int(weeks)}주 구매 기간을 {y0}년부터 4주 간격으로 반복 시작해 균등 매수와 비교 (+ = 균등보다 싸게 삼, 보유비용 {carry:g}bp/주 반영). "
-                "'사후 최저' = 그 기간 최저 주에 전량 구매 (불가능한 이론 상한).")
+    y0 = v1_.selectbox("검증 시작 연도", [2008, 2012, 2016, 2020], 0, key="pc_y0", help="긴 표본일수록 통계적으로 신뢰. 최근 효과는 아래 3년 이동 차트로 확인")
+    wk_bt = int(max(2, min(26, weeks)))
+    v2_.caption(f"{wk_bt}주 구매 창을 {y0}년부터 4주 간격으로 반복: 점수 ≥ {tau:.2f}인 첫 주에 전량, 없으면 마감 주. 보유비용 {carry:g}bp/주 반영. "
+                "'무작위 하루' = 창 안 아무 날에 샀을 때의 기대 가격(주별 가격 평균), '즉시' = 창 첫 주에 바로 삼, '사후 최저' = 창 최저 주(불가능한 이론 상한).")
     rows, per = [], {}
     for i in ids:
-        B = _proc_bt(i, int(weeks), tuple(sorted(w.items())), float(k), f"{y0}-01-01", risk, lookback, season, float(carry), ROLL, extra_bytes)
-        S_ = PR.summarize(B, int(weeks), 4, halflife_years=5)
-        hv = B[B["시작위험"] >= 0.7]["절감_규칙"]; lv = B[B["시작위험"] < 0.7]["절감_규칙"]
-        rows.append({"품목": PR.BUY_IDS[i], "평균 절감 (bp)": S_["규칙"]["평균 절감 (bp)"], "최근 가중 평균 (bp, 반감기 5년)": S_["규칙"]["최근 가중 평균 (bp)"],
-                     "균등보다 싸게 산 비율": S_["규칙"]["균등보다 싸게 산 비율"], "최악 5% (bp)": S_["규칙"]["하위 5% (bp)"],
-                     "t값 (비중첩)": S_["규칙"]["t값 (비중첩)"], "고변동 국면 시작 (bp)": hv.mean(), "저변동 국면 시작 (bp)": lv.mean(),
-                     "사후 최저 (이론 상한, bp)": S_["사후최저"]["평균 절감 (bp)"], "기간 수": S_["규칙"]["기간 수"]})
-        per[PR.BUY_IDS[i]] = B["절감_규칙"]
+        B = _proc_bt(i, wk_bt, tuple(sorted(w.items())), float(tau), f"{y0}-01-01", risk, lb_of(i), season, float(carry), ROLL, extra_bytes)
+        if B.empty:
+            continue
+        x, v = B["절감_규칙"], B["규칙_vs_즉시"]
+        mid = x.index[0] + (x.index[-1] - x.index[0]) / 2
+        nov = v.iloc[::max(1, wk_bt // 4)]
+        rows.append({"품목": PR.BUY_IDS[i], "무작위 하루 대비 (bp)": x.mean(), "즉시 대비 (bp)": v.mean(), "즉시 대비 전반": v[v.index < mid].mean(),
+                     "즉시 대비 후반": v[v.index >= mid].mean(), "즉시보다 싸게 산 비율": (v > 0).mean(), "최악 5% (즉시 대비 bp)": v.quantile(0.05),
+                     "t값 (비중첩)": nov.mean() / nov.std() * np.sqrt(len(nov)) if nov.std() > 0 else np.nan,
+                     "신호로 산 비율": B["신호매수"].mean(), "평균 매수 주차": B["매수주"].mean(), "사후 최저 (bp)": B["절감_사후최저"].mean(), "기간 수": len(B)})
+        per[PR.BUY_IDS[i]] = v
     R_ = pd.DataFrame(rows).set_index("품목")
-    st.dataframe(R_.style.format({"균등보다 싸게 산 비율": "{:.0%}", "기간 수": "{:.0f}"} | {c: "{:+.1f}" for c in R_.columns if c not in ("균등보다 싸게 산 비율", "기간 수")}))
+    st.dataframe(R_.style.format({"즉시보다 싸게 산 비율": "{:.0%}", "신호로 산 비율": "{:.0%}", "평균 매수 주차": "{:.1f}", "기간 수": "{:.0f}", "t값 (비중첩)": "{:+.2f}"}
+                                 | {c: "{:+.1f}" for c in R_.columns if "bp" in c or c.startswith("즉시 대비")}))
     P_ = pd.DataFrame(per)
     roll3 = P_.mean(axis=1).rolling(max(3, int(156 / 4)), min_periods=10).mean()
     f = go.Figure([go.Scatter(x=roll3.index, y=roll3.values, line=dict(color=PAL[0], width=2.5), name="선택 품목 평균, 3년 이동평균")])
-    f.add_hline(y=0, line_color="#222")
-    st.plotly_chart(shade(fig_layout(f, 280, title="절감의 시간 안정성: 3년 이동평균 (bp) — 0 아래 구간 = 그 3년은 균등 매수가 나았음"), roll3.index), key="pc_roll")
+    f.add_hline(y=0, line_color="#898781")
+    st.plotly_chart(shade(fig_layout(f, 280, title="'오늘 바로 사기' 대비 절감의 시간 안정성: 3년 이동평균 (bp) — 0 아래 = 그 3년은 바로 사는 게 나았음"), roll3.index),
+                    key="pc_roll")
     f = go.Figure([go.Histogram(x=v.values, name=k_, opacity=0.6, nbinsx=40) for k_, v in per.items()])
-    f.add_vline(x=0, line_color="#222")
-    st.plotly_chart(fig_layout(f, 280, barmode="overlay", title="구매 기간별 절감 분포 (bp, 균등 매수 대비)", xaxis_title="절감 (bp)", hovermode="closest"), key="pc_hist")
-    avg = R_["평균 절감 (bp)"].mean()
-    st.info(f"해석: 평균 {avg:+.0f}bp — 예) 연 매입액 1억 달러면 약 ${avg * 1e4:,.0f}. 사후 최저와의 격차(수백 bp)가 보여주듯 최저점 맞히기는 불가능에 가깝고, "
-            "규칙의 가치는 '비쌀 때 덜, 쌀 때 더 + 대체재 대비 싼 쪽을 더' 사는 규율과 위험 국면 대응. 단계별 검증·신호 비교는 ⑥ 실험 결과 탭.")
+    f.add_vline(x=0, line_color="#898781")
+    st.plotly_chart(fig_layout(f, 280, barmode="overlay", title="구매 창별 결과 분포 (bp, 오늘 바로 사기 대비)", xaxis_title="절감 (bp)", hovermode="closest"), key="pc_hist")
+    if len(R_):
+        avg = R_["즉시 대비 (bp)"].mean()
+        st.info(f"해석: 선택 품목 평균 '오늘 바로 사기' 대비 {avg:+.0f}bp — 3만 톤 × 250달러/t(= 750만 달러) 카고라면 약 {avg / 1e4 * 7.5e6:,.0f}달러. "
+                "곡물은 문턱 규칙이 대체로 유리, 상승 추세가 강했던 품목(에너지 일부 등)은 기다릴수록 손해였음 → 품목별 '즉시 대비' 부호를 확인. "
+                "문턱·창별 비교는 ⑥ 실험 결과 '벌크(일괄) 구매'.")
 
 
 # ============================================================================
@@ -2209,6 +2304,10 @@ EX_OVERVIEW = [
     ("구매", "철강 원료·구리 상대가치", "곡물에서 통한 상대가치를 철광석·점결탄·구리에도 쓸 수 있나? 어떤 관계로?",
      "철광석 = SGX/DCE 차익, 점결탄 = 고로 마진이 두 기간 모두 +. 구리/알루미늄은 후반에 무너짐, 구리/금은 작음",
      "★ 금속 3품목의 상대가치 정의", "✅ 채택 (구리는 참고)"),
+    ("구매", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "카고 전량을 한 번에 살 때, '점수가 문턱 τ 이상인 첫 주에 매수'가 오늘 바로 사기보다 나은가? τ와 가격 위치 창(6개월·1년)은?",
+     "곡물은 τ 0.55~0.65에서 바로 사기 대비 +20~42bp(두 하위기간 모두 +). 확장 품목 다수는 상승 추세 탓에 기다릴수록 손해(−30bp). "
+     "1년 창은 대두박·밀·면화 등 9품목에서만 우세, 돈육·귀리는 6개월이 훨씬 나음",
+     "★ 구매 타이밍 '지금 살까?' (문턱 0.60, 품목별 가격 위치 창, 품목별 '규칙 vs 즉시' 표시)", "✅ 채택 (곡물)"),
     ("구매", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 외 에너지·귀금속·소프트·축산·DCE 품목에도 상대가치가 통하나? 대체재 하나 대신 여러 관계를 묶으면(다변량) 나아지나?",
      "무관한 가격비(위약)도 31%가 '두 기간 개선'을 통과 → 위약·자기 가격 대조군을 넘은 관계만 인정하면 확장 28품목 중 10개(가스/원유·생우/송아지·"
      "알루미늄/구리·브렌트 경유 크랙 등). 다변량은 단일 관계 평균 수준. 기존 곡물 정의도 엄격 기준으론 대두 크러시만 통과 → 재검증 필요",
@@ -2243,7 +2342,7 @@ def ex_overview():
     st.caption("⑥ 실험 결과 = 다른 탭의 기본값·프리셋을 정한 근거 백테스트 모음 (모두 미래정보 차단·같은 비용 가정). "
                "실험 이름을 위 버튼에서 고르면 상세 표·그림이 나오고, 데이터가 갱신되면 각 실험의 '재실행'으로 최신화. "
                "판정은 '두 하위기간 모두 개선 + 무작위 위약보다 나음' 기준.")
-    files = {"구매 타이밍 (프리셋 · 단계별)": "procure_steps", "철강 원료·구리 상대가치": "procure_metals", "전 품목 구매 타이밍 (단일 vs 다변량)": "procure_all", "리스크 모형": "risk", "모델 선택 메타 전략": "metasel",
+    files = {"구매 타이밍 (프리셋 · 단계별)": "procure_steps", "철강 원료·구리 상대가치": "procure_metals", "전 품목 구매 타이밍 (단일 vs 다변량)": "procure_all", "벌크(일괄) 구매 — 문턱 · 가격 위치 창": "procure_lump", "리스크 모형": "risk", "모델 선택 메타 전략": "metasel",
              "최신 시계열 모델 · 예측 목표": "forecast_lab", "전략 비교 (리스크 버짓)": "rb", "모멘텀 기간": "momentum", "거래 규칙": "rules", "변동성 사이징": "vol"}
     rows = []
     for grp, nm, q, concl, used, verdict in EX_OVERVIEW:
@@ -2318,6 +2417,50 @@ def ex_runs():
                   help="④ 수익률 예측의 위젯을 이 실행의 설정으로 되돌림 → ④ 탭에서 ▶ 모델 실행")
     if M.get("hints"):
         st.caption("자동 판정 힌트: " + " · ".join(M["hints"]))
+    if M.get("kind") == "ml" and M["settings"].get("walk_forward") and M["settings"].get("목적") == "predict":
+        with st.container(border=True):
+            st.markdown("**🔁 운인지 실력인지 — 같은 설정을 다른 품목·기간에 다시 돌려 보기**")
+            wf_tab = M["tables"].get("walk_forward")
+            mods = [m_ for m_ in (wf_tab.index if wf_tab is not None else []) if not str(m_).startswith("위약")] or M["settings"]["모델"]
+            best_m = (M.get("summary") or {}).get("WF 최고 모델") or R.set_index("run_id").loc[rid].get("WF 최고 모델")
+            r1, r2, r3 = st.columns([1.3, 3, 0.9])
+            mdl = r1.selectbox("모델", list(mods), list(mods).index(best_m) if best_m in mods else 0, key=f"rv_m_{rid}")
+            t0_ = M["settings"]["대상"]
+            pool = [i for i in COMMOD_IDS if GROUP.get(i) in ("Grains", "Energy", "Metals", "Softs", "Livestock", "Iron Ore / Coal")]
+            dflt = list(dict.fromkeys([t0_] + [i for i in ["yf:ZC=F", "yf:ZS=F", "yf:ZW=F", "yf:ZM=F", "yf:KE=F", "yf:ZL=F", "yf:CL=F", "yf:HG=F"] if i in pool]))[:8]
+            tg = r2.multiselect("품목 (원래 품목 + 비교 품목)", pool, dflt, format_func=lbl, key=f"rv_t_{rid}")
+            if r3.button("재검증 실행", key=f"rv_run_{rid}", type="primary") and tg:
+                import runlog as RL
+                pg = st.progress(0.0, "재검증 중")
+                T_ = _revalidate_ml(M["settings"], mdl, tg, progress=lambda x, m_: pg.progress(min(1.0, x), m_))
+                pg.empty()
+                ok_ = T_.get("운 이상", pd.Series(dtype=bool)).fillna(False)
+                summ = {"재검증 모델": mdl, "품목 수": len(T_), "운 이상 품목": int(ok_.sum()), "두 기간 + 품목": int(T_.get("두 기간 +", pd.Series(dtype=bool)).fillna(False).sum())}
+                rid2 = RL.record("revalidate", f"재검증: {M['title']} · {mdl}", dict(원실행=rid, 모델=mdl, 품목=tg, 원설정=M["settings"]), summ,
+                                 {"revalidate": T_.drop(columns=["id"], errors="ignore")},
+                                 [f"{int(ok_.sum())}/{len(T_)} 품목이 위약 최댓값 초과"])
+                st.session_state[f"rv_res_{rid}"] = (T_, rid2)
+            if f"rv_res_{rid}" in st.session_state:
+                T_, rid2 = st.session_state[f"rv_res_{rid}"]
+                if "Sharpe (비용 후)" in T_:
+                    pc = [c for c in T_.columns if c.startswith("위약 최댓값")][0]
+                    f = go.Figure()
+                    f.add_trace(go.Bar(x=T_.index, y=T_["Sharpe (비용 후)"], name="Sharpe (비용 후)",
+                                       marker_color=[PAL[2] if v else "#898781" for v in T_["운 이상"].fillna(False)]))
+                    f.add_trace(go.Scatter(x=T_.index, y=T_[pc], mode="markers", name=pc, marker=dict(symbol="line-ew-open", size=22, color=PAL[7])))
+                    f.add_trace(go.Scatter(x=T_.index, y=T_["전반 (비용 후)"], mode="markers", name="전반", marker=dict(color=PAL[0], size=8)))
+                    f.add_trace(go.Scatter(x=T_.index, y=T_["후반 (비용 후)"], mode="markers", name="후반", marker=dict(color=PAL[3], size=8, symbol="diamond")))
+                    f.add_hline(y=0, line_color="#898781")
+                    st.plotly_chart(fig_layout(f, 320, title="품목별 walk-forward Sharpe (비용 후) — 초록 = 위약 최댓값(빨간 선) 초과", hovermode="x"),
+                                    key=f"rv_fig_{rid}")
+                    n_ok = int(T_["운 이상"].fillna(False).sum()); n2 = int(T_["두 기간 +"].fillna(False).sum())
+                    verdict = ("✅ 여러 품목·기간에서 재현 — 실력일 가능성" if n_ok >= max(2, len(T_) // 2) and n2 >= len(T_) // 2 else
+                               "⚠️ 일부 품목에서만 — 품목 특성일 수 있음" if n_ok >= 1 else "❌ 재현 안 됨 — 원래 결과는 운(여러 시도 중 최고)일 가능성이 큼")
+                    st.markdown(f"**판정: {verdict}** · 위약 최댓값 초과 {n_ok}/{len(T_)} 품목, 두 하위기간 모두 + {n2}/{len(T_)} 품목")
+                st.dataframe(T_.drop(columns=["id"], errors="ignore").style.format(
+                    {c: "{:+.2f}" for c in T_.columns if "Sharpe" in c or "위약" in c or "반 (" in c or c == "Buy&Hold"} | {"적중률": "{:.1%}"}, na_rep="–"))
+                st.caption(f"재검증 결과도 실행 기록에 저장됨 (`{rid2}`). 같은 설명변수·특성·시차·비용·무거래 구간을 품목만 바꿔 적용 — 대상 품목이 설명변수에 있으면 제외. "
+                           "위약 최댓값 = 원래 실행에서 비교한 모델 수만큼 무작위 부호를 시도했을 때의 95% 분위 (그 모델이 '여러 개 중 최고'로 골라졌으므로).")
     with st.expander("설정 전체 (재현용)"):
         st.json(M["settings"], expanded=False)
         st.caption(f"코드 {M['code']} · 데이터 {M['data']} · 설정 지문 {M['config_hash']} · 폴더 runs/{M['path']}")
@@ -2346,7 +2489,7 @@ def tab_experiments():
     st.subheader("실험 결과 — 설정을 바꿔가며 같은 백테스트 엔진으로 비교한 결과")
     st.caption("모든 실험은 미래정보 차단(다음 거래일 체결·walk-forward)·같은 비용 가정. 데이터가 갱신되면 '재실행'으로 최신화. "
                "주의: 표에서 가장 좋은 설정을 골라 쓰면 과적합 — 여러 조건에서 일관되게 좋은 설정을 고를 것.")
-    sec = st.radio("실험", ["📋 한눈에 보기", "📂 내 실행 기록", "구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)",
+    sec = st.radio("실험", ["📋 한눈에 보기", "📂 내 실행 기록", "구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)",
                           "모멘텀 기간", "거래 규칙", "변동성 사이징"],
                    horizontal=True, key="ex_sec")
     pct = lambda cols: {c: "{:.2%}" for c in cols}
@@ -2417,6 +2560,40 @@ def tab_experiments():
         st.caption("읽는 법: 철광석은 SGX 달러 가격과 DCE 위안 가격(환율·증치세 환산)의 차익, 점결탄은 철근 고로 마진(철근 − 1.6·철광석 − 0.5·코크스)이 "
                    "8·13·26주 모두에서 전·후반 + → 채택. 구리는 대체재 알루미늄 비율이 후반에 무너져 기각, 구리/금은 일관되지만 작아(t≈1) 참고 수준. "
                    "표본이 2013년부터라 곡물보다 검증 기간이 짧고, DCE 연속월물은 롤 보정이 없어 신호에 만기 교체 갭이 섞일 수 있음.")
+    elif sec == "벌크(일괄) 구매 — 문턱 · 가격 위치 창":
+        import procurement as PR
+        st.markdown("##### 벌크 구매 — '점수 ≥ τ 첫 주에 전량, 없으면 마감 주' 규칙 (36품목, 2008~, 4주 간격 반복)")
+        df = _exp_header("procure_lump")
+        if df is None:
+            return
+        a_, b_ = st.columns([1, 1])
+        wk = a_.radio("구매 창", sorted(df.구매창주.unique()), 1, horizontal=True, key="ex_lp_wk", format_func=lambda x: f"{x}주")
+        met = b_.radio("기준", ["즉시대비bp", "절감bp"], horizontal=True, key="ex_lp_met",
+                       format_func=lambda x: {"즉시대비bp": "오늘 바로 사기 대비", "절감bp": "무작위 하루 대비"}[x])
+        d = df[df.구매창주 == wk]
+        f = go.Figure()
+        for j, (grp, lb) in enumerate([(g_, l_) for g_ in ["곡물", "확장"] for l_ in sorted(d.위치창.unique())]):
+            x_ = d[(d.군 == grp) & (d.위치창 == lb)].groupby("tau")[[met, "전반bp", "후반bp"]].mean()
+            f.add_trace(go.Scatter(x=x_.index, y=x_[met], mode="lines+markers", name=f"{grp} · 위치창 {lb // 21}개월",
+                                   line=dict(color=PAL[j % 8], width=2.4 if grp == "곡물" else 1.4, dash=None if grp == "곡물" else "dot")))
+        f.add_hline(y=0, line_color="#898781"); f.add_vline(x=PR.LUMP_TAU, line_dash="dot", line_color=PAL[1], annotation_text="기본 τ")
+        st.plotly_chart(fig_layout(f, 340, title=f"문턱 τ별 평균 절감 (bp, {wk}주 창) — 곡물 6품목(실선) vs 확장 30품목(점선)", xaxis_title="문턱 τ",
+                                   hovermode="x unified"), key="ex_lp_line")
+        M = d[(d.tau == PR.LUMP_TAU)].pivot_table(index="품목", columns="위치창", values=met)
+        M.columns = [f"{c // 21}개월" for c in M.columns]
+        M = M.loc[M.max(axis=1).sort_values(ascending=False).index]
+        vm = vmax_of(M.values, step=10)
+        f = go.Figure(go.Heatmap(z=M.values, x=list(M.columns), y=list(M.index), zmin=-vm, zmax=vm, colorscale=DIV, texttemplate="%{z:+.0f}",
+                                 colorbar=dict(thickness=12)))
+        f.update_layout(height=140 + 20 * len(M), margin=dict(l=10, r=10, t=40, b=10), yaxis=dict(autorange="reversed", dtick=1),
+                        title=f"품목별 (τ = {PR.LUMP_TAU:.2f}, {wk}주) — 위치창 6개월 vs 1년, 색 = bp (★ 1년 기본 품목: {', '.join(PR.BUY_IDS[i] for i in sorted(PR.LOOKBACK_1Y))})")
+        st.plotly_chart(f, key="ex_lp_heat")
+        with st.expander("전체 표"):
+            st.dataframe(df.set_index(["품목", "위치창", "구매창주", "tau"]).drop(columns=["id"]).style.format(
+                {c: "{:+.1f}" for c in df.columns if c.endswith("bp")} | {"평균매수주": "{:.1f}", "신호매수비율": "{:.0%}"}, na_rep="–"))
+        st.caption("읽는 법: '오늘 바로 사기 대비'가 실제 의사결정 비교 — 곡물은 τ 0.55~0.65에서 두 하위기간 모두 +, τ가 너무 높으면(0.75) 신호가 드물어 "
+                   "마감 주 강제 매수가 늘고 후반에 음수. 확장 품목 평균은 '즉시 대비' 음수 = 상승 추세가 강해 기다릴수록 손해였던 품목이 많음 → "
+                   "★ 화면에서 품목별 '규칙 vs 즉시' 부호를 함께 표시. '무작위 하루 대비'가 크게 + 인 것은 '즉시'도 무작위 하루보다 나았던(추세) 효과가 섞인 값.")
     elif sec == "전 품목 구매 타이밍 (단일 vs 다변량)":
         import procurement as PR
         st.markdown("##### 전 품목 — 상대가치를 무엇으로 정할까: 없음 vs 단일 관계 vs 다변량 ('추천' 프리셋, 균등 매수 대비 개선 bp)")

@@ -268,6 +268,31 @@ _SECTOR = {"yf:ZC=F": "곡물", "yf:ZW=F": "곡물", "yf:KE=F": "곡물", "yf:ZS
 OWN_CTRL = "대조군: 자기 가격 1년 위치"
 
 
+def procurement_lump(progress=None, taus=(0.5, 0.55, 0.6, 0.65, 0.7, 0.75), weeks=(8, 13), lookbacks=(126, 252)):
+    """벌크(전량 일괄) 구매 규칙: '점수 ≥ τ 인 첫 주에 전량, 없으면 마감 주'. 품목 × τ × 창(8·13주) × 가격 위치 창(6개월·1년).
+    절감 = 창 안 무작위 하루(매주 가격 평균) 대비 bp, 즉시 대비 = 오늘 바로 사는 것 대비. 전·후반 = 품목 평가 기간 중간."""
+    import procurement as PR
+    t0 = time.time(); La, Lr, U, _ = _data(); rows = []
+    P_ = PR.PRESETS["추천 (고도화: 상대가치+계절+MIDAS)"]
+    ids = [i for i in PR.BUY_IDS if i in La and i in Lr]
+    for j, i in enumerate(ids):
+        inp = PR.inputs(La, Lr, i, "midas", "price")
+        st_ = max(pd.Timestamp("2008-01-01"), La[i].first_valid_index() + pd.DateOffset(years=4))
+        for lb in lookbacks:
+            for wk in weeks:
+                for tau in taus:
+                    B = PR.backtest_lump(Lr[i], La[i], wk, 4, start=st_, tau=tau, w=P_["w"], lookback=lb, inp=inp, season=P_["season"])
+                    x, v = B["절감_규칙"], B["규칙_vs_즉시"]
+                    mid = x.index[0] + (x.index[-1] - x.index[0]) / 2
+                    rows.append(dict(품목=PR.BUY_IDS[i], id=i, 군=("곡물" if i in PR.GRAIN_IDS else "확장"), 위치창=lb, 구매창주=wk, tau=tau,
+                                     절감bp=x.mean(), 전반bp=x[x.index < mid].mean(), 후반bp=x[x.index >= mid].mean(), 즉시대비bp=v.mean(),
+                                     즉시절감bp=B["절감_즉시"].mean(), 마감절감bp=B["절감_마감"].mean(), 하위5bp=x.quantile(0.05),
+                                     평균매수주=B["매수주"].mean(), 신호매수비율=B["신호매수"].mean(), 기간수=len(x)))
+        if progress: progress((j + 1) / len(ids))
+    _save("procure_lump", pd.DataFrame(rows), t0, dict(규칙="점수 ≥ τ 첫 주 전량 · 없으면 마감 주", 비교="창 안 무작위 하루(주별 가격 평균)",
+                                                      프리셋="추천 가중치·MIDAS 위험·최근가중 계절", 시작간격="4주"))
+
+
 def rel_adoption(df_all: pd.DataFrame, df_pl: pd.DataFrame | None = None, min_gain: float = 5.0) -> pd.DataFrame:
     """상대가치 선택지별 판정표. 개선 = '상대가치 없음' 대비 bp (13·26주 평균). 엄격 채택 조건 (모두 충족):
     ① 13·26주 모두 전반·후반 개선 > 0  ② 개선 ≥ min_gain  ③ 그 품목 위약(무관한 품목과의 가격비) 개선의 90% 분위 초과
@@ -425,6 +450,8 @@ EXPERIMENTS = {
                            eta="약 1분", cols=["품목", "상대가치", "구매기간주", "전반bp", "후반bp"]),
     "procure_all": dict(title="전 품목 구매 타이밍 — 단일 vs 다변량 상대가치", file="procurement_all_compare.csv", fn=procurement_all,
                         eta="약 3~6분", cols=["품목", "상대가치", "구매기간주", "전반bp", "후반bp"]),
+    "procure_lump": dict(title="벌크(전량 일괄) 구매 — 매수 문턱 τ · 가격 위치 창", file="procurement_lump_compare.csv", fn=procurement_lump,
+                         eta="약 5~8분", cols=["품목", "위치창", "구매창주", "tau", "절감bp"]),
     "procure_placebo": dict(title="구매 상대가치 위약 검증 — 무의미한 관계의 우연 통과율", file="procurement_placebo_compare.csv",
                             fn=procurement_placebo, eta="약 5~10분", cols=["품목", "선택지", "종류", "구매기간주"]),
     "metasel": dict(title="모델 선택 메타 전략 — 시간·레짐별 ML 모델 선택 (위약·SPA 보정)", file="model_selection_compare.csv",

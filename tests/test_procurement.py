@@ -96,6 +96,23 @@ for j_, opt in [("yf:ZC=F", PR.MULTI_AVG), ("yf:ZC=F", PR.MULTI_COINT), ("yf:CL=
 assert PR.rel_option(Lr, "yf:ZC=F", PR.MULTI_AVG)[0].between(0, 1).all()
 ok("확장 품목·다변량 상대가치: 기준일 이후 교란에도 기준일까지 불변 (분위 평균 0~1)")
 
+# 9) 벌크 일괄 구매: τ > 1 이면 항상 마감 주 매수 (= 마감 가격), τ < 0 이면 항상 첫 주(= 즉시), 미래 가격 교란에도 과거 창 결과 불변
+Bm = PR.backtest_lump(Lr[i], La[i], 8, 4, tau=1.5)
+assert (Bm["매수주"] == 8).all() and np.allclose(Bm["규칙"], Bm["마감"]) and not Bm["신호매수"].any()
+Bi = PR.backtest_lump(Lr[i], La[i], 8, 4, tau=-1.0)
+assert (Bi["매수주"] == 1).all() and np.allclose(Bi["규칙"], Bi["즉시"]) and np.allclose(Bi["규칙_vs_즉시"], 0)
+B1 = PR.backtest_lump(Lr[i], La[i], 8, 4, tau=0.6)
+cut5 = pd.Timestamp("2018-06-29"); La5, Lr5 = La.copy(), Lr.copy()
+f5 = np.exp(np.cumsum(np.random.default_rng(3).normal(0, 0.03, (La5.index > cut5).sum())))
+La5.loc[La5.index > cut5, i] *= f5; Lr5.loc[Lr5.index > cut5, i] *= f5
+B2 = PR.backtest_lump(Lr5[i], La5[i], 8, 4, tau=0.6)
+done = B1.index[B1.index < cut5 - pd.DateOffset(weeks=10)]
+assert len(done) > 50 and np.allclose(B1.loc[done, "규칙"], B2.loc[done, "규칙"]) and (B1.loc[done, "매수주"] == B2.loc[done, "매수주"]).all()
+WS = PR.wait_stats(Lr[i], PR.score(PR.signals(La[i])), 4)
+assert WS["표본 수"].sum() > 500 and WS["더 싼 날 올 확률 (−1% 이상)"].between(0, 1).all()
+assert PR.item_lookback("yf:ZM=F") == 252 and PR.item_lookback("yf:ZC=F") == 126
+ok("벌크 일괄 구매: τ 극단값 = 마감·즉시와 일치, 기준일 이후 교란에도 끝난 창의 매수 시점·가격 불변, 점수대별 대기 통계")
+
 T = PR.today_table(La, Lr, list(PR.BUY_IDS))
 assert len(T) == len(PR.BUY_IDS) and T["매수 점수"].between(0, 100).all() and (T["4주 하단 90%"] < T["가격"]).all()
 ok(f"오늘의 신호판: {len(T)}품목, 점수 0~100, 4주 범위 하단 < 현재가")
