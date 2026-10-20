@@ -655,6 +655,62 @@ def backtest_inventory(W_: pd.DataFrame, tau: float = INV_TAU, G: int = INV_G, c
                 신호비율=(Bdf["사유"] == "신호").mean() if len(Bdf) else np.nan, years=yr, 주수=len(Wv))
 
 
+# ============================================================================
+# 미루기 권고 (v1.9.0, 재고 무관): 매주 '지금 1척 살까, 미룰까'
+#   점수 ≥ τ (가격 매력) → 지금 매수 / 아니고 P(2주 안에 지금보다 쌈) ≥ p* → 미룸 / 그 외 → 지금 매수
+#   미룸: 'fixed' = 정확히 max_wait주 뒤 매수, 'adaptive' = 매주 재평가(매력적이 되거나 확률 < p* 이면 매수), 최대 max_wait주
+#   기준 = 판단 없이 즉시 매수. 위약 = 같은 비율을 무작위로 미뤘을 때.
+# ============================================================================
+DEFER_WAIT = 2
+
+
+def backtest_defer(W_: pd.DataFrame, fc: pd.DataFrame, tau: float | None = None, p_star: float = 0.6, max_wait: int = DEFER_WAIT,
+                   mode: str = "adaptive", start="2008-01-01", end=None) -> pd.DataFrame:
+    """주마다 한 번의 구매 판단. 반환 (판단 주별): 미룸 여부·기다린 주·즉시가·체결가·절감 bp (+ = 미뤄서 싸게 삼, 즉시 매수 주는 0).
+    fc = fc_walkforward(W_, horizon=max_wait) — p_down = P(max_wait주 뒤 체결가 < 이번 주 체결가) (walk-forward)."""
+    px = W_["px"].values; sc = W_["score"].values
+    pdn = fc["p_down"].reindex(W_.index).values
+    idx = W_.index
+    lo = idx.searchsorted(pd.Timestamp(start)); hi = len(idx) - max_wait if end is None else min(len(idx) - max_wait, idx.searchsorted(pd.Timestamp(end), "right"))
+
+    def buy_now(t):
+        attractive = tau is not None and np.isfinite(sc[t]) and sc[t] >= tau
+        return attractive or not (np.isfinite(pdn[t]) and pdn[t] >= p_star)
+
+    rows = []
+    for t in range(lo, hi):
+        if not np.isfinite(px[t]) or not np.isfinite(pdn[t]):
+            continue
+        if buy_now(t):
+            w = 0
+        elif mode == "fixed":
+            w = max_wait
+        else:
+            w = max_wait
+            for k in range(1, max_wait):
+                if buy_now(t + k):
+                    w = k; break
+        rows.append((idx[t], w > 0, w, px[t], px[t + w], (px[t] - px[t + w]) / px[t] * 1e4, pdn[t], sc[t],
+                     (px[t] - px[t + max_wait]) / px[t] * 1e4))
+    return pd.DataFrame(rows, columns=["date", "미룸", "대기주", "즉시가", "체결가", "절감bp", "p_down", "점수", "고정대기절감bp"]).set_index("date")
+
+
+def defer_summary(D: pd.DataFrame, n_placebo: int = 500, seed: int = 0) -> dict:
+    """미루기 성과 + 위약(같은 비율을 무작위 주에 고정 max_wait주 미룸) 비교. 절감은 '판단 1회당 평균'(즉시 매수 주 = 0 포함)."""
+    if not len(D):
+        return {}
+    d = D["미룸"].values; s = D["절감bp"].values; g = D["고정대기절감bp"].values
+    n, k = len(D), int(d.sum())
+    rng = np.random.default_rng(seed)
+    pl = np.array([g[rng.choice(n, k, replace=False)].sum() / n for _ in range(n_placebo)]) if 0 < k < n else np.zeros(1)
+    yr = D.groupby(D.index.year)["절감bp"].mean()
+    return {"판단 수": n, "미룸 비율": k / n, "판단당 평균 절감 (bp)": float(s.mean()),
+            "미룬 경우 평균 (bp)": float(s[d].mean()) if k else np.nan, "미룬 경우 적중률": float((s[d] > 0).mean()) if k else np.nan,
+            "위약 평균 (bp)": float(pl.mean()), "위약 90% (bp)": float(np.quantile(pl, 0.9)), "위약 초과 확률": float((pl < s.mean()).mean()),
+            "무조건 2주 미룸 (bp)": float(g.mean()),
+            "연도 t": float(yr.mean() / yr.std() * np.sqrt(len(yr))) if len(yr) > 2 and yr.std() > 0 else np.nan}
+
+
 def summarize(B: pd.DataFrame, weeks: int, step: int, halflife_years: float | None = None) -> dict:
     nov = B.iloc[::max(1, weeks // step)]                                # 겹치지 않는 기간만으로 t값
     out = {}

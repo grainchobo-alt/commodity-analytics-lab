@@ -131,4 +131,24 @@ ok("재고 기반 반복 구매: 강제 매수만이면 카고 수 ≈ 정기, �
 T = PR.today_table(La, Lr, list(PR.BUY_IDS))
 assert len(T) == len(PR.BUY_IDS) and T["매수 점수"].between(0, 100).all() and (T["4주 하단 90%"] < T["가격"]).all()
 ok(f"오늘의 신호판: {len(T)}품목, 점수 0~100, 4주 범위 하단 < 현재가")
+# 미루기 권고 (v1.9.0): 불변성 · 미래정보
+sig_d = PR.signals(La[i]); W_d = PR.weekly_frame(Lr[i], sig_d, PR.score(sig_d))
+F_d = PR.fc_walkforward(W_d, 2)
+D0 = PR.backtest_defer(W_d, F_d, None, 1.01)                                     # p* > 1 → 한 번도 안 미룸
+assert (~D0["미룸"]).all() and np.allclose(D0["절감bp"], 0)
+Dx = PR.backtest_defer(W_d, F_d, None, 0.0, mode="fixed")                         # p* = 0 → 항상 2주 미룸 = 무조건 2주 대기
+assert D0.index.equals(Dx.index) and np.allclose(Dx["절감bp"], Dx["고정대기절감bp"])
+Da = PR.backtest_defer(W_d, F_d, 0.6, 0.55, mode="adaptive")
+assert Da["대기주"].between(0, PR.DEFER_WAIT).all() and np.allclose(Da.loc[~Da["미룸"], "절감bp"], 0)
+cut3 = pd.Timestamp("2015-06-26")
+Lr3, La3 = Lr.copy(), La.copy()
+for L_ in (Lr3, La3):
+    L_.loc[L_.index > cut3, i] *= np.exp(np.cumsum(np.random.default_rng(3).normal(0, 0.03, (L_.index > cut3).sum())))
+sig3 = PR.signals(La3[i]); W3 = PR.weekly_frame(Lr3[i], sig3, PR.score(sig3)); F3 = PR.fc_walkforward(W3, 2)
+D3 = PR.backtest_defer(W3, F3, 0.6, 0.55, mode="adaptive")
+safe = Da.index[Da.index <= cut3 - pd.Timedelta(weeks=3)]                        # 판단 시점 이전 자료만 → 미룸 결정 불변
+assert (Da.loc[safe, "미룸"].values == D3.loc[safe, "미룸"].values).all()
+S_ = PR.defer_summary(Da)
+assert 0 <= S_["미룸 비율"] <= 1 and np.isfinite(S_["위약 평균 (bp)"])
+ok(f"미루기 권고: p*>1이면 미룸 0·절감 0, p*=0 고정이면 무조건 2주 대기와 동일, 미래 가격 교란에 과거 미룸 결정 불변 (미룸 {S_['미룸 비율']:.0%})")
 print("PROCUREMENT TEST PASSED")
