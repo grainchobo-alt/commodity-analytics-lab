@@ -1818,6 +1818,23 @@ def _proc_bt(i: str, weeks: int, w_items: tuple, tau: float, start: str, risk: s
 
 
 @st.cache_data(show_spinner=False)
+def _proc_week(i: str, w_items: tuple, risk: str, lookback: int, season: str, roll: bool, tau: float):
+    """주간 체결가·점수 프레임 + 1·2주 walk-forward 예측 (매년 재학습)."""
+    import procurement as PR
+    La_, Lr_ = _levels(None, True), _levels(None, False)
+    inp = _proc_inputs(i, risk, "price", roll, None)
+    sig = PR.signals(La_[i], lookback, inp["rel"], inp["rel_sign"], inp["vol_fc"], inp["crisis"], season)
+    W_ = PR.weekly_frame(Lr_[i], sig, PR.score(sig, dict(w_items)))
+    return W_, PR.fc_walkforward(W_, 1, tau), PR.fc_walkforward(W_, 2, tau)
+
+
+def _auc(y, p):
+    from sklearn.metrics import roc_auc_score
+    m = y.notna() & p.notna()
+    return float(roc_auc_score(y[m], p[m])) if m.sum() > 50 and y[m].nunique() == 2 else np.nan
+
+
+@st.cache_data(show_spinner=False)
 def _proc_wait(i: str, w_items: tuple, risk: str, lookback: int, season: str, horizon: int, roll: bool):
     import procurement as PR
     La_, Lr_ = _levels(None, True), _levels(None, False)
@@ -1828,10 +1845,11 @@ def _proc_wait(i: str, w_items: tuple, risk: str, lookback: int, season: str, ho
 
 def tab_procure():
     import procurement as PR
-    st.subheader("구매 타이밍 — 카고 전량을 지금 살까, 기다릴까")
-    st.caption("벌크 구매(3~6만 톤 한 번에) 기준: 매주 금요일 매수 점수가 문턱 τ 이상이면 '지금 전량 매수', 아니면 대기, 마감 주에는 무조건 매수. "
-               "평가 = 구매 창 안 무작위 하루에 샀을 때(주별 가격 평균) 대비 절감 bp와 '오늘 바로 사기' 대비 bp. 점수는 그 시점까지의 데이터만 사용 "
-               "(롤 보정 가격, 대체재·크러시 관계는 실제 근월물 시세), 체결은 결정일(금) 다음 거래일 종가.")
+    st.subheader("구매 타이밍 — 이번 주 카고 1척을 살 만한 가격인가")
+    st.caption("파나막스 카고(3~6만 톤)를 평균 G주마다 1척씩 들여오는 운영 기준: 매주 금요일 '지금 가격이 충분히 괜찮은가'(점수 ≥ 문턱 τ, 국소 저점)를 보고 "
+               "저장 여유가 있으면 1카고, 아니면 대기, 재고가 바닥나기 직전이면 무조건 1카고. 예측(1~2주 뒤 하락 확률)은 참고 + 선택적으로 1주 미루기. "
+               "평가 = 정해진 간격(G주마다) 구매·매주 균등 분할 대비 평균 매입가, 학습(2008~2016)으로 τ를 정하고 시험(2017~)에서 확인. "
+               "점수는 그 시점까지의 데이터만 사용, 체결은 결정일(금) 다음 거래일 종가.")
     ids_av = [i for i in PR.BUY_IDS if i in NAME]
     c1_, c2_, c3_ = st.columns([2, 1.6, 0.8])
     ids = c1_.multiselect(f"구매 품목 ({len(ids_av)}개 중 선택)", ids_av, default=[i for i in ["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F"] if i in ids_av],
@@ -1844,15 +1862,15 @@ def tab_procure():
                            help="추천: 단계별 검증에서 전·후반 모두 균등 매수보다 나았고 꼬리 위험도 가장 작은 조합. "
                                 "균형: 싸면서 반등을 시작할 때 (상대가치 데이터 없이 가격만으로). "
                                 "고급 — 보수적: 계절성 추가, 공격적: 가격 위치만 2배 (꼬리 위험 큼)")
-    weeks = c3_.number_input("구매 마감까지 (주)", 1, 52, 8, key="pc_weeks", help="이 기간 안에 카고를 사야 함. 1 = 이번 주가 마감 → 지금 매수")
+    weeks = c3_.number_input("평균 구매 간격 G (주)", 1, 26, int(PR.INV_G), key="pc_weeks",
+                             help="소비 속도 = 1카고 / G주 (예: 4 = 한 달에 1척). 정기 구매 기준선은 G주마다 1척")
     P0 = PR.PRESETS[preset]
     with st.expander("신호 · 위험 판단 · 기간 설정 (프리셋 값에서 조정)", expanded=False):
         e = st.columns(5)
         w = {c: e[j].slider(PR.COMP_LBL[c], 0.0, 1.0, float(P0["w"].get(c, 0.0)), 0.05, key=f"pc_w_{c}_{preset}") for j, c in enumerate(PR.COMP_LBL)}
         g = st.columns(5)
-        tau = g[0].slider("매수 문턱 τ (점수)", 0.40, 0.90, float(PR.LUMP_TAU), 0.05, key=f"pc_tau_{preset}",
-                          help="점수가 이 값 이상이면 '지금 전량 매수'. 낮을수록 빨리 삼(대기 위험↓), 높을수록 더 싼 때를 기다림(마감까지 못 사면 마감 주 가격). "
-                               "⑥ 실험 결과 '벌크 구매' 검증: 곡물은 0.55~0.65가 두 하위기간 모두 안정적")
+        tau = g[0].slider("매수 문턱 τ (점수)", 0.40, 0.90, float(PR.INV_TAU), 0.05, key=f"pc_tau_{preset}",
+                          help="점수가 이 값 이상이면 '이번 주 1카고 살 만한 가격'. ⑥ 실험 결과 '재고 기반 반복 구매'에서 학습 기간(2008~2016)으로 정한 값")
         k = float(P0["k"])
         risk_l = g[1].selectbox("변동성·위험 추정", list(PR.RISK_MODES), list(PR.RISK_MODES.values()).index(P0["risk"]), key=f"pc_risk_{preset}",
                                 help="4주 가격 범위·위험 표시에 쓰는 변동성. MIDAS = 일간 실현분산 시차로 예측, HMM = 고변동 레짐 필터 확률 (모두 walk-forward)")
@@ -1860,7 +1878,7 @@ def tab_procure():
                               help="품목별 자동 = 대두박·밀·면화·팔라듐·원당·금 등 9품목은 1년, 나머지는 6개월 (⑥ '벌크 구매' 검증에서 전·후반 모두 나은 쪽)")
         sea_l = g[3].selectbox("계절성 산정", list(PR.SEASON_MODES), list(PR.SEASON_MODES.values()).index(P0["season"]), key=f"pc_sea_{preset}",
                                help="남미 작황 확대 등으로 수확기 패턴이 이동 → 최근 가중이 전체 평균보다 소폭 우수")
-        carry = g[4].number_input("보유비용 (bp/주)", 0.0, 20.0, 0.0, 0.5, key="pc_carry",
+        carry = g[4].number_input("보유비용 (bp/카고·주)", 0.0, 20.0, 0.0, 0.5, key="pc_carry",
                                   help="재판매·인도 시점까지 보유하는 금융·보관 비용. 일찍 살수록 커짐 — 백테스트 평가에만 반영")
         st.caption("12개월 추세는 롱숏 전략에선 유효했지만 구매 시점 선택에서는 '오를 때 서둘러 사기'가 평균 −20~−50bp로 손해 → 기본 0. "
                    "상대가치는 경제적 관계(옥수수↔밀 가격비, 대두 크러시 마진, 대두박·대두유 가치/대두, 철광석 SGX↔DCE 수입 차익, "
@@ -1892,9 +1910,13 @@ def tab_procure():
                      **{PR.COMP_LBL[c]: float(sig[c].loc[last]) * 100 for c in PR.COMP_LBL}, "위험 지표": rk * 100,
                      "4주 하단 90%": px * b_lo, "4주 상단 90%": px * b_hi, "가격 위치 창": f"{lb_of(i) // 21}개월"})
     T = pd.DataFrame(rows)
-    st.markdown(f"##### 지금 살까? — 카고 전량 일괄 구매 판단 (기준일 {T['기준일'].max()} · 마감까지 {int(weeks)}주 · 문턱 {tau:.2f})")
+    st.markdown(f"##### 이번 주 판단 — 카고 1척 살까? (기준일 {T['기준일'].max()} · 평균 {int(weeks)}주마다 1척 · 문턱 {tau:.2f})")
+    cq1, cq2, cq3 = st.columns([1, 1, 2])
+    cap = cq1.number_input("저장 상한 (카고 수)", 1.0, 6.0, float(PR.INV_CAP), 0.5, key="pc_cap", help="창고·운전자본이 허용하는 최대 재고 (카고 단위)")
+    use_fc = cq2.checkbox("예측으로 1주 미루기", False, key="pc_usefc",
+                          help="살 수 있는 주라도 '1주 뒤 하락 확률'이 기준을 넘고 재고가 1주 더 버티면 미룸 — ⑥ 검증 결과 효과가 없으면 끄는 것이 기본")
+    pw = cq3.slider("미루기 기준: 1주 뒤 하락 확률 >", 0.5, 0.8, 0.6, 0.05, key="pc_pw", disabled=not use_fc)
     light = lambda s: "🟢 적극" if s >= 65 else ("🟡 보통" if s >= 35 else "🔴 비쌈")
-    hz = int(min(4, max(1, weeks)))
     ncol = min(len(T), 3)
     plan = []
     for j, r in T.iterrows():
@@ -1902,42 +1924,54 @@ def tab_procure():
             qc = st.columns(ncol)
         box = qc[j % ncol].container(border=True)
         i = r["id"]; u = "온스" if r["단위"] == "$/oz" else "톤"; s_ = r["매수 점수"]
-        qty = box.number_input(f"{r['품목']} — 카고 물량 ({u})", 0.0, 1e8, 30000.0 if u == "톤" else 10000.0, 5000.0 if u == "톤" else 1000.0, key=f"pc_q_{i}")
-        if weeks <= 1:
-            dec, why = "🔴 마감 주 — 지금 전량 매수", "더 기다릴 시간이 없음"
+        b1, b2 = box.columns(2)
+        qty = b1.number_input(f"{r['품목']} 카고 ({u})", 0.0, 1e8, 30000.0 if u == "톤" else 10000.0, 5000.0 if u == "톤" else 1000.0, key=f"pc_q_{i}")
+        inv = b2.number_input("현재 재고 (카고)", 0.0, 10.0, 1.0, 0.25, key=f"pc_inv_{i}", help="창고에 있는 물량 ÷ 카고 1척 물량. 소비 = 주당 1/G카고")
+        W_, F1, F2 = _proc_week(i, tuple(sorted(w.items())), risk, lb_of(i), season, ROLL, float(tau))
+        d_last = W_.index.max()
+        pd1, pd2, ps = (float(F1["p_down"].iloc[-1]) if np.isfinite(F1["p_down"].iloc[-1]) else np.nan,
+                        float(F2["p_down"].iloc[-1]) if np.isfinite(F2["p_down"].iloc[-1]) else np.nan,
+                        float(F1["p_sig"].iloc[-1]) if np.isfinite(F1["p_sig"].iloc[-1]) else np.nan)
+        auc1, aucs = _auc(F1["y_down"], F1["p_down"]), _auc(F1["y_sig"], F1["p_sig"])
+        inv_next = inv - 1.0 / weeks
+        runway = inv * weeks
+        if inv_next < 1.0 / weeks:
+            dec, why = "🔴 이번 주 1카고 필요 (재고 바닥 임박)", f"재고 {inv:.2f}카고 ≈ {runway:.1f}주분 — 가격과 무관하게 확보"
+        elif s_ >= tau * 100 and inv_next + 1 <= cap + 1e-9:
+            if use_fc and np.isfinite(pd1) and pd1 > pw and inv_next - 1.0 / weeks >= 1.0 / weeks:
+                dec, why = "🟡 1주 미루기 (가격은 괜찮음)", f"점수 {s_:.0f} ≥ 문턱이지만 1주 뒤 하락 확률 {pd1:.0%} > {pw:.0%}"
+            else:
+                dec, why = "🟢 이번 주 1카고 매수", f"점수 {s_:.0f} ≥ 문턱 {tau * 100:.0f} — 지금 가격이 국소 저점권"
         elif s_ >= tau * 100:
-            dec, why = "🟢 지금 전량 매수", f"점수 {s_:.0f} ≥ 문턱 {tau * 100:.0f}"
+            dec, why = "🟡 가격은 괜찮지만 저장 여유 없음", f"재고 {inv:.2f} + 1 > 상한 {cap:g}카고"
         else:
-            dec, why = "⏳ 대기", f"점수 {s_:.0f} < 문턱 {tau * 100:.0f} (−{tau * 100 - s_:.0f}점) · 마감까지 {int(weeks) - 1}주 더 볼 수 있음"
-        cost = qty * r["가격"]
-        box.metric(dec, f"${cost / 1e6:,.2f}M", f"{qty:,.0f} {u} × ${r['가격']:,.1f}{r['단위'][1:]}", delta_color="off")
+            dec, why = "⏳ 대기", f"점수 {s_:.0f} < 문턱 {tau * 100:.0f} (−{tau * 100 - s_:.0f}점) · 재고 {runway:.1f}주분 남음"
+        box.metric(dec, f"${qty * r['가격'] / 1e6:,.2f}M", f"{qty:,.0f} {u} × ${r['가격']:,.1f}{r['단위'][1:]}", delta_color="off")
         srow = sigs[i].loc[sigs[i].dropna(subset=["value"]).index.max()]
         ew = PR.eff_weights(srow, w)
-        WS = _proc_wait(i, tuple(sorted(w.items())), risk, lb_of(i), season, hz, ROLL)
-        bk = "35 미만 (비쌈)" if s_ < 35 else "35~50" if s_ < 50 else "50~65" if s_ < 65 else "65 이상 (쌈)"
-        ws = WS.loc[bk] if bk in WS.index else None
-        Bi = _proc_bt(i, int(max(2, min(26, weeks))), tuple(sorted(w.items())), float(tau), "2008-01-01", risk, lb_of(i), season, 0.0, ROLL, extra_bytes)
-        vs_now = float(Bi["규칙_vs_즉시"].mean()) if len(Bi) else np.nan
+        rel_ = lambda a: "신뢰 낮음" if not np.isfinite(a) or a < 0.53 else ("약함" if a < 0.56 else "참고 가능")
+        fc_txt = (f"예측 (walk-forward): 1주 뒤 하락 {pd1:.0%} · 2주 뒤 하락 {pd2:.0%} (과거 정확도 AUC {auc1:.2f} = {rel_(auc1)})"
+                  + (f" · 다음 주 매수 신호 충족 {ps:.0%} (AUC {aucs:.2f})" if np.isfinite(ps) else "")) if np.isfinite(pd1) else "예측: 학습 자료 부족"
+        nxt = ""
+        if s_ < tau * 100 and np.isfinite(ps) and ps >= 0.6 and np.isfinite(aucs) and aucs >= 0.6:
+            nxt = "  \n→ **다음 주에 매수 신호가 충족될 가능성이 높음** (지금은 대기)"
+        BT = PR.backtest_inventory(W_, float(tau), int(weeks), float(cap), "2017-01-01")
         down, up = qty * (r["4주 하단 90%"] - r["가격"]), qty * (r["4주 상단 90%"] - r["가격"])
-        box.caption(f"{why}  \n점수 근거: {PR.reason(srow, w)}  \n"
-                    f"4주 가격 90% 범위 → 카고 금액 **{down / 1e6:+,.2f}M ~ {up / 1e6:+,.2f}M 달러**"
-                    + (f"  \n과거 이 점수대({bk}): {hz}주 안에 1% 이상 더 싼 날이 온 비율 **{ws.iloc[1]:.0%}**, {hz}주 뒤 가격 중앙값 {ws.iloc[3]:+.1f}% (표본 {int(ws.iloc[0])})"
-                       if ws is not None else "")
-                    + (f"  \n이 품목에서 '문턱 규칙'의 과거 성과: 오늘 바로 사기 대비 **{vs_now:+.0f}bp** "
-                       + ("(기다리는 규칙이 유리했음)" if vs_now > 5 else "(기다림의 이득 없음 → 필요하면 바로 사는 편이 나았음)" if vs_now < -5 else "(차이 작음)")
-                       if np.isfinite(vs_now) else "")
+        box.caption(f"{why}  \n점수 근거: {PR.reason(srow, w)}  \n{fc_txt}{nxt}  \n"
+                    f"4주 가격 90% 범위 → 카고 금액 {down / 1e6:+,.2f}M ~ {up / 1e6:+,.2f}M 달러  \n"
+                    f"이 품목의 규칙 성과 (2017~ 시험 기간): 정기 구매 대비 **{BT['vs정기bp']:+.0f}bp**, 매주 균등 대비 {BT['vs균등bp']:+.0f}bp "
+                    f"(카고 {BT['카고']}척 vs 정기 {BT['정기카고']}척, 강제 매수 {BT['강제']}회)"
                     + ("" if "relval" in ew or w.get("relval", 0) == 0 else
                        "  \n상대가치 관계 없음 → 가중치 재배분: " + " · ".join(f"{PR.COMP_LBL[c].split(' (')[0]} {v:.0%}" for c, v in ew.items())))
-        plan.append({"품목": r["품목"], "판단": dec, "매수 점수": s_, "문턱": tau * 100, "카고 금액 ($M)": cost / 1e6,
-                     "4주 하락 여지 ($M)": down / 1e6, "4주 상승 위험 ($M)": up / 1e6,
-                     f"{hz}주 안 더 싼 날 확률": ws.iloc[1] if ws is not None else np.nan, "규칙 vs 즉시 (bp, 과거)": vs_now, "점수 근거": PR.reason(srow, w)})
+        plan.append({"품목": r["품목"], "판단": dec, "매수 점수": s_, "문턱": tau * 100, "재고 (주분)": runway, "카고 금액 ($M)": qty * r["가격"] / 1e6,
+                     "1주 뒤 하락 확률": pd1, "하락 예측 AUC": auc1, "다음 주 신호 확률": ps, "정기 대비 (bp, 2017~)": BT["vs정기bp"],
+                     "균등 대비 (bp, 2017~)": BT["vs균등bp"], "점수 근거": PR.reason(srow, w)})
     st.dataframe(pd.DataFrame(plan).set_index("품목").style.format(
-        {"매수 점수": "{:.0f}", "문턱": "{:.0f}", "카고 금액 ($M)": "{:,.2f}", "4주 하락 여지 ($M)": "{:+,.2f}", "4주 상승 위험 ($M)": "{:+,.2f}",
-         f"{hz}주 안 더 싼 날 확률": "{:.0%}", "규칙 vs 즉시 (bp, 과거)": "{:+.0f}"}, na_rep="–"))
-    st.caption("읽는 법: '지금 전량 매수' = 점수가 문턱 이상(가격 위치·상대가치·반등·계절이 우호적). '대기' = 문턱 미만이지만 마감 전이라 더 볼 수 있음 — "
-               "대기의 대가는 '4주 상승 위험'(가격 90% 범위 상단까지 오르면 카고 금액 증가분). '더 싼 날 확률'은 과거 같은 점수대에서 실제로 1% 이상 싼 날이 "
-               "왔던 비율(사후 최저가 기준이라 현실적으로 그날을 맞히긴 어려움). '규칙 vs 즉시' = 이 품목에서 문턱 규칙(마감 주 강제 매수 포함)이 오늘 바로 사는 것보다 "
-               "평균 몇 bp 싸게 샀는지 (2008~, 4주 간격 반복) — 음수면 이 품목은 기다릴수록 손해였던 품목(상승 추세 등).")
+        {"매수 점수": "{:.0f}", "문턱": "{:.0f}", "재고 (주분)": "{:.1f}", "카고 금액 ($M)": "{:,.2f}", "1주 뒤 하락 확률": "{:.0%}", "하락 예측 AUC": "{:.2f}",
+         "다음 주 신호 확률": "{:.0%}", "정기 대비 (bp, 2017~)": "{:+.0f}", "균등 대비 (bp, 2017~)": "{:+.0f}"}, na_rep="–"))
+    st.caption("읽는 법: 🟢 = 지금 가격이 위치·반등·계절·상대가치로 보아 국소 저점권(점수 ≥ 문턱)이고 저장 여유가 있음. ⏳ = 아직 비싸고 재고에 여유가 있어 기다릴 수 있음. "
+               "🔴 = 재고가 1주 안에 바닥 — 가격과 무관하게 확보. 예측 확률은 매년 그 이전 자료로만 학습한 로지스틱 회귀(점수·구성요소·최근 수익률·변동성)이며, "
+               "AUC 0.5 = 동전 던지기 — 과거 정확도가 낮은 품목에서는 판단에 쓰지 말 것. '정기 대비' = 같은 소비 속도로 G주마다 1척 산 경우보다 평균 매입가가 몇 bp 낮았나.")
     with st.expander("신호 구성 상세표 (구성요소 점수 · 위험 · 4주 범위)"):
         show = T.drop(columns=["id"]).set_index("품목")
         st.dataframe(show.style.format({c: "{:,.1f}" for c in show.columns if show[c].dtype.kind == "f"}))
@@ -1992,42 +2026,34 @@ def tab_procure():
     st.plotly_chart(fig_layout(f, 260, barmode="group", title="계절 패턴: 월평균 가격의 연평균 대비 차이 (%, 롤 보정) — 음수 = 평균적으로 싼 달", hovermode="x"),
                     key="pc_season")
 
-    st.markdown("##### 과거 성과 검증 — 이 문턱 규칙으로 카고를 샀다면?")
-    v1_, v2_ = st.columns([1, 3])
-    y0 = v1_.selectbox("검증 시작 연도", [2008, 2012, 2016, 2020], 0, key="pc_y0", help="긴 표본일수록 통계적으로 신뢰. 최근 효과는 아래 3년 이동 차트로 확인")
-    wk_bt = int(max(2, min(26, weeks)))
-    v2_.caption(f"{wk_bt}주 구매 창을 {y0}년부터 4주 간격으로 반복: 점수 ≥ {tau:.2f}인 첫 주에 전량, 없으면 마감 주. 보유비용 {carry:g}bp/주 반영. "
-                "'무작위 하루' = 창 안 아무 날에 샀을 때의 기대 가격(주별 가격 평균), '즉시' = 창 첫 주에 바로 삼, '사후 최저' = 창 최저 주(불가능한 이론 상한).")
-    rows, per = [], {}
+    st.markdown("##### 과거 성과 검증 — 이 규칙으로 카고를 들여왔다면? (학습 2008~2016 / 시험 2017~)")
+    st.caption(f"평균 {int(weeks)}주마다 1척 소비, 저장 상한 {cap:g}척, 문턱 {tau:.2f}" + (f", 1주 뒤 하락 확률 > {pw:.0%}면 미룸" if use_fc else "") +
+               f". 기준선: 정기 = G주마다 1척(같은 시작 주), 균등 = 매주 1/G척. 보유비용 {carry:g}bp/카고·주 = 규칙이 정기보다 평균 재고를 더 들고 있을 때의 "
+               "보관·금융 비용 (위 '신호 · 위험 판단' 펼침에서 입력). 시험 기간 결과가 실제 성과에 가까움(문턱은 학습 기간 결과로 정함).")
+    rows, yrs = [], {}
     for i in ids:
-        B = _proc_bt(i, wk_bt, tuple(sorted(w.items())), float(tau), f"{y0}-01-01", risk, lb_of(i), season, float(carry), ROLL, extra_bytes)
-        if B.empty:
-            continue
-        x, v = B["절감_규칙"], B["규칙_vs_즉시"]
-        mid = x.index[0] + (x.index[-1] - x.index[0]) / 2
-        nov = v.iloc[::max(1, wk_bt // 4)]
-        rows.append({"품목": PR.BUY_IDS[i], "무작위 하루 대비 (bp)": x.mean(), "즉시 대비 (bp)": v.mean(), "즉시 대비 전반": v[v.index < mid].mean(),
-                     "즉시 대비 후반": v[v.index >= mid].mean(), "즉시보다 싸게 산 비율": (v > 0).mean(), "최악 5% (즉시 대비 bp)": v.quantile(0.05),
-                     "t값 (비중첩)": nov.mean() / nov.std() * np.sqrt(len(nov)) if nov.std() > 0 else np.nan,
-                     "신호로 산 비율": B["신호매수"].mean(), "평균 매수 주차": B["매수주"].mean(), "사후 최저 (bp)": B["절감_사후최저"].mean(), "기간 수": len(B)})
-        per[PR.BUY_IDS[i]] = v
-    R_ = pd.DataFrame(rows).set_index("품목")
-    st.dataframe(R_.style.format({"즉시보다 싸게 산 비율": "{:.0%}", "신호로 산 비율": "{:.0%}", "평균 매수 주차": "{:.1f}", "기간 수": "{:.0f}", "t값 (비중첩)": "{:+.2f}"}
-                                 | {c: "{:+.1f}" for c in R_.columns if "bp" in c or c.startswith("즉시 대비")}))
-    P_ = pd.DataFrame(per)
-    roll3 = P_.mean(axis=1).rolling(max(3, int(156 / 4)), min_periods=10).mean()
-    f = go.Figure([go.Scatter(x=roll3.index, y=roll3.values, line=dict(color=PAL[0], width=2.5), name="선택 품목 평균, 3년 이동평균")])
-    f.add_hline(y=0, line_color="#898781")
-    st.plotly_chart(shade(fig_layout(f, 280, title="'오늘 바로 사기' 대비 절감의 시간 안정성: 3년 이동평균 (bp) — 0 아래 = 그 3년은 바로 사는 게 나았음"), roll3.index),
-                    key="pc_roll")
-    f = go.Figure([go.Histogram(x=v.values, name=k_, opacity=0.6, nbinsx=40) for k_, v in per.items()])
-    f.add_vline(x=0, line_color="#898781")
-    st.plotly_chart(fig_layout(f, 280, barmode="overlay", title="구매 창별 결과 분포 (bp, 오늘 바로 사기 대비)", xaxis_title="절감 (bp)", hovermode="closest"), key="pc_hist")
-    if len(R_):
-        avg = R_["즉시 대비 (bp)"].mean()
-        st.info(f"해석: 선택 품목 평균 '오늘 바로 사기' 대비 {avg:+.0f}bp — 3만 톤 × 250달러/t(= 750만 달러) 카고라면 약 {avg / 1e4 * 7.5e6:,.0f}달러. "
-                "곡물은 문턱 규칙이 대체로 유리, 상승 추세가 강했던 품목(에너지 일부 등)은 기다릴수록 손해였음 → 품목별 '즉시 대비' 부호를 확인. "
-                "문턱·창별 비교는 ⑥ 실험 결과 '벌크(일괄) 구매'.")
+        W_, F1, _F2 = _proc_week(i, tuple(sorted(w.items())), risk, lb_of(i), season, ROLL, float(tau))
+        for per, (a_, b_) in [("학습 2008~16", ("2008-01-01", "2016-12-31")), ("시험 2017~", ("2017-01-01", None))]:
+            o = PR.backtest_inventory(W_, float(tau), int(weeks), float(cap), a_, b_, F1 if use_fc else None, pw if use_fc else None,
+                                      carry_bp_week=float(carry))
+            yv = o["years"]["vs정기bp"].dropna()
+            rows.append({"품목": PR.BUY_IDS[i], "기간": per, "정기 대비 (bp)": o["vs정기bp"], "보유비용 반영 정기 대비": o["vs정기_보유후bp"],
+                         "평균 재고 (규칙/정기)": f"{o['평균재고']:.2f}/{o['정기평균재고']:.2f}", "균등 대비 (bp)": o["vs균등bp"],
+                         "연도별 + 비율": (yv > 0).mean() if len(yv) else np.nan, "연도 t값": yv.mean() / yv.std() * np.sqrt(len(yv)) if len(yv) > 2 and yv.std() > 0 else np.nan,
+                         "카고 (규칙/정기)": f"{o['카고']}/{o['정기카고']}", "신호로 산 비율": o["신호비율"], "강제 매수": o["강제"], "미룸": o["미룸"]})
+            if per.startswith("시험"):
+                yrs[PR.BUY_IDS[i]] = o["years"]["vs정기bp"]
+    R_ = pd.DataFrame(rows).set_index(["품목", "기간"])
+    st.dataframe(R_.style.format({"정기 대비 (bp)": "{:+.1f}", "보유비용 반영 정기 대비": "{:+.1f}", "균등 대비 (bp)": "{:+.1f}", "연도별 + 비율": "{:.0%}", "연도 t값": "{:+.2f}",
+                                  "신호로 산 비율": "{:.0%}"}, na_rep="–"))
+    Y = pd.DataFrame(yrs)
+    if len(Y):
+        f = go.Figure([go.Bar(x=Y.index, y=Y[c], name=c) for c in Y.columns])
+        f.add_hline(y=0, line_color="#898781")
+        st.plotly_chart(fig_layout(f, 300, barmode="group", title="시험 기간 연도별: 정기 구매 대비 절감 (bp) — 0 위 = 그해 규칙이 쌌음", hovermode="x"), key="pc_yr")
+        avg = R_.xs("시험 2017~", level="기간")["정기 대비 (bp)"].mean()
+        st.info(f"해석: 시험 기간 선택 품목 평균 정기 구매 대비 {avg:+.0f}bp — 카고 1척 750만 달러(3만 톤 × 250달러)라면 척당 약 {avg / 1e4 * 7.5e6:,.0f}달러. "
+                "학습 기간보다 시험 기간 성과가 크게 낮으면 규칙이 과거에 맞춰진 것(과적합) — ⑥ 실험 결과 '재고 기반 반복 구매'에서 품목·문턱별 비교.")
 
 
 # ============================================================================
@@ -2304,6 +2330,10 @@ EX_OVERVIEW = [
     ("구매", "철강 원료·구리 상대가치", "곡물에서 통한 상대가치를 철광석·점결탄·구리에도 쓸 수 있나? 어떤 관계로?",
      "철광석 = SGX/DCE 차익, 점결탄 = 고로 마진이 두 기간 모두 +. 구리/알루미늄은 후반에 무너짐, 구리/금은 작음",
      "★ 금속 3품목의 상대가치 정의", "✅ 채택 (구리는 참고)"),
+    ("구매", "재고 기반 반복 구매 (학습/시험 · 예측)", "평균 4주마다 1카고·저장 상한 2척일 때 '점수 ≥ τ면 이번 주 1척'이 정기·매주 균등 구매보다 싼가? (학습 2008~16 → 시험 2017~) 1~2주 예측은 도움이 되나?",
+     "학습으로 고른 τ=0.45가 시험 기간 25품목 평균 정기 대비 +10bp·균등 대비 +13bp (학습 +37bp에서 크게 줄어듦). 곡물만은 시험 기간 효과 소멸(−10~+2bp), "
+     "확장 품목 +13~+21bp. 1~2주 가격 방향 예측 AUC 0.51, '하락 확률 > 0.6이면 1주 미루기'는 시험 +5bp 소폭(신뢰 낮음)",
+     "★ 구매 타이밍 '이번 주 카고 1척 살까?' (τ 0.45, 재고·저장 상한, 예측은 참고·기본 꺼짐)", "⚠️ 일부만"),
     ("구매", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "카고 전량을 한 번에 살 때, '점수가 문턱 τ 이상인 첫 주에 매수'가 오늘 바로 사기보다 나은가? τ와 가격 위치 창(6개월·1년)은?",
      "곡물은 τ 0.55~0.65에서 바로 사기 대비 +20~42bp(두 하위기간 모두 +). 확장 품목 다수는 상승 추세 탓에 기다릴수록 손해(−30bp). "
      "1년 창은 대두박·밀·면화 등 9품목에서만 우세, 돈육·귀리는 6개월이 훨씬 나음",
@@ -2346,7 +2376,7 @@ def ex_overview():
     st.caption("⑥ 실험 결과 = 다른 탭의 기본값·프리셋을 정한 근거 백테스트 모음 (모두 미래정보 차단·같은 비용 가정). "
                "실험 이름을 위 버튼에서 고르면 상세 표·그림이 나오고, 데이터가 갱신되면 각 실험의 '재실행'으로 최신화. "
                "판정은 '두 하위기간 모두 개선 + 무작위 위약보다 나음' 기준.")
-    files = {"구매 타이밍 (프리셋 · 단계별)": "procure_steps", "철강 원료·구리 상대가치": "procure_metals", "전 품목 구매 타이밍 (단일 vs 다변량)": "procure_all", "곡물 상대가치 재검증 (2008~)": "procure_grains", "벌크(일괄) 구매 — 문턱 · 가격 위치 창": "procure_lump", "리스크 모형": "risk", "모델 선택 메타 전략": "metasel",
+    files = {"구매 타이밍 (프리셋 · 단계별)": "procure_steps", "철강 원료·구리 상대가치": "procure_metals", "전 품목 구매 타이밍 (단일 vs 다변량)": "procure_all", "곡물 상대가치 재검증 (2008~)": "procure_grains", "벌크(일괄) 구매 — 문턱 · 가격 위치 창": "procure_lump", "재고 기반 반복 구매 (학습/시험 · 예측)": "procure_inventory", "리스크 모형": "risk", "모델 선택 메타 전략": "metasel",
              "최신 시계열 모델 · 예측 목표": "forecast_lab", "전략 비교 (리스크 버짓)": "rb", "모멘텀 기간": "momentum", "거래 규칙": "rules", "변동성 사이징": "vol"}
     rows = []
     for grp, nm, q, concl, used, verdict in EX_OVERVIEW:
@@ -2493,7 +2523,7 @@ def tab_experiments():
     st.subheader("실험 결과 — 설정을 바꿔가며 같은 백테스트 엔진으로 비교한 결과")
     st.caption("모든 실험은 미래정보 차단(다음 거래일 체결·walk-forward)·같은 비용 가정. 데이터가 갱신되면 '재실행'으로 최신화. "
                "주의: 표에서 가장 좋은 설정을 골라 쓰면 과적합 — 여러 조건에서 일관되게 좋은 설정을 고를 것.")
-    sec = st.radio("실험", ["📋 한눈에 보기", "📂 내 실행 기록", "구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 상대가치 재검증 (2008~)", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)",
+    sec = st.radio("실험", ["📋 한눈에 보기", "📂 내 실행 기록", "구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 상대가치 재검증 (2008~)", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "재고 기반 반복 구매 (학습/시험 · 예측)", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)",
                           "모멘텀 기간", "거래 규칙", "변동성 사이징"],
                    horizontal=True, key="ex_sec")
     pct = lambda cols: {c: "{:.2%}" for c in cols}
@@ -2564,6 +2594,43 @@ def tab_experiments():
         st.caption("읽는 법: 철광석은 SGX 달러 가격과 DCE 위안 가격(환율·증치세 환산)의 차익, 점결탄은 철근 고로 마진(철근 − 1.6·철광석 − 0.5·코크스)이 "
                    "8·13·26주 모두에서 전·후반 + → 채택. 구리는 대체재 알루미늄 비율이 후반에 무너져 기각, 구리/금은 일관되지만 작아(t≈1) 참고 수준. "
                    "표본이 2013년부터라 곡물보다 검증 기간이 짧고, DCE 연속월물은 롤 보정이 없어 신호에 만기 교체 갭이 섞일 수 있음.")
+    elif sec == "재고 기반 반복 구매 (학습/시험 · 예측)":
+        import procurement as PR
+        st.markdown("##### 재고 기반 반복 구매 — 평균 G주마다 1카고, '점수 ≥ τ면 이번 주 1카고' 규칙의 학습(2008~16) / 시험(2017~) 성과")
+        df = _exp_header("procure_inventory")
+        if df is None:
+            return
+        bt = df[df.구분 == "백테스트"]; fc = df[df.구분 == "예측"]
+        a_, b_, c_ = st.columns(3)
+        G_ = a_.radio("평균 구매 간격 G", sorted(bt.G.unique()), list(sorted(bt.G.unique())).index(PR.INV_G) if PR.INV_G in bt.G.unique() else 0,
+                      horizontal=True, key="ex_iv_g", format_func=lambda x: f"{x}주")
+        grp = b_.radio("품목군", ["곡물", "확장", "전체"], horizontal=True, key="ex_iv_grp")
+        met = c_.radio("기준", ["vs정기bp", "vs균등bp"], horizontal=True, key="ex_iv_met", format_func=lambda x: {"vs정기bp": "정기 구매 대비", "vs균등bp": "매주 균등 대비"}[x])
+        d = bt[(bt.G == G_) & ((bt.군 == grp) if grp != "전체" else True)]
+        f = go.Figure()
+        for j, (per, pw_) in enumerate([(p_, w_) for p_ in ["학습", "시험"] for w_ in [0.0, 0.6]]):
+            x_ = d[(d.기간 == per) & (d.예측보류 == pw_)].groupby("tau")[met].mean()
+            f.add_trace(go.Scatter(x=x_.index, y=x_.values, mode="lines+markers", name=f"{per}{' · 예측 미루기 0.6' if pw_ else ''}",
+                                   line=dict(color=[PAL[0], PAL[0], PAL[1], PAL[1]][j], dash="dot" if pw_ else None, width=2.4 if per == "시험" else 1.6)))
+        f.add_hline(y=0, line_color="#898781"); f.add_vline(x=PR.INV_TAU, line_dash="dot", line_color=PAL[2], annotation_text="기본 τ")
+        st.plotly_chart(fig_layout(f, 340, title=f"문턱 τ별 평균 절감 (bp, {grp}, {G_}주마다 1척) — 학습(파랑) vs 시험(주황), 점선 = 예측으로 1주 미루기",
+                                   xaxis_title="문턱 τ", hovermode="x unified"), key="ex_iv_line")
+        M = d[(d.tau == PR.INV_TAU) & (d.예측보류 == 0)].pivot_table(index="품목", columns="기간", values=met)
+        M = M.loc[M["시험"].sort_values(ascending=False).index] if "시험" in M else M
+        vm = vmax_of(M.values, step=10)
+        f = go.Figure(go.Heatmap(z=M.values, x=list(M.columns), y=list(M.index), zmin=-vm, zmax=vm, colorscale=DIV, texttemplate="%{z:+.0f}", colorbar=dict(thickness=12)))
+        f.update_layout(height=140 + 20 * len(M), margin=dict(l=10, r=10, t=40, b=10), yaxis=dict(autorange="reversed", dtick=1),
+                        title=f"품목별 (τ = {PR.INV_TAU:.2f}) — 학습 vs 시험, 색 = bp · 학습에서 +인데 시험에서 −면 과적합/국면 변화")
+        st.plotly_chart(f, key="ex_iv_heat")
+        st.markdown("**1~2주 방향 예측의 실제 정확도 (walk-forward, 매년 재학습)**")
+        A_ = fc.groupby(["기간", "예측주", "군"])[["하락AUC", "신호AUC"]].mean().unstack("군")
+        st.dataframe(A_.style.format("{:.3f}", na_rep="–"))
+        with st.expander("품목별 예측 AUC · 전체 백테스트 표"):
+            st.dataframe(fc.pivot_table(index="품목", columns=["기간", "예측주"], values="하락AUC").style.format("{:.3f}", na_rep="–"))
+            st.dataframe(bt.set_index(["품목", "기간", "G", "tau", "예측보류"]).drop(columns=["구분", "id", "군"]).style.format(
+                {"vs정기bp": "{:+.1f}", "vs균등bp": "{:+.1f}", "신호비율": "{:.0%}", "연도t": "{:+.2f}", "연도양수비율": "{:.0%}"}, na_rep="–"))
+        st.caption("읽는 법: 실선(예측 없음)의 '시험' 곡선이 실제로 기대할 수 있는 성과 — 문턱은 학습 곡선만 보고 고름. 하락 AUC 0.5 = 동전 던지기, "
+                   "'신호 AUC'가 높은 것은 점수가 주 단위로 천천히 움직여서(자기상관) — 다음 주 신호 충족은 예측되지만 가격 방향은 거의 예측되지 않음.")
     elif sec == "벌크(일괄) 구매 — 문턱 · 가격 위치 창":
         import procurement as PR
         st.markdown("##### 벌크 구매 — '점수 ≥ τ 첫 주에 전량, 없으면 마감 주' 규칙 (36품목, 2008~, 4주 간격 반복)")

@@ -293,6 +293,44 @@ def procurement_lump(progress=None, taus=(0.5, 0.55, 0.6, 0.65, 0.7, 0.75), week
                                                       프리셋="추천 가중치·MIDAS 위험·최근가중 계절", 시작간격="4주"))
 
 
+def procurement_inventory(progress=None, taus=(0.45, 0.5, 0.55, 0.6, 0.65, 0.7), Gs=(2, 4), cap=2.0, p_waits=(0.55, 0.6, 0.65),
+                          split="2017-01-01", start="2008-01-01"):
+    """재고 기반 반복 구매 OOS 검증: 학습 기간(start~split)에서 τ·p_wait 를 고르고 시험 기간(split~)에서 정기·균등 대비 절감 확인.
+    예측(1주 뒤 하락 확률)은 walk-forward 로지스틱(매년 재학습) — 시험 기간 예측은 그 해 이전 자료로만 학습."""
+    import procurement as PR
+    t0 = time.time(); La, Lr, U, _ = _data(); rows = []
+    P_ = PR.PRESETS["추천 (고도화: 상대가치+계절+MIDAS)"]
+    ids = [i for i in PR.BUY_IDS if i in La and i in Lr and La[i].first_valid_index() < pd.Timestamp(start) - pd.DateOffset(years=3)]
+    for j, i in enumerate(ids):
+        inp = PR.inputs(La, Lr, i, "midas", "price")
+        sig = PR.signals(La[i], PR.item_lookback(i, P_["lookback"]), inp["rel"], inp["rel_sign"], inp["vol_fc"], inp["crisis"], P_["season"])
+        W_ = PR.weekly_frame(Lr[i], sig, PR.score(sig, P_["w"]))
+        fcs = {h: PR.fc_walkforward(W_, h) for h in (1, 2)}
+        for h, F in fcs.items():
+            from sklearn.metrics import roc_auc_score
+            for per, msk in [("학습", F.index < split), ("시험", F.index >= split)]:
+                m_ = msk & F.p_down.notna() & F.y_down.notna()
+                auc = roc_auc_score(F.y_down[m_], F.p_down[m_]) if m_.sum() > 50 and F.y_down[m_].nunique() == 2 else np.nan
+                m2 = msk & F.p_sig.notna() & F.y_sig.notna()
+                auc2 = roc_auc_score(F.y_sig[m2], F.p_sig[m2]) if m2.sum() > 50 and F.y_sig[m2].nunique() == 2 else np.nan
+                rows.append(dict(구분="예측", 품목=PR.BUY_IDS[i], id=i, 군=("곡물" if i in PR.GRAIN_IDS else "확장"), 기간=per, 예측주=h,
+                                 하락AUC=auc, 신호AUC=auc2, 하락비율=F.y_down[m_].mean()))
+        for G in Gs:
+            for tau in taus:
+                for pw in (None, *p_waits):
+                    for per, (a_, b_) in [("학습", (start, pd.Timestamp(split) - pd.Timedelta(days=1))), ("시험", (split, None))]:
+                        o = PR.backtest_inventory(W_, tau, G, cap, a_, b_, fcs[1] if pw else None, pw)
+                        yv = o["years"]["vs정기bp"].dropna()
+                        rows.append(dict(구분="백테스트", 품목=PR.BUY_IDS[i], id=i, 군=("곡물" if i in PR.GRAIN_IDS else "확장"), 기간=per, G=G, tau=tau,
+                                         예측보류=pw if pw else 0.0, vs정기bp=o["vs정기bp"], vs균등bp=o["vs균등bp"], 카고=o["카고"], 정기카고=o["정기카고"],
+                                         강제=o["강제"], 미룸=o["미룸"], 신호비율=o["신호비율"],
+                                         연도t=yv.mean() / yv.std() * np.sqrt(len(yv)) if len(yv) > 2 and yv.std() > 0 else np.nan,
+                                         연도양수비율=(yv > 0).mean() if len(yv) else np.nan))
+        if progress: progress((j + 1) / len(ids))
+    _save("procure_inventory", pd.DataFrame(rows), t0, dict(규칙="점수 ≥ τ & 저장 여유 → 1카고, 재고 바닥 직전 강제 1카고", 저장상한=f"{cap:g}카고",
+                                                           학습=f"{start}~{split}", 시험=f"{split}~", 예측="walk-forward 로지스틱 (매년 재학습)"))
+
+
 def rel_adoption(df_all: pd.DataFrame, df_pl: pd.DataFrame | None = None, min_gain: float = 5.0) -> pd.DataFrame:
     """상대가치 선택지별 판정표. 개선 = '상대가치 없음' 대비 bp (13·26주 평균). 엄격 채택 조건 (모두 충족):
     ① 13·26주 모두 전반·후반 개선 > 0  ② 개선 ≥ min_gain  ③ 그 품목 위약(무관한 품목과의 가격비) 개선의 90% 분위 초과
@@ -501,6 +539,8 @@ EXPERIMENTS = {
                         eta="약 3~6분", cols=["품목", "상대가치", "구매기간주", "전반bp", "후반bp"]),
     "procure_lump": dict(title="벌크(전량 일괄) 구매 — 매수 문턱 τ · 가격 위치 창", file="procurement_lump_compare.csv", fn=procurement_lump,
                          eta="약 5~8분", cols=["품목", "위치창", "구매창주", "tau", "절감bp"]),
+    "procure_inventory": dict(title="재고 기반 반복 구매 — 학습/시험 분리 · 1~2주 예측", file="procurement_inventory_compare.csv",
+                              fn=procurement_inventory, eta="약 10~15분", cols=["구분", "품목", "기간"]),
     "procure_placebo": dict(title="구매 상대가치 위약 검증 — 무의미한 관계의 우연 통과율", file="procurement_placebo_compare.csv",
                             fn=procurement_placebo, eta="약 5~10분", cols=["품목", "선택지", "종류", "구매기간주"]),
     "procure_grains": dict(title="곡물 상대가치 재검증 — 원래 기간(2008~, 경계 2017) 엄격 기준", file="procurement_grains_compare.csv",

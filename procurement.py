@@ -548,6 +548,113 @@ def wait_stats(p_act: pd.Series, sc: pd.Series, horizon_w: int = 4, start="2008-
                          "향후 최저까지 평균 (%)": g.최저하락.mean(), f"{horizon_w}주 뒤 변화 중앙값 (%)": g.기말변화.median()})
 
 
+# ============================================================================
+# 재고 기반 반복 구매 (v1.8.0): 카고(파나막스 3~6만 톤)를 평균 G주마다 1척, 저장 상한 C척 —
+# '지금 가격이 충분히 괜찮으면(점수 ≥ τ) 이번 주 1카고, 아니면 대기, 재고가 바닥나기 직전이면 무조건 1카고'
+# 기준: 정해진 간격(G주마다) 구매 · 매주 균등 분할(TWAP). 예측(1~2주 뒤 하락 확률)은 '살 수 있는 주'에 1주 미루기에만 사용.
+# ============================================================================
+INV_TAU = 0.45           # experiments.procurement_inventory: 학습 기간(2008~2016) 25품목 평균 정기 대비 최대(+37bp)인 τ → 시험(2017~) +10bp (균등 대비 +13bp)
+#   곡물 6품목만 보면 시험 기간 효과 소멸(정기 대비 −10~+2bp), 확장 품목은 +13~+21bp. 1~2주 가격 방향 예측 AUC ≈ 0.51 (사실상 없음);
+#   '하락 확률 > 0.6이면 1주 미루기'는 학습 +2.5bp → 시험 +4.7bp로 소폭 개선이나 AUC가 낮아 신뢰 낮음 → 기본 꺼짐. '다음 주 신호 충족' 예측 AUC ≈ 0.96은 점수의 주간 자기상관 때문(가격 예측이 아님).
+INV_G = 4                # 평균 구매 간격 (주) = 소비 속도 1카고 / G주
+INV_CAP = 2.0            # 저장 상한 (카고 수)
+
+
+def weekly_frame(p_act: pd.Series, sig: pd.DataFrame, sc: pd.Series, start="2001-01-01") -> pd.DataFrame:
+    """금요일 결정 · 다음 거래일 체결 가격 + 그날의 점수·구성요소 (모두 그 시점까지의 정보)."""
+    pa = p_act.dropna(); pa = pa[pa > 0]
+    fri, exe = _fridays(pa, sig.index, start)
+    ok = [e is not None for e in exe]
+    W_ = pd.DataFrame({"exe": [e for e, o in zip(exe, ok) if o]}, index=fri[ok])
+    W_["px"] = pa.reindex(W_["exe"]).values
+    W_["score"] = sc.reindex(W_.index).values
+    for c in ["value", "turn", "relval", "season", "trend", "vol_pct"]:
+        W_[c] = sig[c].reindex(W_.index).values if c in sig else np.nan
+    return W_
+
+
+def fc_features(W_: pd.DataFrame) -> pd.DataFrame:
+    lp = np.log(W_["px"])
+    X = pd.DataFrame(index=W_.index)
+    X["score"] = W_["score"]; X["d_score"] = W_["score"].diff()
+    for c in ["value", "turn", "relval", "season", "vol_pct"]:
+        X[c] = W_[c]
+    X["r1"] = lp.diff(); X["r4"] = lp.diff(4); X["r13"] = lp.diff(13)
+    X["vol4"] = lp.diff().rolling(13, min_periods=6).std()
+    return X
+
+
+def fc_walkforward(W_: pd.DataFrame, horizon: int = 1, tau: float = INV_TAU, first_test_year: int = 2008, min_train: int = 260) -> pd.DataFrame:
+    """1~2주 앞 방향 예측 (walk-forward, 매년 1월 그 이전 자료로만 로지스틱 회귀 재학습, 목표 겹침만큼 학습 끝 purge):
+    p_down = P(horizon주 뒤 체결가 < 이번 주 체결가), p_sig = P(다음 주 점수 ≥ τ). 반환 = OOS 예측 (학습 연도 이전은 NaN)."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+    X = fc_features(W_)
+    lp = np.log(W_["px"])
+    y_down = (lp.shift(-horizon) < lp).astype(float).where(lp.shift(-horizon).notna())
+    y_sig = (W_["score"].shift(-1) >= tau).astype(float).where(W_["score"].shift(-1).notna())
+    out = pd.DataFrame(index=W_.index, columns=["p_down", "p_sig"], dtype=float)
+    for yr in sorted(set(W_.index.year)):
+        if yr < first_test_year:
+            continue
+        te = W_.index.year == yr
+        before_all = np.flatnonzero(W_.index < pd.Timestamp(f"{yr}-01-01"))
+        Xb = X.iloc[before_all]
+        cols = [c for c in X.columns if Xb[c].notna().mean() > 0.5]                 # 특성 선택·결측 대체도 학습 구간 자료로만
+        if not cols:
+            continue
+        med = Xb[cols].median()
+        Xf = X[cols].fillna(med)
+        xok = (X[cols].notna().sum(axis=1) >= len(cols) - 2).values
+        for nm, y in [("p_down", y_down), ("p_sig", y_sig)]:
+            h_ = horizon if nm == "p_down" else 1
+            before = before_all[:-h_] if h_ and len(before_all) > h_ else before_all   # 목표가 그해로 넘어가는 마지막 h주 제거 (purge)
+            tr_idx = before[np.isfinite(y.values[before]) & xok[before]]
+            if len(tr_idx) < min_train or len(set(y.iloc[tr_idx])) < 2:
+                continue
+            sc_ = StandardScaler().fit(Xf.iloc[tr_idx])
+            m = LogisticRegression(C=0.5, max_iter=500).fit(sc_.transform(Xf.iloc[tr_idx]), y.iloc[tr_idx])
+            out.loc[te, nm] = m.predict_proba(sc_.transform(Xf[te]))[:, 1]
+    out["y_down"] = y_down; out["y_sig"] = y_sig
+    return out
+
+
+def backtest_inventory(W_: pd.DataFrame, tau: float = INV_TAU, G: int = INV_G, cap: float = INV_CAP, start="2008-01-01", end=None,
+                       fc: pd.DataFrame | None = None, p_wait: float | None = None, inv0: float = 1.0, carry_bp_week: float = 0.0) -> dict:
+    """재고 시뮬레이션 (카고 단위). 매주: 재고 −1/G(소비) → 재고 < 1/G (다음 주 바닥) 이면 강제 1카고 →
+    아니면 점수 ≥ τ 이고 재고+1 ≤ cap 이면 1카고 (단, fc 와 p_wait 가 있으면 '1주 뒤 하락 확률 > p_wait 이고 1주 더 버틸 재고'일 때 미룸).
+    기준: 정기 = G주마다 1카고(같은 주기 시작), 균등 = 매주 1/G카고. 결과: 평균 매입가·카고 수·절감 bp·연도별 차이."""
+    Wv = W_[(W_.index >= pd.Timestamp(start)) & ((W_.index <= pd.Timestamp(end)) if end is not None else True)].dropna(subset=["px"])
+    inv, buys, forced, deferred, inv_path = float(inv0), [], 0, 0, []
+    pw = fc["p_down"].reindex(Wv.index) if (fc is not None and p_wait is not None) else None
+    for k, (d, r) in enumerate(Wv.iterrows()):
+        inv -= 1.0 / G
+        sc = r["score"]
+        if inv < 1.0 / G:
+            buys.append((d, r["px"], "강제")); inv += 1; forced += 1
+        elif np.isfinite(sc) and sc >= tau and inv + 1 <= cap + 1e-9:
+            if pw is not None and np.isfinite(pw.get(d, np.nan)) and pw[d] > p_wait and inv - 1.0 / G >= 1.0 / G:
+                deferred += 1
+            else:
+                buys.append((d, r["px"], "신호")); inv += 1
+        inv_path.append(inv)
+    fx_inv = float(inv0) - (np.arange(1, len(Wv) + 1)) / G + (np.arange(len(Wv)) // G + 1)   # 정기: 매 G주 첫 주에 1척
+    Bdf = pd.DataFrame(buys, columns=["date", "px", "사유"]).set_index("date")
+    fixed = Wv["px"].iloc[::G]
+    twap = Wv["px"].mean()
+    rule = Bdf["px"].mean() if len(Bdf) else np.nan
+    yr = pd.DataFrame({"규칙": Bdf["px"].groupby(Bdf.index.year).mean(), "정기": fixed.groupby(fixed.index.year).mean(),
+                       "균등": Wv["px"].groupby(Wv.index.year).mean()})
+    yr["vs정기bp"] = (yr["정기"] - yr["규칙"]) / yr["정기"] * 1e4; yr["vs균등bp"] = (yr["균등"] - yr["규칙"]) / yr["균등"] * 1e4
+    inv_r, inv_f = float(np.mean(inv_path)) if inv_path else np.nan, float(np.mean(fx_inv)) if len(fx_inv) else np.nan
+    hold_bp = carry_bp_week * (inv_r - inv_f) * len(Wv) / max(1, len(Bdf))      # 카고 1척당 추가 보유비용 (bp, 규칙이 재고를 더 들고 있으면 +)
+    vs_f = (fixed.mean() - rule) / fixed.mean() * 1e4
+    return dict(buys=Bdf, 규칙=rule, 정기=fixed.mean(), 균등=twap, vs정기bp=vs_f, 평균재고=inv_r, 정기평균재고=inv_f, 보유비용bp=hold_bp,
+                vs정기_보유후bp=vs_f - hold_bp,
+                vs균등bp=(twap - rule) / twap * 1e4, 카고=len(Bdf), 정기카고=len(fixed), 강제=forced, 미룸=deferred,
+                신호비율=(Bdf["사유"] == "신호").mean() if len(Bdf) else np.nan, years=yr, 주수=len(Wv))
+
+
 def summarize(B: pd.DataFrame, weeks: int, step: int, halflife_years: float | None = None) -> dict:
     nov = B.iloc[::max(1, weeks // step)]                                # 겹치지 않는 기간만으로 t값
     out = {}

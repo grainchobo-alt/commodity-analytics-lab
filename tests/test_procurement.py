@@ -113,6 +113,21 @@ assert WS["표본 수"].sum() > 500 and WS["더 싼 날 올 확률 (−1% 이상
 assert PR.item_lookback("yf:ZM=F") == 252 and PR.item_lookback("yf:ZC=F") == 126
 ok("벌크 일괄 구매: τ 극단값 = 마감·즉시와 일치, 기준일 이후 교란에도 끝난 창의 매수 시점·가격 불변, 점수대별 대기 통계")
 
+# 10) 재고 기반 반복 구매: τ>1 이면 강제 매수만 (재고 바닥 직전) → 카고 수 ≈ 정기, 미래 교란에도 과거 매수 불변, 예측은 그 해 이전 자료로만
+sg_ = PR.signals(La[i]); W1 = PR.weekly_frame(Lr[i], sg_, PR.score(sg_))
+o_hi = PR.backtest_inventory(W1, 1.5, 4, 2.0, "2008-01-01")
+assert (o_hi["buys"]["사유"] == "강제").all() and abs(o_hi["카고"] - o_hi["정기카고"]) <= 2
+o_lo = PR.backtest_inventory(W1, -1.0, 4, 2.0, "2008-01-01", carry_bp_week=5.0)
+assert o_lo["평균재고"] > o_hi["평균재고"] and o_lo["보유비용bp"] > 0 and abs(o_lo["카고"] - o_lo["정기카고"]) <= 3
+sg5 = PR.signals(La5[i]); W5 = PR.weekly_frame(Lr5[i], sg5, PR.score(sg5))
+b1_, b5_ = PR.backtest_inventory(W1, 0.5, 4, 2.0, "2008-01-01")["buys"], PR.backtest_inventory(W5, 0.5, 4, 2.0, "2008-01-01")["buys"]
+pre_ = b1_.index[b1_.index < cut5 - pd.DateOffset(weeks=2)]
+assert len(pre_) > 30 and (b1_.loc[pre_].index == b5_.loc[pre_].index).all() and np.allclose(b1_.loc[pre_, "px"], b5_.loc[pre_, "px"])
+F1_, F5_ = PR.fc_walkforward(W1, 1), PR.fc_walkforward(W5, 1)
+yr_ = F1_.index.year < cut5.year
+assert F1_.p_down[yr_].notna().sum() > 100 and np.allclose(F1_.p_down[yr_].fillna(-1), F5_.p_down.reindex(F1_.index)[yr_].fillna(-1))
+ok("재고 기반 반복 구매: 강제 매수만이면 카고 수 ≈ 정기, 일찍 사면 평균 재고·보유비용 ↑, 미래 교란에도 과거 매수·예측 불변")
+
 T = PR.today_table(La, Lr, list(PR.BUY_IDS))
 assert len(T) == len(PR.BUY_IDS) and T["매수 점수"].between(0, 100).all() and (T["4주 하단 90%"] < T["가격"]).all()
 ok(f"오늘의 신호판: {len(T)}품목, 점수 0~100, 4주 범위 하단 < 현재가")
