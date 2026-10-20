@@ -33,6 +33,7 @@ at.multiselect(key="pc_ids").set_value(["yf:ZC=F", "yf:RB=F", "yf:LE=F", "yf:ZW=
 assert sum("학습 AUC" in c.value and "시험 AUC" in c.value for c in at.caption) >= 4           # 카드마다 확률의 근거(학습·시험 AUC) 표시
 assert any("미루기 권고" in m.label for m in at.metric[:4])                                     # 기준을 낮추면 근거 있는 품목에서 미루기 권고
 at.selectbox(key="pc_hz_item").set_value("yf:RB=F").run(); check(at, "구매 타이밍: 미루는 기간별 AUC 그림 (휘발유)")
+assert any("예측 정확도 (AUC)" in e.label for e in at.expander)                            # 품목별 AUC 표 (접기)
 at.slider(key="pc_aucmin").set_value(0.55).run(); at.slider(key="pc_pstar").set_value(0.55).run()
 at.multiselect(key="pc_ids").set_value(["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F"]).run()
 at.selectbox(key="pc_lb_추천 (고도화: 상대가치+계절+MIDAS)").set_value("1년").run(); check(at, "구매 타이밍: 가격 위치 창 1년 고정")
