@@ -216,6 +216,46 @@ def procurement_metals(progress=None, split="2019-07-01"):
     _save("procure_metals", pd.DataFrame(rows), t0, dict(프리셋="추천", 시작="2013 (점결탄 2015)", 전후반경계=split, 시작간격="4주"))
 
 
+def procurement_all(progress=None, weeks=(13, 26)):
+    """전 품목 구매 타이밍: '추천' 프리셋에서 상대가치만 바꿈 — 없음 / 후보 단일 관계들 / 다변량 2종(후보 분위 평균 · 공적분 잔차).
+    품목마다 평가 시작 = max(2008, 모든 관계 자료가 4년 쌓인 시점) → 같은 품목 안의 선택지는 같은 기간으로 비교.
+    전반·후반 = 그 품목 평가 기간의 중간 날짜로 2등분. 철광석(SGX)·점결탄은 procurement_metals 에서 별도 검증."""
+    import procurement as PR
+    t0 = time.time(); La, Lr, U, _ = _data(); rows = []
+    P_ = PR.PRESETS["추천 (고도화: 상대가치+계절+MIDAS)"]
+    ids = [i for i in PR.BUY_IDS if i in La and i in Lr and i not in ("yf:TIO=F", "ak:JM0")]
+    for j, i in enumerate(ids):
+        opts = ["상대가치 없음"] + [c[0] for c in PR.REL_CANDS.get(i, [])]
+        if sum(c[1] == "r" for c in PR.REL_CANDS.get(i, [])) >= 2:
+            opts += [PR.MULTI_AVG, PR.MULTI_COINT]
+        rels = {o: PR.rel_option(Lr, i, o, La) for o in opts[1:]}
+        rels = {o: (r_.dropna(), sg) for o, (r_, sg) in rels.items() if r_ is not None and len(r_.dropna()) > 500}
+        firsts = [La[i].first_valid_index() + pd.DateOffset(years=4)] + [r_.index[0] + pd.DateOffset(years=2) for r_, _ in rels.values()]
+        st_ = max([pd.Timestamp("2008-01-01")] + firsts)
+        if st_ > pd.Timestamp.today() - pd.DateOffset(years=6):
+            if progress: progress((j + 1) / len(ids))
+            continue
+        vf = PR.midas_var(La[i])
+        for o in ["상대가치 없음"] + list(rels):
+            rel, sg = rels.get(o, (None, 1))
+            for wk in weeks:
+                B = PR.backtest(Lr[i], La[i], wk, 4, start=st_, w=P_["w"], k=P_["k"], lookback=P_["lookback"],
+                                inp=dict(rel=rel, rel_sign=sg, vol_fc=vf), season=P_["season"])
+                x = B["절감_규칙"]; nov = x.iloc[::max(1, wk // 4)]
+                mid = x.index[0] + (x.index[-1] - x.index[0]) / 2
+                rows.append(dict(품목=PR.BUY_IDS[i], id=i, 상대가치=o, 종류=("없음" if o == "상대가치 없음" else "다변량" if o.startswith("다변량") else "단일"),
+                                 구매기간주=wk, 평균절감bp=x.mean(), t값_비중첩=nov.mean() / nov.std() * np.sqrt(len(nov)),
+                                 전반bp=x[x.index < mid].mean(), 후반bp=x[x.index >= mid].mean(), 하위5bp=x.quantile(0.05),
+                                 균등보다싸게=(x > 0).mean(), 평가시작=str(st_.date()), 경계=str(mid.date()), 기간수=len(x)))
+        if progress: progress((j + 1) / len(ids))
+    df = pd.DataFrame(rows)
+    base = df[df.종류 == "없음"].set_index(["id", "구매기간주"])
+    for c in ["평균절감bp", "전반bp", "후반bp"]:
+        df[f"개선_{c[:-2]}"] = df[c].values - base[c].reindex(pd.MultiIndex.from_frame(df[["id", "구매기간주"]])).values
+    _save("procure_all", df, t0, dict(프리셋="추천 (상대가치 정의만 변경)", 구매기간=", ".join(f"{w}주" for w in weeks), 시작간격="4주",
+                                       평가시작="max(2008, 자료 4년 + 관계 2년)", 전후반="품목별 평가 기간 중간"))
+
+
 RISK_IDS = ["yf:ZC=F", "yf:ZW=F", "yf:KE=F", "yf:ZS=F", "yf:ZM=F", "yf:ZL=F", "yf:TIO=F", "ak:JM0", "yf:HG=F", "yf:CL=F", "yf:NG=F", "yf:GC=F"]
 
 
@@ -312,6 +352,8 @@ EXPERIMENTS = {
                           eta="약 5~10분", cols=["단계", "변형", "평균절감bp", "하위5bp"]),
     "procure_metals": dict(title="철강 원료·구리 — 상대가치 정의 비교", file="procurement_metals_compare.csv", fn=procurement_metals,
                            eta="약 1분", cols=["품목", "상대가치", "구매기간주", "전반bp", "후반bp"]),
+    "procure_all": dict(title="전 품목 구매 타이밍 — 단일 vs 다변량 상대가치", file="procurement_all_compare.csv", fn=procurement_all,
+                        eta="약 3~6분", cols=["품목", "상대가치", "구매기간주", "전반bp", "후반bp"]),
     "metasel": dict(title="모델 선택 메타 전략 — 시간·레짐별 ML 모델 선택 (위약·SPA 보정)", file="model_selection_compare.csv",
                     fn=model_selection, eta="약 8~12분", cols=["구분", "품목", "빈도", "전략"]),
     "risk": dict(title="리스크 — 변동성 모형 경주 · VaR 백테스트 · 4주 범위 적중률", file="risk_models_compare.csv", fn=risk_models,

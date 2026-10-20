@@ -1,6 +1,7 @@
 """Streamlit 앱 헤드리스 테스트: 모든 버튼·모델 상세 경로에서 예외가 없는지 확인."""
-import sys, time
+import os, sys, tempfile, time
 from pathlib import Path
+os.environ["RUNLOG_DIR"] = tempfile.mkdtemp()      # 실행 기록은 임시 폴더로 (runs/ 오염 방지)
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from streamlit.testing.v1 import AppTest
@@ -41,8 +42,10 @@ at.radio(key="rk_dir").set_value("보유 재고 (가격 하락이 손실)").run(
 at.selectbox(key="rk_ph").set_value(60).run(); check(at, "리스크: 60일 물량 VaR")
 at.selectbox(key="rk_id").set_value("yf:TIO=F").run()
 at.button(key="rk_run").click().run(); check(at, "리스크: 철광석 재추정")
-for sec in ["📋 한눈에 보기", "철강 원료·구리 상대가치", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍 (프리셋 · 단계별)"]:
+for sec in ["📋 한눈에 보기", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍 (프리셋 · 단계별)"]:
     at.radio(key="ex_sec").set_value(sec).run(); check(at, f"실험 결과: {sec}")
+at.radio(key="ex_sec").set_value("전 품목 구매 타이밍 (단일 vs 다변량)").run()
+at.radio(key="ex_pa_view").set_value("단일 vs 다변량 요약").run(); check(at, "실험 결과: 전 품목 단일 vs 다변량 요약")
 at.radio(key="ex_sec").set_value("모델 선택 메타 전략").run()
 at.radio(key="ex_ms_fq").set_value("주간").run(); at.selectbox(key="ex_ms_id").set_value("yf:HG=F").run(); check(at, "실험 결과: 메타 전략 주간·구리")
 at.radio(key="ex_sec").set_value("구매 타이밍 (프리셋 · 단계별)").run()
@@ -99,6 +102,16 @@ at.checkbox(key="wf").check().run()
 at.multiselect(key="models").set_value(["OLS", "Ridge", "Lasso", "Hidden Markov (HMM)"]).run()
 at.multiselect(key="models_adv").set_value([]).run()
 at.button(key="runml").click().run(); check(at, "추가 특성 + Walk-forward")
+import runlog as RL
+RR = RL.load_registry(); assert len(RR) >= 4 and RR.iloc[0]["WF Sharpe(비용 후)"] == RR.iloc[0]["WF Sharpe(비용 후)"], "walk-forward 실행이 기록되지 않음"
+at.selectbox(key="ml_verdict").set_value("good").run(); at.text_input(key="ml_note").input("테스트 메모").run()
+at.button(key="ml_vsave").click().run(); check(at, "실행 기록: ④ 판정 저장")
+assert RL.load_registry().iloc[0]["verdict"] == "good"
+at.radio(key="ex_sec").set_value("📂 내 실행 기록").run(); check(at, "⑥ 내 실행 기록")
+rid0 = RL.load_registry().iloc[0]["run_id"]
+at.multiselect(key="feats").set_value(["yf:ZS=F"]).run()
+at.button(key=f"rn_restore_{rid0}").click().run(); check(at, "⑥ 설정 불러오기 → ④")
+assert set(at.multiselect(key="feats").value) == set(RL.load_run(rid0)["settings"]["설명변수"]) and at.checkbox(key="wf").value
 at.selectbox(key="mlsel").set_value("Ridge").run(); check(at, "  상세: Ridge (특성 포함, 잔차 진단)")
 at.checkbox(key="vs").check().run()
 at.button(key="runml").click().run(); check(at, "목표 변동성 표준화")

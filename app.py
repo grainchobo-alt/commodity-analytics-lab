@@ -58,16 +58,7 @@ def _panel(ids: tuple, freq: str, transform: str, start, end, extra_bytes, roll:
 cat = _catalog()
 st.sidebar.title("📈 Commodity Analytics Lab")
 
-up = st.sidebar.file_uploader("내 데이터 추가 (CSV: 첫 열=날짜, 나머지=가격 레벨)", type="csv",
-                              help="보유하신 30년 일간 데이터를 올리면 'user:컬럼명'으로 모든 분석에 추가됩니다.")
-extra_bytes = up.getvalue() if up else None
-if extra_bytes:
-    ex = _levels(extra_bytes)
-    ucols = [c for c in ex.columns if c.startswith("user:")]
-    add = pd.DataFrame({"id": ucols, "name": [c[5:] + " (내 데이터)" for c in ucols], "group": "User", "unit": "",
-                        "source": "upload", "start": [ex[c].first_valid_index() for c in ucols],
-                        "end": [ex[c].last_valid_index() for c in ucols], "n": [ex[c].notna().sum() for c in ucols]})
-    cat = pd.concat([cat, add], ignore_index=True)
+extra_bytes = None      # (사이드바 CSV 업로드 기능 제거, v1.6.0) — 함수 인자는 호환용으로 유지
 
 NAME = dict(zip(cat.id, cat.name))
 UNITS = dict(zip(cat.id, cat.unit))
@@ -79,12 +70,12 @@ COMMOD_IDS = [i for i in ALL_IDS if GROUP[i] not in ("Macro", "FX", "FRED daily"
 lbl = lambda i: f"{NAME.get(i, i)}  [{GROUP.get(i, '')}]"
 short = lambda i: NAME.get(i, i)
 
-freq_lbl = st.sidebar.radio("빈도", list(A.FREQ), index=1, horizontal=True,
+freq_lbl = st.sidebar.radio("빈도", list(A.FREQ), index=1, horizontal=True, key="fq_lbl",
                             help="일간은 노이즈가 크고 휴장일 불일치가 있음. 동조성·레짐 분석은 주간 권장.")
 FQ = A.FREQ[freq_lbl]; ANN = A.ANN[FQ]
 c1, c2 = st.sidebar.columns(2)
-start = c1.date_input("시작", pd.Timestamp("2000-01-01"), min_value=pd.Timestamp("1960-01-01"))
-end = c2.date_input("끝", pd.Timestamp.today())
+start = c1.date_input("시작", pd.Timestamp("2000-01-01"), min_value=pd.Timestamp("1960-01-01"), key="d_start")
+end = c2.date_input("끝", pd.Timestamp.today(), key="d_end")
 shade_sel = st.sidebar.multiselect("위기 구간 (하이라이트·국면 비교)", list(A.CRISES),
                                    default=["글로벌 금융위기", "코로나", "러-우 전쟁·인플레"])
 st.sidebar.caption(" · ".join(f"{k}: {a}~{b}" for k, (a, b) in A.CRISES.items() if k in shade_sel))
@@ -804,11 +795,78 @@ def model_detail(sel, o, D, tgt_, out, hp, P=""):
 
 
 
+def _wf_table(wfres):
+    return pd.DataFrame({k: v[2] for k, v in wfres.items()}).T
+
+
+def _record_ml(cfg, D, out, wfres, pl, wf_pl):
+    """④ 모델 실행 1건을 runs/ 에 기록 (설정 + 성과 표 + walk-forward + 누적 성과) → run_id."""
+    import runlog as RL
+    sc = "부호전략 Sharpe (비용 후)"
+    met = pd.DataFrame({k: v["metrics"] for k, v in out.items()}).T
+    summ, hints = {}, []
+    real = met.drop(index=[i for i in met.index if i == "분위수 회귀"], errors="ignore")
+    if cfg["목적"] == "predict" and sc in real and real[sc].notna().any():
+        b = real[sc].idxmax()
+        summ.update({"단일 최고 모델": b, "단일 Sharpe(비용 후)": real.loc[b, sc], "단일 OOS R²": real.loc[b, "OOS R² (vs 학습평균)"]})
+        if pl:
+            summ["단일 위약 최댓값95"] = pl["max95_net"]
+            met.loc["위약 · 무작위 부호 95% 분위", ["부호전략 Sharpe", sc]] = [pl["single95_gross"], pl["single95_net"]]
+            met.loc[f"위약 · 모델 {pl['n_models']}개 중 최댓값 95% 분위", ["부호전략 Sharpe", sc]] = [pl["max95_gross"], pl["max95_net"]]
+            hints.append(("단일 분할: 위약 최댓값 초과 ✔" if real.loc[b, sc] > pl["max95_net"] else "단일 분할: 위약 최댓값 미만 (운과 구별 안 됨)"))
+    tables = {"metrics": met}
+    if wfres:
+        wm = _wf_table(wfres)
+        b = wm[sc].idxmax()
+        summ.update({"WF 최고 모델": b, "WF Sharpe(비용 후)": wm.loc[b, sc], "WF Sharpe(비용 전)": wm.loc[b, "부호전략 Sharpe"],
+                     "WF 적중률": wm.loc[b, "방향 적중률"], "WF OOS R²": wm.loc[b, "OOS R² (vs 학습평균)"], "Buy&Hold Sharpe": wm.loc[b, "Buy&Hold Sharpe"]})
+        if wf_pl:
+            summ["WF 위약 최댓값95"] = wf_pl["max95_net"]
+            summ["WF 초과(운 대비)"] = wm.loc[b, sc] - wf_pl["max95_net"]
+            hints.append("WF: 위약 최댓값 초과 ✔ (운 이상)" if wm.loc[b, sc] > wf_pl["max95_net"] else
+                         ("WF: 단일 위약은 넘지만 최댓값 위약 미만 (여러 모델 중 고른 효과일 수 있음)" if wm.loc[b, sc] > wf_pl["single95_net"]
+                          else "WF: 위약 95% 미만 (운의 범위)"))
+            wm.loc["위약 · 무작위 부호 95% 분위", ["부호전략 Sharpe", sc]] = [wf_pl["single95_gross"], wf_pl["single95_net"]]
+            wm.loc[f"위약 · 모델 {wf_pl['n_models']}개 중 최댓값 95% 분위", ["부호전략 Sharpe", sc]] = [wf_pl["max95_gross"], wf_pl["max95_net"]]
+        if wm.loc[b, "방향 적중률"] < 0.5:
+            hints.append("적중률 50% 미만 — 수익은 소수의 큰 움직임에서 (불안정할 수 있음)")
+        tables["walk_forward"] = wm
+        cum = {k: pd.Series(A.band_positions(p_.iloc[::D.horizon].values, getattr(D, "band", 0.0)) * y_.iloc[::D.horizon].values,
+                            index=y_.index[::D.horizon]).cumsum() for k, (p_, y_, m_) in wfres.items()}
+        y0 = next(iter(wfres.values()))[1]
+        cum["Buy & Hold"] = y0.iloc[::D.horizon].cumsum()
+        tables["walk_forward_cum"] = pd.DataFrame(cum)
+    title = f"{short(cfg['대상'])} · {freq_lbl} · {'walk-forward' if wfres else '단일 분할'} · 모델 {len(cfg['모델'])}개" + \
+            (f" · 특성 {'+'.join(cfg['추가특성'])}" if cfg["추가특성"] else "")
+    return RL.record("ml", title, cfg, summ, tables, hints)
+
+
+def _restore_ml(cfg):
+    """기록된 ④ 설정을 위젯에 되돌림 (on_click 콜백 → 다음 실행에서 반영)."""
+    ss = st.session_state
+    inv = {v: k for k, v in A.FREQ.items()}
+    ss["fq_lbl"] = inv.get(cfg.get("빈도"), ss.get("fq_lbl"))
+    for k_, c_ in [("d_start", "시작"), ("d_end", "끝")]:
+        if cfg.get(c_):
+            ss[k_] = pd.Timestamp(cfg[c_]).date()
+    ss["tgt"] = cfg["대상"]; ss["feats"] = [f for f in cfg["설명변수"] if f in NAME and f != cfg["대상"]]
+    ss["mode"] = "설명 (동시점 베타)" if cfg["목적"] == "explain" else "예측 (미래 수익률)"
+    ss["lags"], ss["hor"], ss["own"], ss["trf"] = int(cfg["시차"]), int(cfg["예측기간"]), bool(cfg["자기시차"]), float(cfg["학습비중"])
+    ss["models"] = [m for m in cfg["모델"] if m in A.CORE_MODELS]; ss["models_adv"] = [m for m in cfg["모델"] if m in A.ADV_MODELS]
+    ss["fk"] = list(cfg["추가특성"]); ss["vs"] = bool(cfg["변동성표준화"]); ss["wf"] = bool(cfg["walk_forward"])
+    ss["wf_step"] = int(cfg["재추정주기"]); ss["cost"] = float(cfg["비용bp"]); ss["band"] = float(cfg["무거래c"]); ss["xlag"] = bool(cfg["비동기보정"])
+    ss["hmm_k"] = int(cfg.get("hp", {}).get("hmm_states", 0))
+    ss["roll"] = bool(cfg.get("롤보정", True))
+    ss["restored_msg"] = cfg
+
+
 # ============================================================================
 # ③ 회귀 · ML
 # ============================================================================
 def tab_ml():
     st.subheader("회귀 · 머신러닝 모델 비교")
+    if st.session_state.pop("restored_msg", None):
+        st.success("⑥ '내 실행 기록'에서 설정을 불러왔습니다 — ▶ 모델 실행을 누르면 같은 조합으로 다시 계산합니다 (데이터가 갱신됐으면 결과가 조금 다를 수 있음).")
     a1, a2 = st.columns([1, 2])
     tgt = a1.selectbox("종속변수 (Y)", ALL_IDS, ALL_IDS.index("yf:ZC=F") if "yf:ZC=F" in ALL_IDS else 0, format_func=lbl, key="tgt")
     feat_def = [i for i in ["yf:ZS=F", "yf:ZM=F", "yf:ZW=F", "yf:CL=F", "yf:HG=F", "yf:GC=F", "ak:macro_shipping_bdi",
@@ -946,6 +1004,23 @@ def tab_ml():
                                                          long_share=ls_ if np.isfinite(ls_) else 0.5, switch=sw_ if np.isfinite(sw_) else 0.5)
         st.session_state["ml_wf"] = wfres
         st.session_state["ml_vs"] = bool(vs)
+        wf_pl = None
+        if wfres:
+            wm_ = _wf_table(wfres)
+            y0_ = next(iter(wfres.values()))[1]
+            ls2, sw2 = wm_["롱 비중"].mean(), wm_["연간 회전율"].mean() * D.horizon / ANN / 2
+            wf_pl = A.placebo_sharpe(y0_.values, ANN, D.horizon, D.cost, n_models=len(wm_),
+                                     long_share=ls2 if np.isfinite(ls2) else 0.5, switch=sw2 if np.isfinite(sw2) else 0.5)
+        st.session_state["ml_wf_pl"] = wf_pl
+        cfg = dict(대상=tgt, 설명변수=list(feats), 목적=md, 시차=int(lags), 예측기간=int(hor), 자기시차=bool(own), 학습비중=float(trf),
+                   모델=list(models), 추가특성=list(fk), 변동성표준화=bool(vs), walk_forward=bool(wf and md == "predict"), 재추정주기=int(wf_step),
+                   비용bp=float(cost_bp), 무거래c=float(band_c), 비동기보정=int(xlag), 빈도=FQ, 시작=str(start), 끝=str(end), 롤보정=bool(ROLL),
+                   앙상블=bool(ens), hp={k: v for k, v in hp.items() if k != "mode"})
+        try:
+            st.session_state["ml_run_id"] = _record_ml(cfg, D, out, wfres, st.session_state.get("ml_pl"), wf_pl)
+        except Exception as ex:
+            st.session_state["ml_run_id"] = None
+            st.warning(f"실행 기록 저장 실패: {ex}")
 
     if "ml" in st.session_state:
         D, out, tgt_, md_ = st.session_state["ml"]
@@ -985,9 +1060,20 @@ def tab_ml():
         wfres = st.session_state.get("ml_wf") or {}
         if wfres:
             st.markdown("##### Walk-forward 검증 (확장창 재추정, 기준예측 = 각 시점의 과거 평균)")
-            wm = pd.DataFrame({k: v[2] for k, v in wfres.items()}).T
+            wm = _wf_table(wfres)
+            wpl = st.session_state.get("ml_wf_pl")
+            if wpl:
+                wm.loc["위약 · 무작위 부호 95% 분위", ["부호전략 Sharpe", "부호전략 Sharpe (비용 후)"]] = [wpl["single95_gross"], wpl["single95_net"]]
+                wm.loc[f"위약 · 모델 {wpl['n_models']}개 중 최댓값 95% 분위", ["부호전략 Sharpe", "부호전략 Sharpe (비용 후)"]] = [wpl["max95_gross"], wpl["max95_net"]]
             st.dataframe(wm[["OOS R² (vs 학습평균)", "방향 적중률", "부호전략 Sharpe", "부호전략 Sharpe (비용 후)", "Buy&Hold Sharpe",
-                             "롱 비중", "연간 회전율", "재추정 횟수"]].style.format("{:.4f}", na_rep="–"))
+                             "롱 비중", "연간 회전율", "재추정 횟수"]].style.format("{:.4f}", na_rep="–").apply(
+                lambda r: ["color:#898781;font-style:italic" if r.name.startswith("위약") else "" for _ in r], axis=1))
+            if wpl:
+                real_ = wm.drop(index=[i for i in wm.index if i.startswith("위약")])["부호전략 Sharpe (비용 후)"]
+                bw = real_[real_ > wpl["max95_net"]]
+                st.caption(f"**walk-forward 위약 기준선** (같은 walk-forward 평가 구간, {wpl['n_models']}개 모델 중 최고를 고르는 경우): "
+                           f"비용 후 Sharpe가 {wpl['max95_net']:+.2f}를 넘어야 운과 구별 → "
+                           + (f"넘은 모델: **{', '.join(bw.index)}**" if len(bw) else f"**넘은 모델 없음** (최고 {real_.max():+.2f} = {real_.idxmax()})"))
             f = go.Figure()
             for j, (k, (p_, y_, m_)) in enumerate(wfres.items()):
                 s_ = pd.Series(A.band_positions(p_.iloc[::D.horizon].values, getattr(D, "band", 0.0)) * y_.iloc[::D.horizon].values,
@@ -998,6 +1084,17 @@ def tab_ml():
             f.add_trace(go.Scatter(x=bh.index, y=bh.values, name="Buy & Hold", line=dict(color="#898781", width=1.2, dash="dot")))
             bh_sr = y0.iloc[::D.horizon].mean() / y0.iloc[::D.horizon].std() * np.sqrt(ANN / D.horizon)
             st.plotly_chart(shade(fig_layout(f, 340, title=f"Walk-forward 부호전략 누적성과 (비용 전, Buy&Hold Sharpe {bh_sr:.2f})"), bh.index), key="wfcum")
+
+        rid = st.session_state.get("ml_run_id")
+        if rid:
+            import runlog as RL
+            with st.container(border=True):
+                v1, v2, v3, v4 = st.columns([2.4, 1.2, 3, 0.9])
+                v1.markdown(f"**📌 이 실행은 자동 기록됨**  \n`{rid}`  \n⑥ 실험 결과 → '📂 내 실행 기록'에서 비교·설정 불러오기")
+                vv = v2.selectbox("판정", list(RL.VERDICTS), format_func=RL.VERDICTS.get, key="ml_verdict")
+                nt = v3.text_input("메모 (왜 좋은가 / 나쁜가)", key="ml_note")
+                if v4.button("판정 저장", key="ml_vsave"):
+                    RL.set_verdict(rid, vv, nt); st.toast(f"판정 저장: {RL.VERDICTS[vv]}")
 
         lin = {k: v["coef"] for k, v in out.items() if v["coef"] is not None}
         if lin:
@@ -1671,8 +1768,10 @@ def tab_procure():
                "(롤 보정 가격으로 만기 교체 갭 제거, 대체재·크러시 관계는 실제 근월물 시세), 매입가는 실제 근월물 시세, 체결은 결정일(금) 다음 거래일 종가.")
     ids_av = [i for i in PR.BUY_IDS if i in NAME]
     c1_, c2_, c3_ = st.columns([2, 1.6, 0.8])
-    ids = c1_.multiselect("구매 품목", ids_av, default=[i for i in ["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F"] if i in ids_av],
-                          format_func=lambda i: PR.BUY_IDS[i], key="pc_ids")
+    ids = c1_.multiselect(f"구매 품목 ({len(ids_av)}개 중 선택)", ids_av, default=[i for i in ["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F"] if i in ids_av],
+                          format_func=lambda i: PR.BUY_IDS[i] + ("" if i in PR.REL_DEF else " · 상대가치 없음"), key="pc_ids",
+                          help="곡물·철강 원료·에너지·귀금속·소프트·축산·DCE 전 품목. '상대가치 없음' = 검증을 통과한 대체재·원료 관계가 없어 "
+                               "가격 위치·반등·계절성으로만 판단 (⑥ 실험 결과 '전 품목 구매 타이밍')")
     adv_p = c2_.checkbox("고급: 비교용 프리셋 (보수적·공격적) 표시", False, key="pc_adv",
                          help="보수적·공격적은 단계별 검증에서 '추천'보다 절감이 작았던 비교용 설정 (⑥ 실험 결과 → 구매 타이밍)")
     preset = c2_.selectbox("전략 프리셋", list(PR.PRESETS) if adv_p else PR.BASIC_PRESETS, 0, key="pc_preset",
@@ -1697,7 +1796,9 @@ def tab_procure():
                    "상대가치는 경제적 관계(옥수수↔밀 가격비, 대두 크러시 마진, 대두박·대두유 가치/대두, 철광석 SGX↔DCE 수입 차익, "
                    "점결탄↔철근 고로 마진, 구리↔금)의 1년 분위 — 대두유는 바이오연료 정책으로 관계 자체가 이동해 효과가 약하고, "
                    "구리는 대체재(알루미늄) 관계가 최근 기각돼 구리/금만 참고 수준. 점결탄은 DCE 위안 가격을 그날 환율로 달러 환산(증치세 포함), "
-                   "철강 원료 3품목은 데이터가 2010~2013년부터라 검증 기간이 짧음.")
+                   "철강 원료 3품목은 데이터가 2010~2013년부터라 검증 기간이 짧음. "
+                   "확장 품목(에너지·귀금속·소프트·축산·DCE 등)은 후보 관계 중 13·26주 모두 전·후반 개선된 것만 채택(돈육/옥수수, 가스/원유, 생우/송아지 등), "
+                   "통과 관계가 없는 품목은 상대가치 없이 가격 위치·반등·계절로만 판단 → ⑥ 실험 결과 '전 품목 구매 타이밍'.")
     risk = PR.RISK_MODES[risk_l]; lookback = {"6개월": 126, "1년": 252, "2년": 504}[lb_l]; season = PR.SEASON_MODES[sea_l]
     if not ids:
         st.info("품목을 선택하세요."); return
@@ -1714,18 +1815,21 @@ def tab_procure():
         last = sig.dropna(subset=["value"]).index.max()
         pa = PR.usd_t(Lr_, i); px = float(pa.loc[:last].iloc[-1]); p1 = pa.loc[last - pd.DateOffset(years=1):last]
         rk = float(sig["risk"].loc[last]); b_lo, b_hi = PR.band_4w(La_[i], sig, last)
-        rows.append({"품목": PR.BUY_IDS[i], "id": i, "기준일": last.date(), "가격 ($/t)": px, "1년 최저 ($/t)": p1.min(),
-                     "1년 최고 ($/t)": p1.max(), "매수 점수": float(sc.loc[last]) * 100,
+        rows.append({"품목": PR.BUY_IDS[i], "id": i, "기준일": last.date(), "단위": PR.unit_of(i), "가격": px, "1년 최저": p1.min(),
+                     "1년 최고": p1.max(), "매수 점수": float(sc.loc[last]) * 100,
                      **{PR.COMP_LBL[c]: float(sig[c].loc[last]) * 100 for c in PR.COMP_LBL}, "위험 지표": rk * 100,
-                     "4주 하단 90% ($/t)": px * b_lo, "4주 상단 90% ($/t)": px * b_hi,
+                     "4주 하단 90%": px * b_lo, "4주 상단 90%": px * b_hi,
                      "권장 속도 (균등 대비 배)": PR.pace(float(sc.loc[last]), rk, 1.0, int(weeks), k, 3.0) * int(weeks)})
     T = pd.DataFrame(rows)
     st.markdown(f"##### 오늘의 구매 신호 (기준일 {T['기준일'].max()} · {preset})")
     light = lambda s: "🟢 적극 매수" if s >= 65 else ("🟡 평소대로" if s >= 35 else "🔴 매수 늦춤")
-    mc = st.columns(len(T))
+    ncol = min(len(T), 6)
     for j, r in T.iterrows():
-        mc[j].metric(f"{r['품목']}", f"${r['가격 ($/t)']:,.0f}/t", f"점수 {r['매수 점수']:.0f} · {light(r['매수 점수'])}", delta_color="off")
-        mc[j].caption(f"이번 주 권장: 균등 대비 **{r['권장 속도 (균등 대비 배)']:.2f}배** · 4주 90% 범위 ${r['4주 하단 90% ($/t)']:,.0f}~{r['4주 상단 90% ($/t)']:,.0f}")
+        if j % ncol == 0:
+            mc = st.columns(ncol)
+        mc_ = mc[j % ncol]
+        mc_.metric(f"{r['품목']}", f"${r['가격']:,.0f}{r['단위'][1:]}", f"점수 {r['매수 점수']:.0f} · {light(r['매수 점수'])}", delta_color="off")
+        mc_.caption(f"이번 주 권장: 균등 대비 **{r['권장 속도 (균등 대비 배)']:.2f}배** · 4주 90% 범위 ${r['4주 하단 90%']:,.0f}~{r['4주 상단 90%']:,.0f}")
     show = T.drop(columns=["id"]).set_index("품목")
     st.dataframe(show.style.format({c: "{:,.1f}" for c in show.columns if show[c].dtype.kind == "f"} | {"권장 속도 (균등 대비 배)": "{:.2f}"}))
     st.caption(f"점수 = 구성 요소의 가중 평균 (0~100, 가중치 0인 요소는 참고 표시). 위험 지표 = {risk_l} (높을수록 균등 매수에 가깝게 보수적). "
@@ -1742,7 +1846,7 @@ def tab_procure():
     st.markdown("##### 이번 주 매수량 계산기")
     k1_, k2_, k3_, k4_ = st.columns(4)
     ci = k1_.selectbox("품목", list(T["id"]), format_func=lambda i: PR.BUY_IDS[i], key="pc_calc_id")
-    rem = k2_.number_input("남은 필요 물량 (톤)", 0.0, 1e7, 30000.0, 1000.0, key="pc_rem")
+    rem = k2_.number_input("남은 필요 물량 (톤, 귀금속은 온스)", 0.0, 1e7, 30000.0, 1000.0, key="pc_rem")
     wl = k3_.number_input("남은 기간 (주)", 1, 52, int(weeks), key="pc_wl")
     row = T.set_index("id").loc[ci]
     q = PR.pace(row["매수 점수"] / 100, row["위험 지표"] / 100, rem, int(wl), k, 3.0)
@@ -1924,7 +2028,7 @@ def tab_risk():
         hp = u2_.selectbox("기간 (영업일)", [5, 10, 20, 60], 2, key="rk_ph")
         Lr_ = _levels(extra_bytes, False)
         qc = st.columns(max(len(pids), 1))
-        qty = {i: qc[j].number_input(f"{PR.BUY_IDS[i]} (톤)", 0.0, 1e8, 30000.0, 1000.0, key=f"rk_qty_{i}") for j, i in enumerate(pids)}
+        qty = {i: qc[j].number_input(f"{PR.BUY_IDS[i]} ({'온스' if PR.unit_of(i) == '$/oz' else '톤'})", 0.0, 1e8, 30000.0, 1000.0, key=f"rk_qty_{i}") for j, i in enumerate(pids)}
         if len(pids) >= 1 and sum(qty.values()) > 0:
             px = {i: float(PR.usd_t(Lr_, i).dropna().iloc[-1]) for i in pids}
             expo = pd.Series({i: sg * qty[i] * px[i] for i in pids})
@@ -2093,6 +2197,10 @@ EX_OVERVIEW = [
     ("구매", "철강 원료·구리 상대가치", "곡물에서 통한 상대가치를 철광석·점결탄·구리에도 쓸 수 있나? 어떤 관계로?",
      "철광석 = SGX/DCE 차익, 점결탄 = 고로 마진이 두 기간 모두 +. 구리/알루미늄은 후반에 무너짐, 구리/금은 작음",
      "★ 금속 3품목의 상대가치 정의", "✅ 채택 (구리는 참고)"),
+    ("구매", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 외 에너지·귀금속·소프트·축산·DCE 품목에도 상대가치가 통하나? 대체재 하나 대신 여러 관계를 묶으면(다변량) 나아지나?",
+     "34품목 중 19개에서 통과 관계 있음(돈육/옥수수·가스/원유·생우/송아지가 뚜렷). 다변량은 단일 관계들의 '평균' 수준 — 최고 단일보다 낫지는 않지만 "
+     "통과율이 높아(40% vs 30%) 관계를 미리 알 수 없을 때 안전한 선택",
+     "★ 구매 타이밍 전 품목 선택 + 품목별 채택 관계", "⚠️ 일부만"),
     ("리스크", "리스크 모형", "변동성 예측·VaR·4주 가격 범위는 어떤 모형이 실제로 잘 맞았나?",
      "1일 분산 = GARCH(1,1) 최상, 99% VaR는 정규분포 탈락·FHS/EVT 정확, 4주 범위는 경험적 분위가 적중률 개선",
      "◆ 리스크 기본 σ = GARCH, ★ 4주 범위 = 경험적 분위", "✅ 채택"),
@@ -2123,7 +2231,7 @@ def ex_overview():
     st.caption("⑥ 실험 결과 = 다른 탭의 기본값·프리셋을 정한 근거 백테스트 모음 (모두 미래정보 차단·같은 비용 가정). "
                "실험 이름을 위 버튼에서 고르면 상세 표·그림이 나오고, 데이터가 갱신되면 각 실험의 '재실행'으로 최신화. "
                "판정은 '두 하위기간 모두 개선 + 무작위 위약보다 나음' 기준.")
-    files = {"구매 타이밍 (프리셋 · 단계별)": "procure_steps", "철강 원료·구리 상대가치": "procure_metals", "리스크 모형": "risk", "모델 선택 메타 전략": "metasel",
+    files = {"구매 타이밍 (프리셋 · 단계별)": "procure_steps", "철강 원료·구리 상대가치": "procure_metals", "전 품목 구매 타이밍 (단일 vs 다변량)": "procure_all", "리스크 모형": "risk", "모델 선택 메타 전략": "metasel",
              "최신 시계열 모델 · 예측 목표": "forecast_lab", "전략 비교 (리스크 버짓)": "rb", "모멘텀 기간": "momentum", "거래 규칙": "rules", "변동성 사이징": "vol"}
     rows = []
     for grp, nm, q, concl, used, verdict in EX_OVERVIEW:
@@ -2143,17 +2251,98 @@ def ex_overview():
                "① 실제 시세 관계(상대가치) ② 변동성·꼬리 위험 추정 ③ 거래를 줄이는 규칙 — 대시보드는 이 세 가지를 중심으로 구성됨.")
 
 
+def ex_runs():
+    """⑥ 내 실행 기록: runs/registry.jsonl 목록 · 운 대비 성과 그림 · 판정 · 상세 · 두 실행 비교 · ④에 설정 불러오기."""
+    import runlog as RL
+    st.markdown("##### 내 실행 기록 — ④ 수익률 예측에서 ▶ 모델 실행할 때마다 설정·결과가 `runs/` 폴더에 자동 저장")
+    st.caption("판정(좋음·보통·나쁨)과 메모를 남겨 두면 나중에 어떤 조합이 왜 좋았는지 비교 가능. '같은 설정 실행 수' = 설정 지문이 같은 실행 "
+               "(데이터·코드만 바뀐 재실행). 코드 = git 버전, 데이터 = 정제 데이터 파일 시각.")
+    R = RL.load_registry()
+    if R.empty:
+        st.info("아직 기록이 없습니다 — ④ 수익률 예측에서 ▶ 모델 실행을 누르면 자동으로 기록됩니다.")
+        return
+    f1, f2, f3 = st.columns([1.2, 1.2, 2])
+    vsel = f1.multiselect("판정", list(RL.VERDICTS), list(RL.VERDICTS), format_func=RL.VERDICTS.get, key="rn_v")
+    wfo = f2.checkbox("walk-forward 실행만", False, key="rn_wf")
+    q = f3.text_input("제목 검색 (품목·모델 등)", "", key="rn_q")
+    V = R[R.verdict.isin(vsel)]
+    if wfo and "WF Sharpe(비용 후)" in V:
+        V = V[V["WF Sharpe(비용 후)"].notna()]
+    if q:
+        V = V[V.title.str.contains(q, case=False, regex=False)]
+    if V.empty:
+        st.info("조건에 맞는 기록이 없습니다."); return
+    if "WF 초과(운 대비)" in V and V["WF 초과(운 대비)"].notna().any():
+        G = V[V["WF 초과(운 대비)"].notna()].iloc[::-1]
+        col = {"good": PAL[2], "bad": PAL[7], "neutral": PAL[3], "pending": "#898781"}
+        f = go.Figure(go.Bar(x=G["at"].str[5:16] + " · " + G["title"].str.slice(0, 28), y=G["WF 초과(운 대비)"],
+                             marker_color=[col[v] for v in G.verdict],
+                             customdata=np.c_[G["WF 최고 모델"], G["WF Sharpe(비용 후)"], G["WF 위약 최댓값95"]],
+                             hovertemplate="%{x}<br>최고 %{customdata[0]}: Sharpe(비용 후) %{customdata[1]:.2f}<br>위약 최댓값 95% %{customdata[2]:.2f}"
+                                           "<br>초과 %{y:+.2f}<extra></extra>"))
+        f.add_hline(y=0, line_color="#898781", line_dash="dot", annotation_text="운의 경계 (위약 최댓값 95%)")
+        st.plotly_chart(fig_layout(f, 320, title="walk-forward 최고 모델의 '운 대비 초과 Sharpe' (비용 후 − 위약 최댓값 95%) — 0 위여야 운 이상 · 색 = 판정"),
+                        key="rn_bar")
+    cols = [c for c in ["at", "verdict", "title", "WF 최고 모델", "WF Sharpe(비용 전)", "WF Sharpe(비용 후)", "WF 위약 최댓값95", "WF 적중률",
+                        "단일 최고 모델", "단일 Sharpe(비용 후)", "단일 위약 최댓값95", "same_config_runs", "note", "code", "run_id"] if c in V]
+    T = V[cols].copy()
+    T["verdict"] = T.verdict.map(RL.VERDICTS)
+    T["hints"] = V.hints.map(lambda h: " / ".join(h) if isinstance(h, list) else "")
+    T = T.rename(columns={"at": "시각", "verdict": "판정", "title": "제목", "same_config_runs": "같은 설정 실행 수", "note": "메모", "code": "코드",
+                          "hints": "자동 판정 힌트"})
+    st.dataframe(T.set_index("시각").style.format({c: "{:+.2f}" for c in T.columns if "Sharpe" in c or "위약" in c} | {"WF 적중률": "{:.1%}"}, na_rep="–"),
+                 height=min(420, 40 + 35 * len(T)))
+    st.markdown("**실행 상세 · 판정**")
+    rid = st.selectbox("실행", list(V.run_id), format_func=lambda i: f"{R.set_index('run_id').loc[i, 'at']} · {R.set_index('run_id').loc[i, 'title']}",
+                       key="rn_sel")
+    M = RL.load_run(rid)
+    d1, d2, d3 = st.columns([1.2, 3, 1.2])
+    vv = d1.selectbox("판정", list(RL.VERDICTS), list(RL.VERDICTS).index(M["verdict"]), format_func=RL.VERDICTS.get, key=f"rn_vv_{rid}")
+    nt = d2.text_input("메모", M.get("note") or "", key=f"rn_nt_{rid}")
+    if d1.button("판정 저장", key=f"rn_save_{rid}"):
+        RL.set_verdict(rid, vv, nt); st.rerun()
+    if M.get("kind") == "ml":
+        d3.button("④에 이 설정 불러오기", key=f"rn_restore_{rid}", on_click=_restore_ml, args=(M["settings"],), type="primary",
+                  help="④ 수익률 예측의 위젯을 이 실행의 설정으로 되돌림 → ④ 탭에서 ▶ 모델 실행")
+    if M.get("hints"):
+        st.caption("자동 판정 힌트: " + " · ".join(M["hints"]))
+    with st.expander("설정 전체 (재현용)"):
+        st.json(M["settings"], expanded=False)
+        st.caption(f"코드 {M['code']} · 데이터 {M['data']} · 설정 지문 {M['config_hash']} · 폴더 runs/{M['path']}")
+    for nm, Tb in M["tables"].items():
+        if nm == "walk_forward_cum":
+            f = go.Figure([go.Scatter(x=pd.to_datetime(Tb.index), y=Tb[c], name=c,
+                                      line=dict(color="#898781" if c == "Buy & Hold" else PAL[j % 8], width=1.2 if c == "Buy & Hold" else 1.6,
+                                                dash="dot" if c == "Buy & Hold" else None)) for j, c in enumerate(Tb.columns)])
+            st.plotly_chart(fig_layout(f, 300, title="walk-forward 누적 성과 (비용 전)"), key=f"rn_cum_{rid}")
+        else:
+            st.markdown(f"*{ {'metrics': '성과 지표 (단일 분할)', 'walk_forward': 'walk-forward'}.get(nm, nm) }*")
+            st.dataframe(Tb.style.format("{:.4f}", subset=list(Tb.select_dtypes("number").columns), na_rep="–"))
+    if len(V) >= 2:
+        with st.expander("두 실행 비교 (설정 차이 · 핵심 지표)"):
+            c1, c2 = st.columns(2)
+            ids = list(V.run_id)
+            a_ = c1.selectbox("A", ids, 0, key="rn_a", format_func=lambda i: R.set_index("run_id").loc[i, "title"] + " · " + i[:15])
+            b_ = c2.selectbox("B", ids, 1, key="rn_b", format_func=lambda i: R.set_index("run_id").loc[i, "title"] + " · " + i[:15])
+            A_, B_ = RL.load_run(a_), RL.load_run(b_)
+            st.dataframe(RL.settings_diff(A_["settings"], B_["settings"]))
+            key_ = [c for c in ["WF 최고 모델", "WF Sharpe(비용 전)", "WF Sharpe(비용 후)", "WF 위약 최댓값95", "WF 초과(운 대비)", "단일 Sharpe(비용 후)"] if c in R]
+            st.dataframe(R.set_index("run_id").loc[[a_, b_], key_].rename(index={a_: "A", b_: "B"}).T.astype(str))
+
+
 def tab_experiments():
     st.subheader("실험 결과 — 설정을 바꿔가며 같은 백테스트 엔진으로 비교한 결과")
     st.caption("모든 실험은 미래정보 차단(다음 거래일 체결·walk-forward)·같은 비용 가정. 데이터가 갱신되면 '재실행'으로 최신화. "
                "주의: 표에서 가장 좋은 설정을 골라 쓰면 과적합 — 여러 조건에서 일관되게 좋은 설정을 고를 것.")
-    sec = st.radio("실험", ["📋 한눈에 보기", "구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)",
+    sec = st.radio("실험", ["📋 한눈에 보기", "📂 내 실행 기록", "구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)",
                           "모멘텀 기간", "거래 규칙", "변동성 사이징"],
                    horizontal=True, key="ex_sec")
     pct = lambda cols: {c: "{:.2%}" for c in cols}
     pc_view = None
     if sec == "📋 한눈에 보기":
         ex_overview(); return
+    if sec == "📂 내 실행 기록":
+        ex_runs(); return
     if sec == "구매 타이밍 (프리셋 · 단계별)":
         pc_view = st.radio("보기", ["단계별 고도화 (기준에서 한 가지씩)", "프리셋 · 신호 비교 (13·26주, 품목별)"], horizontal=True, key="ex_pc_view",
                            help="두 실험 모두 곡물 6품목 · 같은 백테스트 엔진. 단계별 = '추천' 프리셋이 나온 근거, 프리셋 비교 = 최종 프리셋과 단순 신호의 기간별 비교")
@@ -2216,6 +2405,56 @@ def tab_experiments():
         st.caption("읽는 법: 철광석은 SGX 달러 가격과 DCE 위안 가격(환율·증치세 환산)의 차익, 점결탄은 철근 고로 마진(철근 − 1.6·철광석 − 0.5·코크스)이 "
                    "8·13·26주 모두에서 전·후반 + → 채택. 구리는 대체재 알루미늄 비율이 후반에 무너져 기각, 구리/금은 일관되지만 작아(t≈1) 참고 수준. "
                    "표본이 2013년부터라 곡물보다 검증 기간이 짧고, DCE 연속월물은 롤 보정이 없어 신호에 만기 교체 갭이 섞일 수 있음.")
+    elif sec == "전 품목 구매 타이밍 (단일 vs 다변량)":
+        import procurement as PR
+        st.markdown("##### 전 품목 — 상대가치를 무엇으로 정할까: 없음 vs 단일 관계 vs 다변량 ('추천' 프리셋, 균등 매수 대비 개선 bp)")
+        df = _exp_header("procure_all")
+        if df is None:
+            return
+        d = df[df.종류 != "없음"].copy()
+        g = d.groupby(["품목", "id", "상대가치", "종류"]).agg(전반=("개선_전반", "min"), 후반=("개선_후반", "min"), 개선=("개선_평균절감", "mean")).reset_index()
+        g["통과"] = (g.전반 > 0) & (g.후반 > 0)
+        g["채택"] = [PR.REL_CHOSEN.get(i) == o or (i in PR.REL_DEF and i not in PR.REL_CHOSEN and o.endswith("(현재)")) for i, o in zip(g.id, g.상대가치)]
+        typ = st.radio("보기", ["품목 × 선택지 (개선 bp)", "단일 vs 다변량 요약"], horizontal=True, key="ex_pa_view")
+        if typ.startswith("품목"):
+            g["선택지"] = np.where(g.종류 == "다변량", g.상대가치.str.replace("다변량: ", "◆ ", regex=False), "단일 " + g.groupby("품목").cumcount().add(1).astype(str))
+            M = g.pivot(index="품목", columns="선택지", values="개선")
+            L_ = g.pivot(index="품목", columns="선택지", values="상대가치")
+            P_ = g.pivot(index="품목", columns="선택지", values="통과")
+            C_ = g.pivot(index="품목", columns="선택지", values="채택")
+            M = M.loc[M.max(axis=1).sort_values(ascending=False).index]
+            L_, P_, C_ = L_.loc[M.index], P_.loc[M.index], C_.loc[M.index]
+            txt = [[("" if pd.isna(M.iat[r, c]) else f"{M.iat[r, c]:+.0f}" + (" ★" if C_.iat[r, c] is True else " ✓" if P_.iat[r, c] is True else ""))
+                    for c in range(M.shape[1])] for r in range(M.shape[0])]
+            vm = vmax_of(M.values, step=5)
+            f = go.Figure(go.Heatmap(z=M.values, x=list(M.columns), y=list(M.index), zmin=-vm, zmax=vm, colorscale=DIV, text=txt, texttemplate="%{text}",
+                                     customdata=L_.values, hovertemplate="%{y} · %{customdata}<br>개선 %{z:+.1f}bp<extra></extra>", colorbar=dict(thickness=12)))
+            f.update_layout(height=140 + 24 * len(M), margin=dict(l=10, r=10, t=40, b=10), yaxis=dict(autorange="reversed", dtick=1),
+                            title="'상대가치 없음' 대비 평균 개선 (bp, 13·26주 평균) — ✓ = 13·26주 모두 전·후반 개선, ★ = 대시보드 채택 (마우스 = 관계 이름)")
+            st.plotly_chart(f, key="ex_pa_heat")
+        else:
+            k = g.groupby(["품목", "종류"]).개선.agg(["mean", "max"]).unstack()
+            k.columns = [f"{b} {a}" for a, b in k.columns]
+            k = k.dropna(subset=["다변량 mean"]).sort_values("다변량 max", ascending=False)
+            f = go.Figure()
+            for j, (c, nm) in enumerate([("단일 mean", "단일 관계 평균 (고르지 않을 때)"), ("단일 max", "단일 관계 최고 (사후 선택 · 낙관)"), ("다변량 max", "다변량 2종 중 나은 것")]):
+                f.add_trace(go.Bar(x=list(k.index), y=k[c], name=nm, marker_color=[PAL[0], "#898781", PAL[1]][j]))
+            f.add_hline(y=0, line_color="#898781")
+            st.plotly_chart(fig_layout(f, 360, barmode="group", title="품목별 개선 (bp) — 다변량은 단일 평균과 비슷, 사후 최고 단일보다는 낮음", hovermode="x"), key="ex_pa_bar")
+            pr = g.groupby("종류").통과.mean()
+            c1, c2, c3 = st.columns(3)
+            c1.metric("통과율 · 단일 관계", f"{pr.get('단일', np.nan):.0%}")
+            c2.metric("통과율 · 다변량", f"{pr.get('다변량', np.nan):.0%}")
+            c3.metric("통과 관계가 있는 품목", f"{g[g.통과].품목.nunique()} / {g.품목.nunique()}")
+        with st.expander("전체 표 (구매 기간별)"):
+            st.dataframe(df.set_index(["품목", "상대가치", "구매기간주"]).drop(columns=["id"]).style.format(
+                {c: "{:+.1f}" for c in df.columns if c.endswith("bp") or c.startswith("개선")} | {"t값_비중첩": "{:+.2f}", "균등보다싸게": "{:.0%}"}, na_rep="–"))
+        st.caption("읽는 법: 같은 품목 안의 선택지는 같은 평가 기간(모든 관계 자료가 쌓인 뒤, 2008~)으로 비교, 전·후반 = 그 기간의 중간에서 2등분. "
+                   "다변량 = ① 후보 관계들의 1년 분위를 평균 ② 대체재·원료 가격으로 '적정가'를 매월 직전 3년 회귀(공적분)해 잔차가 낮으면 쌈. "
+                   "축산(돈육/옥수수·생우/송아지)·천연가스(가스/원유)·휘발유(휘발유/경유)는 사료비·연료 대체라는 경제적 연결이 뚜렷해 효과가 큼. "
+                   "금·팔라듐·코코아·경유는 어떤 관계도 일관되지 않아 상대가치 없이 사용. 곡물 6·철광석·점결탄·구리는 기존 검증 정의 유지 — "
+                   "이 실험의 공통 기간(2009~, DCE 자료 필요)에서는 옥수수/밀의 13주 후반 개선이 −7bp로 약해 재검토 대상. "
+                   "품목마다 2~5개 중 최고를 골랐으므로 채택 관계의 개선 폭은 실제보다 낙관적일 수 있음.")
     elif sec == "최신 시계열 모델 · 예측 목표":
         st.markdown("##### 최신 시계열 파운데이션 모델 vs 기준 모델 — 목표를 바꾸면 예측력이 생기나 (9개 구매 품목, 2012~ walk-forward, 매주 금요일 결정)")
         st.caption("파운데이션 모델 = 사전학습만 된 zero-shot (Chronos-Bolt-small·Chronos-2: Amazon, TimesFM 2.5: Google Research, TiRex: NX-AI xLSTM — "

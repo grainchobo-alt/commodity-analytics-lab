@@ -32,7 +32,8 @@
 | `reports.py` | 기관 리포트 수집·평가: USDA WASDE(1997~)·EIA STEO 빈티지(2010~), 발표일 이벤트 스터디 |
 | `risk.py` | ◆ 리스크 (공용 EWMA·HMM 필터·수익률 함수 포함): 시변 감쇠 λ(EWMA 롤링·HMM 3상태·Kalman TVP-AR(1)), GARCH·HAR·MIDAS 비교, QLIKE·DM·MCS·LR·부호 편향·마할라노비스, VaR/ES(정규·t·FHS·EVT·HS)와 Kupiec·Christoffersen·ES 백테스트, 꼬리 의존·스트레스·물량 위험 |
 | `forecast_lab.py` · `validation.py` | 최신 시계열 파운데이션 모델(Chronos·TimesFM·TiRex) 목표별 비교, Purged K-fold·Deflated Sharpe·PBO, 메타 라벨링 (⑥ '최신 시계열 모델') |
-| `procurement.py` | ★ 구매 타이밍 (곡물 6 + 철광석·점결탄·구리): 매수 점수(가격 위치·단기 반등·상대가치·계절성·추세), 기간 내 매수 속도 규칙, 균등 매수 대비 평균 매입가 절감 백테스트 |
+| `procurement.py` | ★ 구매 타이밍 (곡물·철강 원료·에너지·귀금속·소프트·축산·DCE 36품목, 단일·다변량 상대가치): 매수 점수(가격 위치·단기 반등·상대가치·계절성·추세), 기간 내 매수 속도 규칙, 균등 매수 대비 평균 매입가 절감 백테스트 |
+| `runlog.py` | 실행 기록(버전관리): `runs/registry.jsonl`·실행별 폴더(설정·성과 표)·판정 이력 — ④ 실행 자동 기록, ⑥ '내 실행 기록' |
 | `experiments.py` | ⑥ 실험 결과: 구매 타이밍·모멘텀 기간·거래 규칙·변동성 사이징·리스크 버짓 비교 실험 (`python experiments.py [이름]`) |
 | `app.py` | Streamlit 분석 앱 — ★ 구매 타이밍 / ◆ 리스크 (VaR·꼬리) / ① 시장 구조·동조성(상관·PCA·DY·TVP-VAR·FAVAR) / ② 레짐(Markov·HMM·MS 회귀·Kalman·TAR·STAR) / ③ 변동성·공분산(GARCH·DCC·BEKK·GARCH-MIDAS) / ④ 수익률 예측(단일 품목 대표 7 + 고급 모델·위약 기준선, 패널, MIDAS 회귀) / ⑤ 포트폴리오 / ⑥ 실험 결과 / ⑦ 모델 도감 / ⑧ 데이터·방법론 |
 | `model_atlas.py` | ⑥ 모델 도감: 31개 모델·방법론의 원리를 합성 데이터 시각화·수식·용도·함정으로 설명 |
@@ -59,7 +60,7 @@
 
 ## 메모
 - USDA NASS 작황 데이터: 무료 API 키 발급 후 환경변수 `NASS_API_KEY` 설정 시 자동 수집.
-- 보유한 장기 데이터는 분석 앱 사이드바에서 CSV(첫 열=날짜, 나머지=가격 레벨)로 업로드.
+- ④ 수익률 예측의 실행 결과는 `runs/`(실행 기록)에 자동 저장 → ⑥ 실험 결과 '📂 내 실행 기록'에서 판정·비교·설정 불러오기.
 - Yahoo 연속월물(=F)은 롤오버 갭 포함 → `roll_adjust.py`가 만기 규칙으로 롤일을 찾아 검증된 13개 품목(CBOT 곡물·돈육·생우·SGX 철광석·RBOB·난방유·설탕)을 보정. 그 외(WTI·금·구리 등)는 롤 패턴이 불분명해 ±15σ 클리핑만 적용.
 
 

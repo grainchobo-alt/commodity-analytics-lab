@@ -23,13 +23,33 @@ import risk as RK
 
 BUY_IDS = {"yf:ZC=F": "옥수수", "yf:ZW=F": "밀 (CBOT SRW)", "yf:KE=F": "밀 (KC HRW)", "yf:ZS=F": "대두",
            "yf:ZM=F": "대두박", "yf:ZL=F": "대두유",
-           "yf:TIO=F": "철광석 (SGX 62%)", "ak:JM0": "점결탄 (DCE)", "yf:HG=F": "구리 (COMEX)"}
-# 원 단위 → 미국 달러/메트릭톤 (위안 표시 품목은 CNY_IDS: 그날 달러/위안 환율로 환산)
+           "yf:TIO=F": "철광석 (SGX 62%)", "ak:JM0": "점결탄 (DCE)", "yf:HG=F": "구리 (COMEX)",
+           # v1.6.0 확장: ④ 수익률 예측의 나머지 원자재 (상대가치는 experiments.procurement_all 검증 후 채택분만 사용)
+           "yf:ZO=F": "귀리", "yf:ZR=F": "쌀 (조곡)",
+           "yf:CL=F": "WTI 원유", "yf:BZ=F": "브렌트 원유", "yf:HO=F": "난방유 (경유)", "yf:RB=F": "RBOB 휘발유", "yf:NG=F": "천연가스 (HH)",
+           "yf:GC=F": "금", "yf:SI=F": "은", "yf:PL=F": "백금", "yf:PA=F": "팔라듐", "yf:ALI=F": "알루미늄 (COMEX)",
+           "yf:CC=F": "코코아", "yf:KC=F": "커피", "yf:CT=F": "면화", "yf:SB=F": "원당 #11", "yf:OJ=F": "오렌지주스",
+           "yf:LE=F": "생우", "yf:GF=F": "비육 송아지", "yf:HE=F": "돈육",
+           "ak:A0": "대두 (DCE)", "ak:C0": "옥수수 (DCE)", "ak:M0": "대두박 (DCE)", "ak:Y0": "대두유 (DCE)",
+           "ak:I0": "철광석 (DCE)", "ak:J0": "코크스 (DCE)", "ak:RB0": "철근 (SHFE)"}
+# 원 단위 → 미국 달러/메트릭톤 (위안 표시 품목은 CNY_IDS: 그날 달러/위안 환율로 환산). 에너지는 대표 밀도로 근사 환산
+# (원유 7.33 bbl/t, 경유 7.45 bbl/t, 휘발유 8.45 bbl/t, LNG 52 MMBtu/t) — 표시용이며 신호·백테스트 결과(bp)에는 영향 없음
+_LB = 2204.62 / 100
 TO_USD_T = {"yf:ZC=F": 39.368 / 100, "yf:ZW=F": 36.744 / 100, "yf:KE=F": 36.744 / 100, "yf:ZS=F": 36.744 / 100,
-            "yf:ZM=F": 1.10231, "yf:ZL=F": 22.0462 / 100, "yf:TIO=F": 1.0, "yf:HG=F": 2204.62}
+            "yf:ZM=F": 1.10231, "yf:ZL=F": _LB, "yf:TIO=F": 1.0, "yf:HG=F": 2204.62,
+            "yf:ZO=F": 68.894 / 100, "yf:ZR=F": 22.0462, "yf:CL=F": 7.33, "yf:BZ=F": 7.33, "yf:HO=F": 7.45 * 42, "yf:RB=F": 8.45 * 42,
+            "yf:NG=F": 52.0, "yf:GC=F": 1.0, "yf:SI=F": 1.0, "yf:PL=F": 1.0, "yf:PA=F": 1.0, "yf:ALI=F": 1.0, "yf:CC=F": 1.0,
+            "yf:KC=F": _LB, "yf:CT=F": _LB, "yf:SB=F": _LB, "yf:OJ=F": _LB, "yf:LE=F": _LB, "yf:GF=F": _LB, "yf:HE=F": _LB}
 GRAIN_IDS = ["yf:ZC=F", "yf:ZW=F", "yf:KE=F", "yf:ZS=F", "yf:ZM=F", "yf:ZL=F"]   # 2008~ 검증·프리셋 결정에 쓴 품목
 METAL_IDS = ["yf:TIO=F", "ak:JM0", "yf:HG=F"]                                    # 2013~ 별도 검증 (experiments.procurement_metals)
-CNY_IDS = {"ak:JM0"}
+PX_UNIT = {k: "$/oz" for k in ["yf:GC=F", "yf:SI=F", "yf:PL=F", "yf:PA=F"]}   # 귀금속은 트로이온스 표시 (나머지 $/t)
+
+
+def unit_of(i: str) -> str:
+    return PX_UNIT.get(i, "$/t")
+
+
+CNY_IDS = {"ak:JM0", "ak:A0", "ak:C0", "ak:M0", "ak:Y0", "ak:I0", "ak:J0", "ak:RB0"}
 FX_CNY = "yf:CNY=X"
 DEFAULT_W = {"value": 0.6, "turn": 0.4, "relval": 0.0, "season": 0.0, "trend": 0.0}   # 균형 = 국소 저점 (싸면서 반등 시작)
 # 프리셋: 가중치·공격성 k·위험 판단·가격 위치 창·계절성 방식. 2008~2026, 6품목 × 13주 구매 기간 단계별 검증 결과:
@@ -117,6 +137,154 @@ def rel_series(Lr: pd.DataFrame, i: str, La: pd.DataFrame | None = None, mode: s
     return x[x.index.dayofweek < 5]
 
 
+# ---- 확장 품목 · 다변량 상대가치 후보 -----------------------------------------------------------------
+# ("r", 상대 id, 부호): log(내 품목 $/t) − log(상대 $/t) — 낮을수록(부호 −1) 내 품목이 상대적으로 쌈. 위안 품목은 환율·증치세 환산.
+# ("f", 함수(Lr), 부호): 정제마진 등 가격 차이(스프레드). 부호 +1 = 클수록 내 품목이 쌈.
+def _crack321(Lr):   # 3-2-1 정제마진 ($/bbl) = (2·휘발유 + 1·경유 − 3·원유) / 3 — 높을수록 원유 수요(정제) 강함 → 제품 대비 원유가 쌈
+    return (2 * Lr["yf:RB=F"] * 42 + Lr["yf:HO=F"] * 42 - 3 * Lr["yf:CL=F"]) / 3
+
+
+def _crack321b(Lr):
+    return (2 * Lr["yf:RB=F"] * 42 + Lr["yf:HO=F"] * 42 - 3 * Lr["yf:BZ=F"]) / 3
+
+
+REL_CANDS = {
+    "yf:ZC=F": [("옥수수/밀 (사료 대체)", "r", "yf:ZW=F", -1), ("옥수수/대두 (재배면적 경쟁)", "r", "yf:ZS=F", -1),
+                ("옥수수/원유 (에탄올)", "r", "yf:CL=F", -1), ("CBOT/DCE 옥수수 (수입 패리티)", "r", "ak:C0", -1)],
+    "yf:ZW=F": [("밀/옥수수 (사료 대체)", "r", "yf:ZC=F", -1), ("SRW/HRW 밀", "r", "yf:KE=F", -1), ("밀/쌀 (식용 곡물)", "r", "yf:ZR=F", -1)],
+    "yf:KE=F": [("HRW밀/옥수수", "r", "yf:ZC=F", -1), ("HRW/SRW 밀", "r", "yf:ZW=F", -1)],
+    "yf:ZS=F": [("크러시 마진 (현재)", "cur", None, +1), ("대두/옥수수 (재배면적 경쟁)", "r", "yf:ZC=F", -1),
+                ("CBOT/DCE 대두 (수입 패리티)", "r", "ak:A0", -1)],
+    "yf:ZM=F": [("대두박 가치/대두 (현재)", "cur", None, -1), ("대두박/옥수수 (단백질 vs 에너지 사료)", "r", "yf:ZC=F", -1),
+                ("CBOT/DCE 대두박", "r", "ak:M0", -1)],
+    "yf:ZL=F": [("대두유 가치/대두 (현재)", "cur", None, -1), ("대두유/난방유 (바이오디젤)", "r", "yf:HO=F", -1),
+                ("CBOT/DCE 대두유", "r", "ak:Y0", -1)],
+    "yf:ZO=F": [("귀리/옥수수 (사료 대체)", "r", "yf:ZC=F", -1), ("귀리/밀", "r", "yf:ZW=F", -1)],
+    "yf:ZR=F": [("쌀/밀 (식용 곡물)", "r", "yf:ZW=F", -1), ("쌀/옥수수", "r", "yf:ZC=F", -1)],
+    "yf:CL=F": [("WTI/브렌트", "r", "yf:BZ=F", -1), ("3-2-1 정제마진 (높을수록 원유 쌈)", "f", _crack321, +1), ("원유/천연가스", "r", "yf:NG=F", -1)],
+    "yf:BZ=F": [("브렌트/WTI", "r", "yf:CL=F", -1), ("3-2-1 정제마진 (브렌트)", "f", _crack321b, +1)],
+    "yf:HO=F": [("경유 크랙 (경유 − 원유, 낮을수록 경유 쌈)", "f", lambda L: L["yf:HO=F"] * 42 - L["yf:CL=F"], -1),
+                ("경유/원유", "r", "yf:CL=F", -1), ("경유/휘발유", "r", "yf:RB=F", -1)],
+    "yf:RB=F": [("휘발유 크랙 (휘발유 − 원유)", "f", lambda L: L["yf:RB=F"] * 42 - L["yf:CL=F"], -1),
+                ("휘발유/원유", "r", "yf:CL=F", -1), ("휘발유/경유", "r", "yf:HO=F", -1)],
+    "yf:NG=F": [("가스/원유 (열량 대비)", "r", "yf:CL=F", -1), ("가스/난방유", "r", "yf:HO=F", -1)],
+    "yf:GC=F": [("금/은", "r", "yf:SI=F", -1), ("금/백금", "r", "yf:PL=F", -1), ("금/구리", "r", "yf:HG=F", -1)],
+    "yf:SI=F": [("은/금", "r", "yf:GC=F", -1), ("은/구리 (산업 수요)", "r", "yf:HG=F", -1)],
+    "yf:PL=F": [("백금/팔라듐 (촉매 대체)", "r", "yf:PA=F", -1), ("백금/금", "r", "yf:GC=F", -1)],
+    "yf:PA=F": [("팔라듐/백금 (촉매 대체)", "r", "yf:PL=F", -1), ("팔라듐/금", "r", "yf:GC=F", -1)],
+    "yf:ALI=F": [("알루미늄/구리 (대체재)", "r", "yf:HG=F", -1), ("알루미늄/원유 (에너지 원가)", "r", "yf:CL=F", -1)],
+    "yf:HG=F": [("구리/금 (현재)", "r", "yf:GC=F", -1), ("구리/알루미늄", "r", "yf:ALI=F", -1), ("구리/은", "r", "yf:SI=F", -1)],
+    "yf:CC=F": [("코코아/원당 (초콜릿 원료)", "r", "yf:SB=F", -1), ("코코아/커피", "r", "yf:KC=F", -1)],
+    "yf:KC=F": [("커피/코코아", "r", "yf:CC=F", -1), ("커피/원당", "r", "yf:SB=F", -1)],
+    "yf:CT=F": [("면화/원유 (폴리에스터 대체)", "r", "yf:CL=F", -1), ("면화/옥수수 (재배면적)", "r", "yf:ZC=F", -1),
+                ("면화/대두 (재배면적)", "r", "yf:ZS=F", -1)],
+    "yf:SB=F": [("원당/원유 (브라질 에탄올 패리티)", "r", "yf:CL=F", -1), ("원당/옥수수 (HFCS)", "r", "yf:ZC=F", -1)],
+    "yf:OJ=F": [("오렌지주스/원당", "r", "yf:SB=F", -1)],
+    "yf:LE=F": [("생우/비육 송아지 (비육 마진)", "r", "yf:GF=F", -1), ("생우/돈육 (육류 대체)", "r", "yf:HE=F", -1), ("생우/옥수수 (사료비)", "r", "yf:ZC=F", -1)],
+    "yf:GF=F": [("비육 송아지/생우", "r", "yf:LE=F", -1), ("비육 송아지/옥수수 (사료비 ↑ → 송아지 ↓)", "r", "yf:ZC=F", -1)],
+    "yf:HE=F": [("돈육/옥수수 (hog-corn ratio)", "r", "yf:ZC=F", -1), ("돈육/대두박", "r", "yf:ZM=F", -1), ("돈육/생우", "r", "yf:LE=F", -1)],
+    "ak:A0": [("DCE/CBOT 대두 (수입 패리티)", "r", "yf:ZS=F", -1), ("DCE 대두/옥수수", "r", "ak:C0", -1)],
+    "ak:C0": [("DCE/CBOT 옥수수 (수입 패리티)", "r", "yf:ZC=F", -1), ("DCE 옥수수/대두박", "r", "ak:M0", -1)],
+    "ak:M0": [("DCE 대두박/대두", "r", "ak:A0", -1), ("DCE/CBOT 대두박", "r", "yf:ZM=F", -1), ("DCE 대두박/옥수수", "r", "ak:C0", -1)],
+    "ak:Y0": [("DCE 대두유/대두", "r", "ak:A0", -1), ("DCE/CBOT 대두유", "r", "yf:ZL=F", -1)],
+    "ak:I0": [("DCE/SGX 철광석 (수입 패리티)", "r", "yf:TIO=F", -1), ("철광석/철근", "r", "ak:RB0", -1)],
+    "ak:J0": [("코크스/점결탄 (코킹 마진, 낮을수록 코크스 쌈)", "r", "ak:JM0", -1), ("코크스/철근", "r", "ak:RB0", -1)],
+    "ak:RB0": [("철근 고로 마진 (낮을수록 철근 쌈)", "f", lambda L: L["ak:RB0"] - 1.6 * L["ak:I0"] - 0.5 * L["ak:J0"], -1),
+               ("철근/철광석", "r", "ak:I0", -1)],
+}
+MULTI_AVG, MULTI_COINT = "다변량: 후보 분위 평균", "다변량: 공적분 잔차 (적정가 대비)"
+
+
+def _usd_ex_vat(Lr: pd.DataFrame, k: str) -> pd.Series:
+    s = usd_t(Lr, k)
+    return s / cn_vat(s.index) if k in CNY_IDS else s
+
+
+def cand_series(Lr: pd.DataFrame, i: str, spec, La: pd.DataFrame | None = None) -> pd.Series | None:
+    """후보 상대가치 1개 → 시계열 (실제 근월물 시세, 영업일)."""
+    _, kind, arg, _sg = spec
+    try:
+        if kind == "cur":
+            return rel_series(Lr, i, La, "price")
+        if kind == "r":
+            if arg not in Lr or i not in Lr:
+                return None
+            a, b = _usd_ex_vat(Lr, i), _usd_ex_vat(Lr, arg).reindex(Lr.index).ffill(limit=5)
+            x = np.log(a) - np.log(b.reindex(a.index))
+        else:
+            x = arg(Lr)
+    except (KeyError, TypeError):
+        return None
+    x = x.replace([np.inf, -np.inf], np.nan).dropna()
+    return x[x.index.dayofweek < 5] if len(x) else None
+
+
+def rel_multi_avg(Lr: pd.DataFrame, i: str, La=None, window: int = 252) -> pd.Series | None:
+    """여러 상대가치 후보를 각각 1년 분위(부호 반영, 1 = 쌈)로 만든 뒤 평균 → 0~1 점수 (rel_sign=0 으로 그대로 사용)."""
+    P = []
+    for spec in REL_CANDS.get(i, []):
+        x = cand_series(Lr, i, spec, La)
+        if x is None or len(x) < window:
+            continue
+        pct = x.rolling(window, min_periods=window // 2).rank(pct=True)
+        P.append(pct if spec[3] > 0 else 1 - pct)
+    if len(P) < 2:
+        return None
+    return pd.concat(P, axis=1).mean(axis=1, skipna=True).dropna()
+
+
+def rel_multi_coint(Lr: pd.DataFrame, i: str, window: int = 756, min_obs: int = 504) -> pd.Series | None:
+    """다변량 적정가: log(내 품목) = a + Σ b_k log(대체재·원료 k) 를 매월 초 직전 window일로 추정(OLS) →
+    그 달의 잔차 = 실제 − 적정가 (클수록 비쌈, rel_sign −1). 계수는 과거 자료로만 추정 → 미래정보 없음."""
+    legs = [spec[2] for spec in REL_CANDS.get(i, []) if spec[1] == "r" and spec[2] in Lr]
+    if len(legs) < 2 or i not in Lr:
+        return None
+    y = np.log(_usd_ex_vat(Lr, i))
+    X = pd.concat({k: np.log(_usd_ex_vat(Lr, k)).reindex(Lr.index).ffill(limit=5) for k in legs}, axis=1).reindex(y.index)
+    Z = pd.concat([y.rename("__y"), X], axis=1).replace([np.inf, -np.inf], np.nan).dropna()
+    Z = Z[Z.index.dayofweek < 5]
+    if len(Z) < min_obs + 21:
+        return None
+    out = pd.Series(np.nan, index=Z.index)
+    months = Z.index.to_period("M")
+    for m in months.unique():
+        cur = months == m
+        t0 = np.flatnonzero(cur)[0]
+        past = Z.iloc[max(0, t0 - window):t0]
+        if len(past) < min_obs:
+            continue
+        A_ = np.column_stack([np.ones(len(past)), past[legs].values])
+        b = np.linalg.lstsq(A_, past["__y"].values, rcond=None)[0]
+        Zc = Z[cur]
+        out[cur] = Zc["__y"].values - np.column_stack([np.ones(len(Zc)), Zc[legs].values]) @ b
+    return out.dropna()
+
+
+def rel_option(Lr: pd.DataFrame, i: str, name: str, La=None) -> tuple[pd.Series | None, int]:
+    """상대가치 선택지 이름 → (시계열, 부호). 부호 0 = 이미 0~1 점수."""
+    if name == MULTI_AVG:
+        return rel_multi_avg(Lr, i, La), 0
+    if name == MULTI_COINT:
+        return rel_multi_coint(Lr, i), -1
+    for spec in REL_CANDS.get(i, []):
+        if spec[0] == name:
+            return cand_series(Lr, i, spec, La), spec[3]
+    return None, 1
+
+
+# 확장 품목의 채택 상대가치 (experiments.procurement_all, 2026-10-20): '추천' 프리셋에서 상대가치만 바꿔
+# 13·26주 구매 기간 모두 전반·후반이 '상대가치 없음'보다 좋고 평균 개선 ≥ 5bp 인 선택지 중 최대 개선. 나머지 확장 품목은 상대가치 없음
+# (가중치는 나머지 구성요소로 자동 재배분). 곡물 6·철광석·점결탄·구리는 기존 검증 정의 유지 (더 긴 표본 2008~ / 2013~ 기준).
+# 주의: 품목마다 2~5개 후보 중 최고를 골랐으므로 개선 폭은 낙관적 (선택 편향) — 다변량 평균은 고르지 않은 '평균적' 선택.
+REL_CHOSEN = {"yf:HE=F": "돈육/옥수수 (hog-corn ratio)", "yf:NG=F": "가스/원유 (열량 대비)", "yf:LE=F": "생우/비육 송아지 (비육 마진)",
+              "yf:RB=F": "휘발유/경유", "ak:M0": "DCE 대두박/옥수수", "yf:ALI=F": "알루미늄/구리 (대체재)", "yf:ZR=F": "쌀/밀 (식용 곡물)",
+              "yf:ZO=F": "귀리/밀", "yf:CL=F": MULTI_COINT, "yf:PL=F": "백금/금", "yf:KC=F": MULTI_AVG, "ak:A0": "DCE/CBOT 대두 (수입 패리티)",
+              "ak:J0": MULTI_AVG, "yf:SB=F": "원당/원유 (브라질 에탄올 패리티)", "ak:Y0": MULTI_COINT}
+for _i, _nm in REL_CHOSEN.items():
+    _sg = {MULTI_AVG: 0, MULTI_COINT: -1}.get(_nm, next((c[3] for c in REL_CANDS.get(_i, []) if c[0] == _nm), -1))
+    REL_DEF[_i] = (_nm + (" (높을수록 쌈)" if _sg > 0 else " (낮을수록 쌈)" if _sg < 0 else " (0~1 점수, 높을수록 쌈)"), _sg)
+
+
 def hmm_crisis_prob(p_adj: pd.Series, min_years: int = 5, seed: int = 0) -> pd.Series:
     """2-레짐 가우시안 HMM (일간 수익률). 매년 초 그 이전 데이터로만 재추정 → 그해 각 날짜의 '필터' 확률
     P(고변동 레짐 | r₁..r_t) (평활 확률은 미래를 쓰므로 사용 안 함). 전방 필터는 risk.hmm_filter와 공용."""
@@ -141,7 +309,11 @@ def midas_var(p_adj: pd.Series, h: int = 5) -> pd.Series:
 
 
 def inputs(La: pd.DataFrame, Lr: pd.DataFrame, i: str, risk: str = "ewma", rel_mode: str = "price") -> dict:
-    return dict(rel=rel_series(Lr, i, La, rel_mode), rel_sign=REL_DEF.get(i, ("", 1))[1] if rel_mode == "price" else 1,
+    if i in REL_CHOSEN and rel_mode == "price":
+        rel, sg = rel_option(Lr, i, REL_CHOSEN[i], La)
+    else:
+        rel, sg = rel_series(Lr, i, La, rel_mode), (REL_DEF.get(i, ("", 1))[1] if rel_mode == "price" else 1)
+    return dict(rel=rel, rel_sign=sg,
                 vol_fc=midas_var(La[i]) if risk == "midas" else None, crisis=hmm_crisis_prob(La[i]) if risk == "hmm" else None)
 
 
@@ -185,8 +357,11 @@ def signals(p_adj: pd.Series, lookback: int = 252, rel: pd.Series | None = None,
     out["season"] = _season(lp, p.index, season)
     if rel is not None and len(rel):
         rr = rel.reindex(p.index).ffill(limit=5)
-        pct = rr.rolling(252, min_periods=126).rank(pct=True)
-        out["relval"] = pct if rel_sign > 0 else 1 - pct
+        if rel_sign == 0:                                              # 이미 0~1 점수 (다변량 평균 분위)
+            out["relval"] = rr.clip(0, 1)
+        else:
+            pct = rr.rolling(252, min_periods=126).rank(pct=True)
+            out["relval"] = pct if rel_sign > 0 else 1 - pct
     else:
         out["relval"] = np.nan
     ew = RK.ewma_std(r)                                               # RiskMetrics λ=0.94
@@ -310,12 +485,12 @@ def today_table(La: pd.DataFrame, Lr: pd.DataFrame, ids: list[str], w: dict | No
         mult = pace(float(sc.loc[last]), rk, 1.0, weeks_left, k, m_max) / (1.0 / weeks_left)
         b_lo, b_hi = band_4w(La[i], sig, last)
         va = float(sig["vol_ann"].loc[last])
-        rows.append({"품목": BUY_IDS.get(i, i), "id": i, "기준일": last.date(), "가격 ($/t)": px,
-                     "1년 최저 ($/t)": p1.min(), "1년 최고 ($/t)": p1.max(),
+        rows.append({"품목": BUY_IDS.get(i, i), "id": i, "기준일": last.date(), "단위": unit_of(i), "가격": px,
+                     "1년 최저": p1.min(), "1년 최고": p1.max(),
                      "매수 점수": float(sc.loc[last]) * 100, **{COMP_LBL[c]: float(sig[c].loc[last]) * 100 for c in COMP_LBL},
                      "위험 지표": rk * 100, "변동성 분위": float(sig["vol_pct"].loc[last]) * 100, "연 변동성": va,
-                     "4주 하단 90% ($/t)": px * b_lo, "4주 상단 90% ($/t)": px * b_hi,
-                     "권장 속도 (균등 대비 배)": mult, "상대가치 지표": REL_DEF.get(i, ("–",))[0]})
+                     "4주 하단 90%": px * b_lo, "4주 상단 90%": px * b_hi,
+                     "권장 속도 (균등 대비 배)": mult, "상대가치 지표": REL_DEF.get(i, ("없음 (검증 통과 관계 없음)",))[0]})
     return pd.DataFrame(rows)
 
 

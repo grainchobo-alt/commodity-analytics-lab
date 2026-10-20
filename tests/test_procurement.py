@@ -83,7 +83,20 @@ u1, u2 = PR.usd_t(Lr, "ak:JM0"), PR.usd_t(Lr3, "ak:JM0")
 assert np.allclose(u1.loc[:cut3].dropna(), u2.loc[:cut3].dropna()) and 50 < u1.dropna().iloc[-1] < 1000
 ok("철광석(SGX/DCE 차익)·점결탄(고로 마진)·구리(구리/금): 기준일 이후 데이터 교란에도 기준일까지 불변, 점결탄 달러 환산 정상")
 
+# 8) 확장 품목 · 다변량 상대가치: 기준일 이후 상대 품목 가격을 바꿔도 기준일까지의 단일·다변량(분위 평균·공적분 잔차) 관계 불변
+cut4 = pd.Timestamp("2018-06-29")
+Lr4 = Lr.copy()
+for c_ in ["yf:ZW=F", "yf:ZS=F", "yf:CL=F", "ak:C0", "yf:HO=F"]:
+    Lr4.loc[Lr4.index > cut4, c_] *= np.exp(np.cumsum(np.random.default_rng(2).normal(0, 0.03, (Lr4.index > cut4).sum())))
+for j_, opt in [("yf:ZC=F", PR.MULTI_AVG), ("yf:ZC=F", PR.MULTI_COINT), ("yf:CL=F", PR.MULTI_COINT), ("yf:HE=F", "돈육/옥수수 (hog-corn ratio)"),
+                ("ak:Y0", PR.MULTI_COINT)]:
+    (q1, s1), (q2, s2) = PR.rel_option(Lr, j_, opt), PR.rel_option(Lr4, j_, opt)
+    assert q1 is not None and len(q1.loc[:cut4]) > 300 and s1 == s2, (j_, opt)
+    assert np.allclose(q1.loc[:cut4].values, q2.reindex(q1.index).loc[:cut4].values), (j_, opt)
+assert PR.rel_option(Lr, "yf:ZC=F", PR.MULTI_AVG)[0].between(0, 1).all()
+ok("확장 품목·다변량 상대가치: 기준일 이후 교란에도 기준일까지 불변 (분위 평균 0~1)")
+
 T = PR.today_table(La, Lr, list(PR.BUY_IDS))
-assert len(T) == len(PR.BUY_IDS) and T["매수 점수"].between(0, 100).all() and (T["4주 하단 90% ($/t)"] < T["가격 ($/t)"]).all()
+assert len(T) == len(PR.BUY_IDS) and T["매수 점수"].between(0, 100).all() and (T["4주 하단 90%"] < T["가격"]).all()
 ok(f"오늘의 신호판: {len(T)}품목, 점수 0~100, 4주 범위 하단 < 현재가")
 print("PROCUREMENT TEST PASSED")
