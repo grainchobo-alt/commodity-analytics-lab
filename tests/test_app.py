@@ -22,20 +22,24 @@ at.checkbox(key="pc_adv").check().run(); check(at, "구매 타이밍: 고급 프
 for pz in ["보수적 (위치+반등+계절)", "공격적 (가격 위치만, 2배)", "균형 (국소 저점 = 위치+반등)", "추천 (고도화: 상대가치+계절+MIDAS)"]:
     at.selectbox(key="pc_preset").set_value(pz).run(); check(at, f"구매 타이밍: 프리셋 {pz}")
 at.checkbox(key="pc_adv").uncheck().run(); check(at, "구매 타이밍: 기본 프리셋 2개로 복귀")
-at.number_input(key="pc_weeks").set_value(2).run(); check(at, "구매 타이밍: 2주마다 1척")
-at.number_input(key="pc_weeks").set_value(4).run()
 at.selectbox(key="pc_detail").set_value("yf:ZM=F").run(); check(at, "구매 타이밍: 대두박 상세")
-at.number_input(key="pc_q_yf:ZC=F").set_value(60000.0).run(); at.number_input(key="pc_inv_yf:ZC=F").set_value(0.25).run()
-assert any("재고 바닥" in m.label for m in at.metric); check(at, "구매 타이밍: 재고 바닥 임박 = 1카고 필요")
-at.number_input(key="pc_inv_yf:ZC=F").set_value(1.0).run()
-at.checkbox(key="pc_usefc").check().run(); check(at, "구매 타이밍: 예측으로 1주 미루기")
-at.checkbox(key="pc_usefc").uncheck().run()
+at.number_input(key="pc_q_yf:ZC=F").set_value(60000.0).run(); check(at, "구매 타이밍: 카고 물량 변경")
+assert not any("재고" in m.label for m in at.metric)                       # 재고 정보 제거
+labels = [m.label for m in at.metric][:4]                     # 구매 카드 4개 (다른 탭 지표 제외)
+assert all(any(k in l for k in ("지금 매수", "미루기 권고", "평소대로")) for l in labels), labels
+at.slider(key="pc_aucmin").set_value(0.50).run(); check(at, "구매 타이밍: 활성화 기준 0.50 (근거 약한 품목 포함)")
+at.slider(key="pc_pstar").set_value(0.50).run(); check(at, "구매 타이밍: 미루기 기준 p* 0.50")
+at.multiselect(key="pc_ids").set_value(["yf:ZC=F", "yf:RB=F", "yf:LE=F", "yf:ZW=F"]).run(); check(at, "구매 타이밍: 근거 있는 품목(휘발유·생우) 포함")
+assert sum("학습 AUC" in c.value and "시험 AUC" in c.value for c in at.caption) >= 4           # 카드마다 확률의 근거(학습·시험 AUC) 표시
+assert any("미루기 권고" in m.label for m in at.metric[:4])                                     # 기준을 낮추면 근거 있는 품목에서 미루기 권고
+at.selectbox(key="pc_hz_item").set_value("yf:RB=F").run(); check(at, "구매 타이밍: 미루는 기간별 AUC 그림 (휘발유)")
+at.slider(key="pc_aucmin").set_value(0.55).run(); at.slider(key="pc_pstar").set_value(0.55).run()
+at.multiselect(key="pc_ids").set_value(["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F"]).run()
 at.selectbox(key="pc_lb_추천 (고도화: 상대가치+계절+MIDAS)").set_value("1년").run(); check(at, "구매 타이밍: 가격 위치 창 1년 고정")
 at.selectbox(key="pc_lb_추천 (고도화: 상대가치+계절+MIDAS)").set_value("품목별 자동").run()
 at.multiselect(key="pc_ids").set_value(["yf:ZC=F", "yf:BZ=F", "yf:HO=F", "yf:PA=F"]).run(); check(at, "구매 타이밍: 상대가치 없는 품목(경유·팔라듐) 가중치 재배분")
 assert any("가중치 재배분" in c.value for c in at.caption)
-at.multiselect(key="pc_ids").set_value(["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F"]).run()
-at.number_input(key="pc_carry").set_value(3.0).run(); check(at, "구매 타이밍: 보유비용 3bp/주")
+at.multiselect(key="pc_ids").set_value(["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F"]).run(); check(at, "구매 타이밍: 곡물 4품목 복귀")
 # ◆ 리스크
 at.button(key="rk_run").click().run(); check(at, "리스크: 옥수수 8개 변동성 모형 추정")
 at.button(key="vf_run").click().run(); check(at, "③ 변동성 예측 검증: 옥수수 경주")
@@ -51,7 +55,7 @@ at.radio(key="rk_dir").set_value("보유 재고 (가격 하락이 손실)").run(
 at.selectbox(key="rk_ph").set_value(60).run(); check(at, "리스크: 60일 물량 VaR")
 at.selectbox(key="rk_id").set_value("yf:TIO=F").run()
 at.button(key="rk_run").click().run(); check(at, "리스크: 철광석 재추정")
-for sec in ["📋 한눈에 보기", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 상대가치 재검증 (2008~)", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "재고 기반 반복 구매 (학습/시험 · 예측)", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍 (프리셋 · 단계별)"]:
+for sec in ["📋 한눈에 보기", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 상대가치 재검증 (2008~)", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "미루기 권고 (재고 무관 · 1~4주)", "재고 기반 반복 구매 (학습/시험 · 예측)", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍 (프리셋 · 단계별)"]:
     at.radio(key="ex_sec").set_value(sec).run(); check(at, f"실험 결과: {sec}")
 at.radio(key="ex_sec").set_value("전 품목 구매 타이밍 (단일 vs 다변량)").run()
 at.radio(key="ex_pa_view").set_value("단일 vs 다변량 요약").run(); check(at, "실험 결과: 전 품목 단일 vs 다변량 요약")

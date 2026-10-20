@@ -331,11 +331,11 @@ def procurement_inventory(progress=None, taus=(0.45, 0.5, 0.55, 0.6, 0.65, 0.7),
                                                            학습=f"{start}~{split}", 시험=f"{split}~", 예측="walk-forward 로지스틱 (매년 재학습)"))
 
 
-def procurement_defer(progress=None, taus=(None, 0.5, 0.6), p_stars=(0.5, 0.55, 0.6, 0.65, 0.7), modes=("fixed", "adaptive"),
-                      max_wait=2, split="2017-01-01", start="2008-01-01"):
-    """재고 무관 '지금 살까, 2주 미룰까' OOS 검증 (procurement.backtest_defer): 매주 1회 판단, 기준 = 즉시 매수.
-    학습(start~split)에서 τ·p*·방식을 고르고 시험(split~)에서 확인. 2주 하락 확률 = walk-forward 로지스틱(매년 재학습).
-    위약 = 같은 비율을 무작위 주에 2주 미룸 (예측이 정보를 담고 있는지)."""
+def procurement_defer(progress=None, taus=(None, 0.5, 0.6), p_stars=(0.5, 0.55, 0.6, 0.65), modes=("fixed", "adaptive"),
+                      horizons=(1, 2, 3, 4), seasons=(False, True), split="2017-01-01", start="2008-01-01"):
+    """재고 무관 '지금 살까, h주 미룰까' OOS 검증 (procurement.backtest_defer): 매주 1회 판단, 기준 = 즉시 매수.
+    미루는 기간 h = 1~4주, 예측 특성 = 기본 / +계절성(연중 주차 사인·코사인). h주 하락 확률 = walk-forward 로지스틱(매년 재학습).
+    학습(start~split)에서 고르고 시험(split~)에서 확인. 위약 = 같은 비율을 무작위 주에 h주 미룸."""
     import procurement as PR
     from sklearn.metrics import roc_auc_score
     t0 = time.time(); La, Lr, U, _ = _data(); rows = []
@@ -346,25 +346,49 @@ def procurement_defer(progress=None, taus=(None, 0.5, 0.6), p_stars=(0.5, 0.55, 
         inp = PR.inputs(La, Lr, i, "midas", "price")
         sig = PR.signals(La[i], PR.item_lookback(i, P_["lookback"]), inp["rel"], inp["rel_sign"], inp["vol_fc"], inp["crisis"], P_["season"])
         W_ = PR.weekly_frame(Lr[i], sig, PR.score(sig, P_["w"]))
-        F = PR.fc_walkforward(W_, max_wait)
         grp = "곡물" if i in PR.GRAIN_IDS else "확장"
-        for per, (a_, b_) in per_of.items():
-            m_ = (F.index >= pd.Timestamp(a_)) & ((F.index <= pd.Timestamp(b_)) if b_ is not None else True) & F.p_down.notna() & F.y_down.notna()
-            auc = roc_auc_score(F.y_down[m_], F.p_down[m_]) if m_.sum() > 50 and F.y_down[m_].nunique() == 2 else np.nan
-            rows.append(dict(구분="예측", 품목=PR.BUY_IDS[i], id=i, 군=grp, 기간=per, 하락AUC=auc, 하락비율=float(F.y_down[m_].mean()),
-                             p_down평균=float(F.p_down[m_].mean())))
-            for tau in taus:
-                for ps in p_stars:
-                    for md in modes:
-                        D = PR.backtest_defer(W_, F, tau, ps, max_wait, md, a_, b_)
-                        S = PR.defer_summary(D)
-                        if S:
-                            rows.append(dict(구분="백테스트", 품목=PR.BUY_IDS[i], id=i, 군=grp, 기간=per, tau=(-1.0 if tau is None else tau),
-                                             p_star=ps, 방식=md, **S))
+        for h in horizons:
+            for sea in seasons:
+                F = PR.fc_walkforward(W_, h, season=sea)
+                for per, (a_, b_) in per_of.items():
+                    m_ = (F.index >= pd.Timestamp(a_)) & ((F.index <= pd.Timestamp(b_)) if b_ is not None else True) & F.p_down.notna() & F.y_down.notna()
+                    auc = roc_auc_score(F.y_down[m_], F.p_down[m_]) if m_.sum() > 50 and F.y_down[m_].nunique() == 2 else np.nan
+                    base = dict(품목=PR.BUY_IDS[i], id=i, 군=grp, 기간=per, 미룸주=h, 계절특성=bool(sea))
+                    rows.append(dict(구분="예측", **base, 하락AUC=auc, 하락비율=float(F.y_down[m_].mean()), p_down평균=float(F.p_down[m_].mean())))
+                    for tau in taus:
+                        for ps in p_stars:
+                            for md in modes:
+                                S = PR.defer_summary(PR.backtest_defer(W_, F, tau, ps, h, md, a_, b_))
+                                if S:
+                                    rows.append(dict(구분="백테스트", **base, tau=(-1.0 if tau is None else tau), p_star=ps, 방식=md, **S))
         if progress: progress((j + 1) / len(ids))
-    _save("procure_defer", pd.DataFrame(rows), t0, dict(규칙="점수 ≥ τ → 즉시, 아니고 P(2주 뒤 더 쌈) ≥ p* → 미룸(최대 2주)", 기준="즉시 매수",
-                                                       학습=f"{start}~{split}", 시험=f"{split}~", 예측="walk-forward 로지스틱 (매년 재학습)",
-                                                       위약="같은 비율 무작위 2주 미룸", 비고="τ=-1은 매력도 게이트 없음"))
+    _save("procure_defer", pd.DataFrame(rows), t0, dict(규칙="점수 ≥ τ → 즉시, 아니고 P(h주 뒤 더 쌈) ≥ p* → 미룸(최대 h주)", 기준="즉시 매수",
+                                                       미룸주="1~4", 예측특성="기본 / +계절성(연중 주차)", 학습=f"{start}~{split}", 시험=f"{split}~",
+                                                       예측="walk-forward 로지스틱 (매년 재학습)", 위약="같은 비율 무작위 h주 미룸", 비고="τ=-1은 매력도 게이트 없음"))
+
+
+DEFER_AUC_MIN = 0.55     # 미루기 권고 활성화 기준: 학습 기간(2008~16) 하락 예측 AUC — 8개 조합 중 최댓값이라 귀무에서도 0.53 초과 67%, 0.55 초과 22%
+
+
+def defer_evidence(df: pd.DataFrame | None = None, auc_min: float = DEFER_AUC_MIN, tau: float = 0.6, p_star: float = 0.55,
+                   mode: str = "adaptive") -> pd.DataFrame:
+    """품목별 '기다릴 만한 시계' — 학습 기간 AUC가 가장 높은 (미룸 주, 계절 특성) 조합을 학습 자료로만 고르고,
+    그 조합의 시험 AUC·시험 절감·위약을 붙임. 학습 AUC > auc_min 이면 미루기 권고 활성화."""
+    if df is None:
+        df, _ = load("procure_defer")
+    if df is None or "미룸주" not in df:
+        return pd.DataFrame()
+    P = df[df.구분 == "예측"].pivot_table(index=["id", "품목", "군", "미룸주", "계절특성"], columns="기간", values="하락AUC").reset_index()
+    best = P.loc[P.groupby("id")["학습"].idxmax()].set_index("id")
+    B = df[(df.구분 == "백테스트") & (df.tau == tau) & (df.p_star == p_star) & (df.방식 == mode)]
+    out = []
+    for i, r in best.iterrows():
+        b = B[(B.id == i) & (B.미룸주 == r.미룸주) & (B.계절특성 == r.계절특성)].set_index("기간")
+        g = lambda per, c: float(b.loc[per, c]) if per in b.index else np.nan
+        out.append(dict(id=i, 품목=r.품목, 군=r.군, 미룸주=int(r.미룸주), 계절특성=bool(r.계절특성), 학습AUC=r.학습, 시험AUC=r.시험,
+                        학습절감bp=g("학습", "판단당 평균 절감 (bp)"), 시험절감bp=g("시험", "판단당 평균 절감 (bp)"), 시험위약bp=g("시험", "위약 평균 (bp)"),
+                        시험미룸비율=g("시험", "미룸 비율"), 시험적중률=g("시험", "미룬 경우 적중률"), 활성=bool(r.학습 > auc_min)))
+    return pd.DataFrame(out).set_index("id")
 
 
 def rel_adoption(df_all: pd.DataFrame, df_pl: pd.DataFrame | None = None, min_gain: float = 5.0) -> pd.DataFrame:
@@ -578,7 +602,7 @@ EXPERIMENTS = {
     "procure_inventory": dict(title="재고 기반 반복 구매 — 학습/시험 분리 · 1~2주 예측", file="procurement_inventory_compare.csv",
                               fn=procurement_inventory, eta="약 10~15분", cols=["구분", "품목", "기간"]),
     "procure_defer": dict(title="미루기 권고 (재고 무관) — 가격 매력도 · 2주 하락 확률 · 학습/시험 · 위약", file="procurement_defer_compare.csv",
-                          fn=procurement_defer, eta="약 3~5분", cols=["구분", "품목", "기간"]),
+                          fn=procurement_defer, eta="약 5~8분", cols=["구분", "품목", "기간"]),
     "procure_placebo": dict(title="구매 상대가치 위약 검증 — 무의미한 관계의 우연 통과율", file="procurement_placebo_compare.csv",
                             fn=procurement_placebo, eta="약 5~10분", cols=["품목", "선택지", "종류", "구매기간주"]),
     "procure_grains": dict(title="곡물 상대가치 재검증 — 원래 기간(2008~, 경계 2017) 엄격 기준", file="procurement_grains_compare.csv",

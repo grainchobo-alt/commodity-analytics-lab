@@ -573,7 +573,9 @@ def weekly_frame(p_act: pd.Series, sig: pd.DataFrame, sc: pd.Series, start="2001
     return W_
 
 
-def fc_features(W_: pd.DataFrame) -> pd.DataFrame:
+def fc_features(W_: pd.DataFrame, season: bool = False) -> pd.DataFrame:
+    """season=True: 연중 시점(주차)의 사인·코사인 2조화(1년·반년 주기) — 휘발유 드라이빙 시즌·축산 사이클처럼
+    '연중 몇째 주인가'에 따라 다음 몇 주의 방향이 달라지는 품목용. 달력만 쓰므로 미래정보 없음."""
     lp = np.log(W_["px"])
     X = pd.DataFrame(index=W_.index)
     X["score"] = W_["score"]; X["d_score"] = W_["score"].diff()
@@ -581,15 +583,21 @@ def fc_features(W_: pd.DataFrame) -> pd.DataFrame:
         X[c] = W_[c]
     X["r1"] = lp.diff(); X["r4"] = lp.diff(4); X["r13"] = lp.diff(13)
     X["vol4"] = lp.diff().rolling(13, min_periods=6).std()
+    if season:
+        doy = 2 * np.pi * W_.index.dayofyear.values / 365.25
+        for k in (1, 2):
+            X[f"sin{k}"] = np.sin(k * doy); X[f"cos{k}"] = np.cos(k * doy)
     return X
 
 
-def fc_walkforward(W_: pd.DataFrame, horizon: int = 1, tau: float = INV_TAU, first_test_year: int = 2008, min_train: int = 260) -> pd.DataFrame:
-    """1~2주 앞 방향 예측 (walk-forward, 매년 1월 그 이전 자료로만 로지스틱 회귀 재학습, 목표 겹침만큼 학습 끝 purge):
-    p_down = P(horizon주 뒤 체결가 < 이번 주 체결가), p_sig = P(다음 주 점수 ≥ τ). 반환 = OOS 예측 (학습 연도 이전은 NaN)."""
+def fc_walkforward(W_: pd.DataFrame, horizon: int = 1, tau: float = INV_TAU, first_test_year: int = 2008, min_train: int = 260,
+                   season: bool = False) -> pd.DataFrame:
+    """1~4주 앞 방향 예측 (walk-forward, 매년 1월 그 이전 자료로만 로지스틱 회귀 재학습, 목표 겹침만큼 학습 끝 purge):
+    p_down = P(horizon주 뒤 체결가 < 이번 주 체결가), p_sig = P(다음 주 점수 ≥ τ). 반환 = OOS 예측 (학습 연도 이전은 NaN).
+    season=True 이면 연중 주차의 사인·코사인 특성 추가."""
     from sklearn.linear_model import LogisticRegression
     from sklearn.preprocessing import StandardScaler
-    X = fc_features(W_)
+    X = fc_features(W_, season)
     lp = np.log(W_["px"])
     y_down = (lp.shift(-horizon) < lp).astype(float).where(lp.shift(-horizon).notna())
     y_sig = (W_["score"].shift(-1) >= tau).astype(float).where(W_["score"].shift(-1).notna())
@@ -662,6 +670,8 @@ def backtest_inventory(W_: pd.DataFrame, tau: float = INV_TAU, G: int = INV_G, c
 #   기준 = 판단 없이 즉시 매수. 위약 = 같은 비율을 무작위로 미뤘을 때.
 # ============================================================================
 DEFER_WAIT = 2
+DEFER_TAU = 0.6          # 가격 매력 문턱 (experiments.procurement_defer: 학습 기간 판단당 절감 최대 τ·p* 조합 → τ 0.6, p* 0.55)
+DEFER_PSTAR = 0.55       # 미루기 기준 확률
 
 
 def backtest_defer(W_: pd.DataFrame, fc: pd.DataFrame, tau: float | None = None, p_star: float = 0.6, max_wait: int = DEFER_WAIT,
