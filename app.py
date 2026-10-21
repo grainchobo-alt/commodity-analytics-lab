@@ -2033,6 +2033,16 @@ LDA = 군집이 가장 잘 갈리는 2차원 지도 축, 로지스틱 계수 = �
 
 **🏷️ 횡단면상 매력 묶음 배지** → '횡단면' 하위 탭과 같은 방식(기본 19개 품목 · 구매 매력도 특성 · K-평균, K = 실루엣 자동)으로 군집했을 때 가격 매력 점수 평균이 가장 높은 군집 1에 속한 품목.
 개별 점수(내 품목이 문턱을 넘었나)와 품목 간 비교(다른 품목들보다 상대적으로 싼 상태인가)를 한 카드에서 보기 위함. 하위 탭에서 품목·특성을 바꿔도 배지는 기본 설정 기준.
+배지 옆 '같이 사면 분산 효과 큰 묶음 내 품목' = 같은 군집 1 안에서 오늘 기준 상관(지수가중, 반감기 8주)이 가장 낮은 2개.
+
+**배지 검증** → 2006년부터 4주마다 그 시점 자료로 다시 군집, 군집 1 품목의 다음 13주 가격 변화 vs 전체 평균: +0.70%p(t 1.03, 13주 겹침 보정), 2017 전/후 +0.77/+0.62%p, 더 오른 시점 52%.
+가격 매력 점수 5개만으로 군집하면 +1.41%p(t 1.67). 방향은 맞으나(싼 묶음이 이후 더 오름 → 그때 산 게 유리) 통계적으로 확실하진 않음 → '참고 신호'.
+
+**실루엣 점수 · 로지스틱 · SVM은 K-평균·GMM과 별개의 군집인가?** → 아님. 군집은 선택한 방법(K-평균·계층·GMM) 하나로만 만듦.
+실루엣 = 그 군집 결과의 품질 점수(각 품목이 자기 군집과 얼마나 가깝고 다른 군집과 얼마나 먼가, −1–1) → K를 고를 때 사용. 로지스틱·LDA·SVM = 만들어진 군집을 '정답'으로 두고 **사후 설명**(어떤 특성이 가르나, 경계가 얼마나 뚜렷한가).
+
+**지도 축(LDA · PCA)은 시각화 방법인가?** → 그렇다. 군집 계산은 특성 전체(예: 11차원) 공간에서 하고, 지도는 그것을 2차원으로 눌러 보여주는 것.
+PCA = 특성 전체의 퍼짐을 가장 많이 담는 두 방향(군집과 무관), LDA = 군집끼리 가장 잘 갈리는 두 방향(군집 결과를 사용) → LDA 지도에서 군집이 더 또렷이 떨어져 보임. 지도에서 가까워 보여도 원래 공간에선 멀 수 있음.
 """)
     with st.expander("⑤ 레짐 · 요인 · 상관"):
         st.markdown("""
@@ -2331,9 +2341,9 @@ def tab_procure():
     st.caption(f"확률 = 미루는 기간 안에 지금보다 쌀 확률 · 설정 AUC 기준치({auc_min:.2f}) 미달 품목은 확률과 무관하게 🟢/🟡만 (지도의 빈 원) · "
                "🏷️ 횡단면상 매력 묶음 = '횡단면' 하위 탭에서 19개 품목을 군집했을 때 가격 매력 점수 평균이 가장 높은 묶음(군집 1)에 속한 품목")
     try:
-        cs1, cs1_sc, cs1_k, cs1_n = _cs_cluster1(ROLL)
+        cs1, cs1_sc, cs1_k, cs1_n, cs1_pt = _cs_cluster1(ROLL)
     except Exception:
-        cs1, cs1_sc = set(), np.nan
+        cs1, cs1_sc, cs1_pt = set(), np.nan, {}
     ncol = min(len(T), 4)
     plan, cfg, pts = [], {}, []
     for j, r in T.iterrows():
@@ -2368,7 +2378,10 @@ def tab_procure():
                  else f"📉 추세 하락 중 (52주 {r52:+.{0 if abs(r52) >= 1 else 1}f}%)")
         lines = [f"점수 **{s_:.0f}**/{tl:.0f} · {h}주 내 쌀 확률 **{pr_txt}**/{p_star:.0%}", f"근거: {short_r}"] + ([trend] if trend else [])
         if i in cs1:
-            lines.insert(0, f"🏷️ **횡단면상 매력 묶음** (19개 품목 중 군집 1 · 묶음 평균 {cs1_sc:.0f}점)")
+            pt_ = cs1_pt.get(i)
+            lines.insert(0, f"🏷️ **횡단면상 매력 묶음** (19개 품목 중 군집 1 · 묶음 평균 {cs1_sc:.0f}점)"
+                         + (" · 같이 사면 분산 효과 큰 묶음 내 품목(현재 상관): " + ", ".join(f"{PR.BUY_IDS.get(j, short(j))} {v:+.2f}" for j, v in pt_.items())
+                            if pt_ is not None and len(pt_) else ""))
         if e_ is not None:
             lines.append(f"학습 AUC {e_['학습AUC']:.2f} · 시험 AUC {e_['시험AUC']:.2f}" + ("" if active else " · **기준치 미달**"))
             lines.append(f"시험 {e_['시험절감bp']:+.1f}bp (무작위 {e_['시험위약bp']:+.1f}) · {h}주{'·계절' if seaf else ''}")
@@ -3840,6 +3853,13 @@ def _cs_fp(ids: tuple, roll: bool):
     return CS.feature_panel(_levels(None, roll), list(ids))
 
 
+@st.cache_data(show_spinner=False)
+def _cs_bt(ids: tuple, feats: tuple, method: str, roll: bool):
+    import crosssec as CS
+    BP = CS.buy_panel(_levels(None, True), _levels(None, False), list(ids))
+    return CS.backtest_cluster1(_cs_fp(ids, roll), BP, list(feats), method)
+
+
 def _norm100(v: pd.Series) -> pd.Series:
     lo, hi = float(v.min()), float(v.max())
     return (v - lo) / (hi - lo) * 100 if hi > lo else v * 0 + 50
@@ -3960,6 +3980,28 @@ def tab_cross():
     st.caption("상관은 한 시점 값만으로는 계산할 수 없어, 최근 2년 주간 수익률에 '최근일수록 큰 가중'(반감기 8주 → 8주 전 자료는 절반, 16주 전은 1/4)을 줘서 오늘 시점의 상관을 추정. "
                "같은 블록(진한 칸)끼리는 분산 효과가 작음 → 군집 1 품목을 여러 개 살 때 블록이 다른 품목을 섞을수록 위험이 줄어듦.")
 
+    st.markdown("##### 배지 검증 — 과거 매달 '군집 1'을 샀다면 다음 13주 가격은?")
+    st.caption("2006년부터 4주마다, 그 시점까지의 자료로 같은 특성·방법으로 다시 군집 → 군집 1(매력 점수 평균 최고) 품목들의 다음 13주 가격 변화를 전체 평균과 비교. "
+               "구매자 관점: 군집 1이 이후 더 올랐다면 '그때 싼 상태'라는 판단이 맞았던 것 (지금 사는 게 유리했음). t값은 13주 목표가 4주 간격으로 겹치는 것을 보정.")
+    if st.button("▶ 배지 검증 백테스트 (약 1–2분)", key="cs_bt_run"):
+        st.session_state["cs_bt"] = (tuple(ids), tuple(feats), meth)
+    if st.session_state.get("cs_bt") == (tuple(ids), tuple(feats), meth):
+        with st.spinner("과거 시점마다 군집 중…"):
+            BT = _cs_bt(tuple(ids), tuple(feats), meth, ROLL)
+        if BT:
+            st.dataframe(BT["table"].style.format({"군집 1 다음 13주 평균 (%)": "{:+.2f}", "전체 평균 (%)": "{:+.2f}", "차이 평균 (%p)": "{:+.2f}",
+                                                   "차이 t값 (겹침 보정)": "{:+.2f}", "군집 1이 더 오른 시점 비율": "{:.0%}"}))
+            dd_ = BT["detail"]["차이 (군집1 − 전체)"]
+            f = go.Figure(go.Bar(x=dd_.index, y=dd_.values, marker_color=[PAL[2] if v > 0 else PAL[1] for v in dd_.values], name="차이"))
+            f.add_trace(go.Scatter(x=dd_.index, y=dd_.rolling(13, min_periods=4).mean(), line=dict(color="#898781", width=2), name="1년 이동평균"))
+            st.plotly_chart(shade(fig_layout(f, 300, title="시점별: 군집 1 − 전체 평균, 다음 13주 가격 변화 (%p) — 초록 = 군집 1이 더 오름(그때 산 게 유리)",
+                                             hovermode="x"), dd_.index), key="cs_bt_fig")
+            tb = BT["table"].loc["전체"]
+            tv = tb["차이 t값 (겹침 보정)"]
+            st.info(f"평균 {tb['차이 평균 (%p)']:+.2f}%p · t {tv:+.2f} · 더 오른 시점 {tb['군집 1이 더 오른 시점 비율']:.0%} → "
+                    + ("방향은 맞지만(군집 1이 이후 더 오르는 경향) 통계적으로 확실하지는 않음 — 배지는 '참고 신호'로." if 0 < tv < 2 else
+                       "통계적으로 유의 (t > 2)." if tv >= 2 else "군집 1이 이후 오히려 덜 오름 — 배지의 근거 약함."))
+
 
 def page_procure():
     a, b = st.tabs(["구매 타이밍 — 지금 살까, 미룰까", "횡단면 — 품목 비교 · 매력 묶음 (군집)"])
@@ -3981,7 +4023,10 @@ def _cs_cluster1(roll: bool):
     X = X0[feats].fillna(X0[feats].median())
     cl = CS.cluster(X, "K-평균")
     lab = cl["labels"]
-    return set(lab.index[lab == 1]), float(X.loc[lab == 1, "score"].mean()) if "score" in X else np.nan, int(cl["k"]), len(X)
+    g1 = list(lab.index[lab == 1])
+    C = CS.ewma_corr(_cs_fp(ids, roll)["R"][g1], halflife=8) if len(g1) >= 2 else pd.DataFrame()
+    partners = {i: C[i].drop(i).sort_values().head(2) for i in C.columns}           # 같은 묶음 안에서 상관이 가장 낮은 2개
+    return set(g1), float(X.loc[lab == 1, "score"].mean()) if "score" in X else np.nan, int(cl["k"]), len(X), partners
 
 
 def page_atlas():

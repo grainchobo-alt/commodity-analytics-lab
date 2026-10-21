@@ -253,3 +253,73 @@ def ewma_corr(R: pd.DataFrame, halflife: float = 8, weeks: int = 104) -> pd.Data
     C = (w[:, None] * Xc.values).T @ Xc.values
     d = np.sqrt(np.diag(C))
     return pd.DataFrame(C / np.outer(d, d), index=X.columns, columns=X.columns)
+
+
+# ============================================================================
+# 배지 검증: 과거 매달 그 시점 자료로 군집 → 군집 1(매력 점수 평균 최고) 품목의 다음 h주 가격 변화
+# ============================================================================
+def buy_panel(La: pd.DataFrame, Lr: pd.DataFrame, ids: list[str]) -> dict:
+    """★ 구매 탭과 같은 가격 매력 점수·구성요소(추천 프리셋, 위험 = EWMA)의 주간 시계열 (0–100). {특성: date×id}."""
+    import procurement as PR
+    P0 = PR.PRESETS["추천 (고도화: 상대가치+계절+MIDAS)"]
+    out = {k: {} for k in BUY_FEATS}
+    for i in ids:
+        if i not in PR.BUY_IDS or i not in La:
+            continue
+        try:
+            inp = PR.inputs(La, Lr, i, "ewma", "price")
+            sig = PR.signals(La[i], PR.item_lookback(i, int(P0["lookback"])), inp["rel"], inp["rel_sign"], inp["vol_fc"], inp["crisis"], P0["season"])
+            sig = sig.assign(score=PR.score(sig, P0["w"]))
+            w = sig.resample("W-FRI").last() * 100
+            for k in BUY_FEATS:
+                if k in w:
+                    out[k][i] = w[k]
+        except Exception:
+            continue
+    return {k: pd.DataFrame(v) for k, v in out.items() if v}
+
+
+def backtest_cluster1(fp: dict, BP: dict, feats: list[str], method: str = "K-평균", h: int = 13, step: int = 4,
+                      start: str = "2006-01-01", split: str = "2017-01-01", n_placebo: int = 300, seed: int = 0) -> dict:
+    F = {**fp["F"], **BP}
+    lp = np.log(fp["P"])
+    fwd = 100 * (lp.shift(-h) - lp)
+    dates = [d for d in fp["R"].index[::step] if d >= pd.Timestamp(start) and d in fwd.index]
+    rng = np.random.default_rng(seed)
+    rows, pl = [], []
+    for d in dates:
+        X = pd.DataFrame({k: F[k].reindex([d]).iloc[0] if d in F[k].index else pd.Series(dtype=float) for k in feats if k in F})
+        X = X.reindex(fp["P"].columns)
+        f_ = fwd.loc[d]
+        ok = X.notna().sum(1) >= max(3, len(feats) // 2)
+        ok &= f_.notna()
+        X = X[ok]
+        if len(X) < 8:
+            continue
+        X = X.fillna(X.median())
+        try:
+            cl = cluster(X, method)
+        except Exception:
+            continue
+        g1 = cl["labels"].index[cl["labels"] == 1]
+        r1, ra = float(f_[g1].mean()), float(f_[X.index].mean())
+        rest = f_[X.index.difference(g1)]
+        rows.append({"date": d, "품목 수": len(X), "군집 1 품목 수": len(g1), "군집 1": r1, "전체 평균": ra, "나머지": float(rest.mean()),
+                     "차이 (군집1 − 전체)": r1 - ra, "군집 1 품목": ", ".join(g1)})
+        idx = np.array(X.index)
+        pl.append([float(f_[rng.choice(idx, len(g1), replace=False)].mean()) - ra for _ in range(n_placebo)])
+    B = pd.DataFrame(rows).set_index("date")
+    if B.empty:
+        return {}
+    PL = np.array(pl)                                                  # (시점, 위약)
+    eff = h / step                                                     # 겹치는 목표(13주 vs 4주 간격) → 유효 표본 n/eff
+    summ = []
+    for per, m in [("전체", slice(None)), (f"~{split[:4]}", B.index < split), (f"{split[:4]}~", B.index >= split)]:
+        b = B[m] if not isinstance(m, slice) else B
+        pm = PL[np.asarray(m)] if not isinstance(m, slice) else PL
+        d_ = b["차이 (군집1 − 전체)"]
+        n_eff = len(d_) / eff
+        summ.append({"기간": per, "판단 시점 수": len(d_), "군집 1 다음 13주 평균 (%)": b["군집 1"].mean(), "전체 평균 (%)": b["전체 평균"].mean(),
+                     "차이 평균 (%p)": d_.mean(), "차이 t값 (겹침 보정)": d_.mean() / d_.std(ddof=1) * np.sqrt(n_eff) if d_.std() > 0 else np.nan,
+                     "군집 1이 더 오른 시점 비율": float((d_ > 0).mean())})
+    return dict(table=pd.DataFrame(summ).set_index("기간"), detail=B)
