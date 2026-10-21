@@ -172,6 +172,7 @@ at.button(key="pf_run").click().run(); check(at, "포트폴리오: 주간 데이
 at.radio(key="pf_basis").set_value("Yahoo 연속월물 (롤 보정)").run()
 at.button(key="pf_run").click().run(); check(at, "포트폴리오: 연속월물 기준 (비교용)")
 
+assert len(at.multiselect(key="pn_macro").value) >= 1                                      # 패널 거시 변수 (β×Δ)
 at.multiselect(key="pn_models").set_value(["Pooled OLS", "Ridge", "Gradient Boosting"]).run()
 at.button(key="pn_run").click().run(); check(at, "패널 모델 (ETF 기준, 주간)")
 at.selectbox(key="pn_sel").set_value("Gradient Boosting").run(); check(at, "  패널 상세: Gradient Boosting")

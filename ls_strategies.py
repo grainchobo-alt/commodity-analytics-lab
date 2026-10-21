@@ -129,13 +129,20 @@ def stress_prob(L: pd.DataFrame, start="2001-01-01", K: int = 3) -> pd.Series:
 # ============================================================================
 # ④ 시계열 모멘텀 · ⑤ 횡단면 모멘텀
 # ============================================================================
-def tsmom_weights(P: pd.DataFrame, look=52, vol_win=26, tgt_vol=10.0) -> pd.DataFrame:
+def tsmom_weights(P: pd.DataFrame, look=52, vol_win=26, tgt_vol=10.0, port_tgt: float | None = 10.0, max_lev=4.0) -> pd.DataFrame:
+    """품목별 sign(look주 수익률) × (목표 변동성 / 품목 변동성) / 품목 수 → (선택) 포트폴리오 전체를 사전 목표 변동성 port_tgt %로 배율.
+    배율 = port_tgt / (직전 26주 실현 포트폴리오 변동성) — t 시점까지의 손익만 사용 (사후 배율 아님)."""
     R = _ret(P)
     sig = np.sign(np.log(P).diff(look))
     vol = R.rolling(vol_win, min_periods=13).std() * np.sqrt(ANN)
     W = sig * (tgt_vol / vol)
     n = W.notna().sum(1).replace(0, np.nan)
-    return W.div(n, axis=0).clip(-2, 2).fillna(0.0)
+    W = W.div(n, axis=0).clip(-2, 2).fillna(0.0)
+    if port_tgt:
+        rb = (W.shift(1) * R).sum(1)
+        pv = rb.rolling(26, min_periods=13).std() * np.sqrt(ANN)
+        W = W.mul((port_tgt / pv).clip(upper=max_lev).fillna(0.0), axis=0)
+    return W
 
 
 def xsmom_weights(P: pd.DataFrame, look=26, hold=4, frac=1 / 3) -> pd.DataFrame:
@@ -223,8 +230,8 @@ def run_all(L: pd.DataFrame, cost_bp: float = 5.0, start="2001-01-01", split="20
             S["③' VIX 고분위 시 금 롱 · 경기민감 숏"] = _book(Wv, R[Wv.columns], cost_bp)
     if progress: progress(0.8)
     # ④ ⑤ 모멘텀
-    S["④ 시계열 모멘텀 52주 (TSMOM)"] = _book(tsmom_weights(Pb, 52), Rb, cost_bp)
-    S["④ 시계열 모멘텀 13주"] = _book(tsmom_weights(Pb, 13), Rb, cost_bp)
+    S["④ 시계열 모멘텀 52주 (TSMOM, 목표 변동성 10%)"] = _book(tsmom_weights(Pb, 52), Rb, cost_bp)
+    S["④ 시계열 모멘텀 13주 (목표 변동성 10%)"] = _book(tsmom_weights(Pb, 13), Rb, cost_bp)
     S["⑤ 횡단면 모멘텀 26주 (상위−하위 1/3)"] = _book(xsmom_weights(Pb, 26), Rb, cost_bp)
     # 공통 평가 구간
     D = pd.DataFrame(S)

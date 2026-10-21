@@ -29,9 +29,15 @@ PANEL_MODELS = ["Pooled OLS", "Ridge", "Lasso", "Elastic Net", "PCR", "Gradient 
 # ============================================================================
 # 패널 데이터 구축
 # ============================================================================
+def macro_char_name(m: str, name: str | None = None) -> str:
+    return f"거시 β×Δ: {name or m}"
+
+
 def build_panel(levels_adj: pd.DataFrame, levels_raw: pd.DataFrame, ids: list[str], units: dict, freq: str = "W-FRI",
-                basis: str = "etf", target: str = "vol_cs") -> dict:
-    """return dict(X: (date,id)×특성 [순위변환], y: 목표, r_next: 다음기간 원수익, sigma, dates, ids, raw_chars)."""
+                basis: str = "etf", target: str = "vol_cs", macro: tuple | list = (), names: dict | None = None) -> dict:
+    """return dict(X: (date,id)×특성 [순위변환], y: 목표, r_next: 다음기간 원수익, sigma, dates, ids, raw_chars).
+    macro = 거시 변수 id들 → 특성 '거시 β×Δ' = 품목의 과거 1년 거시 민감도(β, 그 시점까지) × 이번 기간 거시 변화.
+    (거시 변수 자체는 모든 품목에 같은 값이라 시점별 순위 변환에서 사라짐 → 품목마다 다른 '노출'로 바꿔 넣음)"""
     if basis == "etf":
         PX = P.etf_excess_levels(levels_adj, ids)
     else:
@@ -72,6 +78,14 @@ def build_panel(levels_adj: pd.DataFrame, levels_raw: pd.DataFrame, ids: list[st
         nxt = dec + pd.Timedelta(days=3 if freq != "ME" else 20)
         seas[i] = [prior.at[d.year, d.month] if (d.year in prior.index and d.month in prior.columns) else np.nan for d in nxt]
     C["SEASON (동월 과거평균)"] = pd.DataFrame(seas, index=dec)
+    for mv in macro:
+        if mv not in levels_raw:
+            continue
+        lv = levels_raw[mv].dropna().reindex(daily.index).ffill(limit=5).reindex(dec)
+        dm = lv.diff() if A.is_rate(units.get(mv, "")) else np.log(lv.where(lv > 0)).diff()
+        w_ = k(12)
+        beta = r.apply(lambda c: c.rolling(w_, min_periods=w_ // 2).cov(dm)).div(dm.rolling(w_, min_periods=w_ // 2).var(), axis=0)
+        C[macro_char_name(mv, (names or {}).get(mv))] = beta.mul(dm, axis=0)
     # 목표
     r_next = r.shift(-1)
     sig = C["VOL 3M"] / np.sqrt(ppy)                                         # 기간 변동성 (사전)

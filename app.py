@@ -1615,9 +1615,10 @@ def tab_portfolio():
 # ⑥ 패널 모델 (품목 전체를 함께 학습)
 # ============================================================================
 @st.cache_data(show_spinner=False)
-def _panel_data(basis: str, uni: tuple, freq: str, target: str, extra_bytes, roll: bool):
+def _panel_data(basis: str, uni: tuple, freq: str, target: str, extra_bytes, roll: bool, macro: tuple = ()):
     import panel as PN
-    return PN.build_panel(_levels(extra_bytes, True), _levels(extra_bytes, False), list(uni), UNITS, freq, basis, target)
+    return PN.build_panel(_levels(extra_bytes, True), _levels(extra_bytes, False), list(uni), UNITS, freq, basis, target,
+                          macro, {m: short(m) for m in macro})
 
 
 def tab_panel():
@@ -1634,7 +1635,14 @@ def tab_panel():
     avail = [i for i in avail if i in NAME]
     uni = c2_.multiselect("유니버스", avail, default=avail if basis == "etf" else [i for i in P.DEFAULT_UNIVERSE if i in NAME],
                           format_func=lbl, key=f"pn_uni_{basis}")
-    chars = st.multiselect("특성", PN.CHARS, default=PN.CHARS, key="pn_chars")
+    e1_, e2_ = st.columns([3, 2])
+    chars = e1_.multiselect("특성", PN.CHARS, default=PN.CHARS, key="pn_chars")
+    mac_opts = [i for i in ALL_IDS if GROUP.get(i) in ("Macro", "FX") or i == "ak:macro_shipping_bdi"]
+    pmac = e2_.multiselect("거시 변수 (품목별 민감도 × 최근 변화로 반영)", mac_opts,
+                           [i for i in ["yf:DX-Y.NYB", "fred:VIXCLS", "fred:DGS10", "fred:BAA10Y"] if i in mac_opts], format_func=lbl, key="pn_macro",
+                           help="거시 변수는 모든 품목에 같은 값이라 '어느 품목이 상대적으로 오를까'를 직접 설명하지 못함 → "
+                                "품목별 과거 1년 민감도(β) × 이번 기간 거시 변화를 특성으로 사용 (예: 달러가 오른 주에 달러 민감도가 큰 품목은 불리)")
+    chars = chars + [PN.macro_char_name(m, short(m)) for m in pmac]
     d1_, d2_, d3_, d4_ = st.columns(4)
     tgt_l = d1_.selectbox("목표", ["변동성 표준화 + 시점별 평균 제거 (상대 순위)", "변동성 표준화", "원 수익률"], key="pn_tgt")
     target = {"변동성 표준화 + 시점별 평균 제거 (상대 순위)": "vol_cs", "변동성 표준화": "vol", "원 수익률": "raw"}[tgt_l]
@@ -1654,7 +1662,7 @@ def tab_panel():
     if len(uni) < 4:
         st.info("4개 이상 품목을 선택하세요."); return
     with st.spinner("패널 데이터 구성 중..."):
-        pan = _panel_data(basis, tuple(uni), FQ, target, extra_bytes, ROLL)
+        pan = _panel_data(basis, tuple(uni), FQ, target, extra_bytes, ROLL, tuple(pmac))
     X = pan["X"]
     st.caption(f"패널: {X.index.get_level_values('date').nunique():,}기간 × {len(pan['ids'])}종목 = {len(X):,}행 "
                f"(품목별 모델이면 품목당 약 {X.index.get_level_values('date').nunique():,}행)")
@@ -2086,7 +2094,7 @@ def _macro_table() -> pd.DataFrame:
 def tab_procure():
     import procurement as PR
     st.subheader("구매 타이밍 — 지금 살까, 미룰까")
-    st.caption("매주 금요일 판단 · 🟢 점수 ≥ τ → 적극 매수 · 🔴 점수 < τ 이고 더 쌀 확률 ≥ p* (AUC 기준 충족 품목) → 보류 · 🟡 그 외 → 판단 유보  \n"
+    st.caption("매주 금요일 판단 · 🟢 점수 ≥ τ → 적극 매수 · 🔴 점수 < τ 이고 더 쌀 확률 ≥ p* (AUC 기준 충족 품목) → 보류 · 🟠/🟡 그 외 → 판단 유보 (매수 쪽/대기 쪽)  \n"
                "점수·확률은 그 시점까지 데이터만 사용 · 체결 = 다음 거래일 종가 · 미루는 기간·특성은 학습(2008–2016)으로 고르고 시험(2017–)으로 확인")
     ids_av = [i for i in PR.BUY_IDS if i in NAME]
     c1_, c2_, c3_ = st.columns([2, 1.6, 0.8])
@@ -2189,7 +2197,7 @@ def tab_procure():
                                         f'font-size:0.86rem;line-height:1.45"><b>{t1}</b><br>{t2}<br><span style="opacity:0.75">{t3}</span></div>')
     st.markdown('<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">'
                 + box_("#2ea043", "rgba(46,160,67,0.12)", "🟢 적극 매수", f"점수 {tl:.0f}–100", "국소 저점권 → 지금 매수")
-                + box_("#d29922", "rgba(210,153,34,0.10)", "🟡 판단 유보 · 매수 쪽", f"점수 {yb:.0f}–{tl - 1:.0f} · 확률 &lt; {p_star:.0%}", "문턱 근접 → 필요하면 매수")
+                + box_("#f0883e", "rgba(240,136,62,0.14)", "🟠 판단 유보 · 매수 쪽", f"점수 {yb:.0f}–{tl - 1:.0f} · 확률 &lt; {p_star:.0%}", "문턱 근접 → 필요하면 매수")
                 + box_("#b07c10", "rgba(210,153,34,0.20)", "🟡 판단 유보 · 대기 쪽", f"점수 0–{yb - 1:.0f} · 확률 &lt; {p_star:.0%}", "비싼 편 → 급하지 않으면 다음 주 재확인")
                 + box_("#da3633", "rgba(218,54,51,0.12)", "🔴 매수 보류", f"점수 0–{tl - 1:.0f} · 확률 ≥ {p_star:.0%}", f"AUC &gt; {auc_min:.2f} 품목만 → 1–4주 미루기")
                 + "</div>", unsafe_allow_html=True)
@@ -2214,7 +2222,7 @@ def tab_procure():
         elif active and np.isfinite(pdn) and pdn >= p_star:
             dec = f"🔴 매수 보류 ({h}주)"
         else:
-            dec = "🟡 판단 유보 · " + ("매수 쪽" if s_ >= yb else "대기 쪽")
+            dec = "🟠 판단 유보 · 매수 쪽" if s_ >= yb else "🟡 판단 유보 · 대기 쪽"
         box.metric(dec, f"${qty * r['가격'] / 1e6:,.2f}M", f"{qty:,.0f} {u} × ${r['가격']:,.1f}{r['단위'][1:]}", delta_color="off")
         srow = sigs[i].loc[sigs[i].dropna(subset=["value"]).index.max()]
         ew = PR.eff_weights(srow, w)
@@ -2243,13 +2251,13 @@ def tab_procure():
     if pts:
         Pm = pd.DataFrame(pts)
         show_tr = st.checkbox("지난 4주 경로 표시 (점선 꼬리 = 4주 전 → 지금)", len(Pm) <= 8, key="pc_trail")
-        col_of = lambda d: "#2ea043" if d.startswith("🟢") else ("#da3633" if d.startswith("🔴") else "#d29922")
+        col_of = lambda d: "#2ea043" if d.startswith("🟢") else ("#da3633" if d.startswith("🔴") else ("#f0883e" if d.startswith("🟠") else "#d29922"))
         f = go.Figure()
         f.add_shape(type="rect", x0=tl, x1=100, y0=0, y1=100, fillcolor="rgba(46,160,67,0.16)", line_width=0, layer="below")
         f.add_shape(type="rect", x0=0, x1=tl, y0=p_star * 100, y1=100, fillcolor="rgba(218,54,51,0.16)", line_width=0, layer="below")
-        f.add_shape(type="rect", x0=yb, x1=tl, y0=0, y1=p_star * 100, fillcolor="rgba(210,153,34,0.10)", line_width=0, layer="below")
+        f.add_shape(type="rect", x0=yb, x1=tl, y0=0, y1=p_star * 100, fillcolor="rgba(240,136,62,0.18)", line_width=0, layer="below")
         f.add_shape(type="rect", x0=0, x1=yb, y0=0, y1=p_star * 100, fillcolor="rgba(210,153,34,0.22)", line_width=0, layer="below")
-        for x_, y_, t_ in [(tl + (100 - tl) / 2, 96, "🟢 적극 매수"), (tl / 2, 96, "🔴 매수 보류"), (yb / 2, 4, "🟡 대기 쪽"), ((yb + tl) / 2, 4, "🟡 매수 쪽")]:
+        for x_, y_, t_ in [(tl + (100 - tl) / 2, 96, "🟢 적극 매수"), (tl / 2, 96, "🔴 매수 보류"), (yb / 2, 4, "🟡 대기 쪽"), ((yb + tl) / 2, 4, "🟠 매수 쪽")]:
             f.add_annotation(x=x_, y=y_, text=t_, showarrow=False, font=dict(size=12), opacity=0.8)
         if show_tr:
             for _, q in Pm.iterrows():
@@ -3450,12 +3458,6 @@ def _ls_run(cost_bp: float, with_hmm: bool, roll: bool):
     return LS.run_all(_levels(None, roll), cost_bp, with_hmm=with_hmm)
 
 
-@st.cache_data(show_spinner=False)
-def _carry_run(cost_bp: float, roll: bool):
-    import ls_strategies as LS
-    return LS.run_carry(_levels(None, roll), cost_bp)
-
-
 def tab_ls():
     import ls_strategies as LS
     st.subheader("롱숏 전략 — 상관 · 레짐 · 추세 (헤지펀드 원자재 전략 묶음)")
@@ -3519,35 +3521,13 @@ def tab_ls():
                 st.dataframe(E.set_index(["묶음", "h주"]).style.format({"진입 후 평균 (%)": "{:+.2f}", "평소 평균 (%)": "{:+.2f}", "차이 t값": "{:+.2f}", "하락 비율": "{:.0%}"}))
         st.caption("'진입 후 평균'이 '평소 평균'보다 확실히 낮아야(t값 < −2) 국면 진입이 동반 하락을 미리 알려준다고 볼 수 있음. "
                    "HMM 스트레스 확률은 실시간 필터라 급락이 이미 진행된 뒤 켜지는 경우가 많아, 진입 직후엔 오히려 반등이 나오기도 함.")
-    st.markdown("##### ⑥ 캐리 (기간구조) — 백워데이션 품목 롱 · 콘탱고 품목 숏")
-    st.caption("캐리 = (ln 근월물 − ln 차월물) × 12 / 만기 간격(개월), 연율 %. 양수 = 백워데이션(당장 물건이 귀함 → 근월물 프리미엄), 음수 = 콘탱고(재고 충분). "
-               "Yahoo는 만기 지난 월물을 주지 않아 미국 곡물·금속은 과거 캐리를 만들 수 없음 → 미국 에너지(EIA, 2024-04까지)와 중국 대련·상해(Sina, 2018–)로 검증. "
-               "자료 갱신: `collect_carry.py` (약 10분).")
-    CR = _carry_run(float(cost), ROLL)
-    if not CR:
-        st.info("캐리 자료가 없습니다 — 터미널에서 `python collect_carry.py` 실행 후 새로고침.")
-    for nm, co in CR.items():
-        st.markdown(f"**{nm}**")
-        k1, k2 = st.columns([1.3, 1])
-        k1.dataframe(co["table"].style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}",
-                                               "t값": "{:+.2f}", "바스켓과 상관": "{:+.2f}"}, na_rep="–"))
-        f = go.Figure()
-        for j, c in enumerate(co["returns"].columns):
-            f.add_trace(go.Scatter(x=co["returns"].index, y=co["returns"][c].fillna(0).cumsum(), name=c, line=dict(color=PAL[j], width=1.6)))
-        k2.plotly_chart(fig_layout(f, 260, title="누적 수익 (%)", hovermode="x", legend=dict(orientation="h", y=-0.3)), key=f"ls_carry_{nm[:4]}")
-        if "에너지" in nm:
-            st.caption("천연가스·휘발유·난방유는 계절마다 곡선 모양이 정해져 있어(겨울물·여름물이 늘 비쌈) 인접 월물 캐리가 '재고 상황'보다 '계절'을 반영 → 천연가스를 빼도 "
-                       "시계열 캐리 Sharpe ≈ −0.1–0.1, 원유 단독 IC −0.21. 학계는 12개월 떨어진 월물로 계절을 제거하지만 EIA는 1·2번째 계약만 제공.")
-        ic = co["ic"].copy(); ic["id"] = ic["id"].map(short)
-        st.dataframe(ic.set_index("id").style.format({"평균 캐리 (연 %)": "{:+.1f}", "백워데이션 비율": "{:.0%}", ic.columns[5]: "{:+.3f}",
-                                                       ic.columns[6]: "{:+.2f}", ic.columns[7]: "{:+.2f}"}, na_rep="–"))
     with st.expander("헤지펀드·CTA가 원자재에서 흔히 쓰는 전략과 이 화면의 범위"):
         st.markdown("""
 | 전략 | 핵심 | 여기서 | 비고 |
 |---|---|---|---|
 | **시계열 모멘텀 (추세추종, CTA)** | 품목별 과거 수익률 부호대로 롱/숏, 변동성 역비례 | ④ | 100년 이상 자료에서 확인된 대표 전략 (Hurst-Ooi-Pedersen) |
 | **횡단면 모멘텀** | 강한 품목 롱 · 약한 품목 숏 | ⑤ | 원자재에서는 추세보다 약하고 기간 의존 |
-| **캐리 (기간구조)** | 백워데이션 품목 롱 · 콘탱고 품목 숏 | ⑥ | 미국 에너지·중국 품목만 (미국 곡물·금속 과거 월물 자료 없음) |
+| **캐리 (기간구조)** | 백워데이션 품목 롱 · 콘탱고 품목 숏 | – | v1.14.0 검증(에너지 음수·중국 약한 양수)에서 견고하지 않아 화면에서 제외 (`collect_carry.py`·`LS.run_carry`는 남김) |
 | **페어 · 스프레드 차익** | 크러시·크랙·곡물 비율 등 관계의 평균회귀 | ① | 비용·관계 붕괴(구조 변화)에 취약 |
 | **상관 · 위험 국면 타이밍** | 흡수비율·VIX·신용 스프레드로 위험 축소 | ② ③ | 수익보다 낙폭 축소 목적 |
 | **가치 (장기 역추세)** | 5년 평균 대비 크게 싼 품목 롱 | – | ★ 구매 점수의 '가격 위치'와 비슷한 아이디어 |
