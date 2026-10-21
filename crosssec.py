@@ -65,7 +65,7 @@ def zscore(X: pd.DataFrame) -> pd.DataFrame:
     return Z.fillna(0.0)
 
 
-def cluster(X: pd.DataFrame, method: str = "K-평균", k: int | None = None, seed: int = 0) -> dict:
+def cluster(X: pd.DataFrame, method: str = "K-평균", k: int | None = None, seed: int = 0, order_by: str | None = None, ascending: bool = True) -> dict:
     """품목 군집. k=None이면 2–6 중 실루엣 최대. 반환 labels(Series), k, silhouette 표, PCA 2D 좌표·설명력·적재값."""
     from sklearn.cluster import KMeans, AgglomerativeClustering
     from sklearn.decomposition import PCA
@@ -86,8 +86,10 @@ def cluster(X: pd.DataFrame, method: str = "K-평균", k: int | None = None, see
             sil[kk] = float(silhouette_score(Z, lab))
     k = k or (max(sil, key=sil.get) if sil else 2)
     lab = fit(k)
-    # 군집 번호를 '52주 수익률 평균' 오름차순으로 다시 매김 (해석 편의)
-    order = pd.Series(X["r52"].values if "r52" in X else Z.iloc[:, 0].values).groupby(lab).mean().sort_values().index
+    # 군집 번호 다시 매김 (해석 편의): order_by 특성 평균 순 (기본 = 가격 매력 점수 내림차순 → 군집 1 = 가장 매력적)
+    ob = order_by or ("score" if "score" in X else ("r52" if "r52" in X else X.columns[0]))
+    asc = ascending if order_by else (ob != "score")
+    order = pd.Series(X[ob].values).groupby(lab).mean().sort_values(ascending=asc).index
     remap = {old: new + 1 for new, old in enumerate(order)}
     labels = pd.Series([remap[l] for l in lab], index=X.index, name="군집")
     pca = PCA(2).fit(Z)
@@ -202,3 +204,52 @@ def importance(D: pd.DataFrame, feats: list[str], seed=0) -> pd.Series:
     tr = D.dropna(subset=["y"])
     m = RandomForestClassifier(300, min_samples_leaf=20, max_features=0.5, random_state=seed, n_jobs=-1).fit(tr[feats].values, tr["y"].values)
     return pd.Series(m.feature_importances_, index=feats).sort_values()
+
+
+# ============================================================================
+# 구매 관점 군집 · 군집 설명(분류기) · 현재 상관
+# ============================================================================
+BUY_FEATS = {"score": "가격 매력 점수 (0–100)", "value": "가격 위치 점수 (싼 쪽 ↑)", "turn": "단기 반등 점수", "relval": "상대가치 점수",
+             "season": "계절성 점수"}
+SETS = {"구매 매력도 중심 (권장)": ["score", "value", "turn", "relval", "season", "r13", "r52", "dd52", "pos52", "vol52", "trend"],
+        "가격 흐름·위험만": ["r4", "r13", "r26", "r52", "vol13", "vol52", "skew52", "kurt52", "dd52", "pos52", "trend"],
+        "전체": None}
+
+
+def label_of(k: str) -> str:
+    return (BUY_FEATS.get(k) or FEATS.get(k, k)).split(" (")[0]
+
+
+def explain(X: pd.DataFrame, labels: pd.Series) -> dict:
+    """군집을 '정답'으로 두고 분류기로 경계를 설명: LDA 2D 투영(군집이 가장 잘 갈리는 방향), 로지스틱 계수(어떤 특성이 어느 군집으로 보내나),
+    SVM(RBF) 교차검증 정확도(경계가 얼마나 뚜렷한가)."""
+    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import cross_val_score, LeaveOneOut
+    from sklearn.svm import SVC
+    Z = zscore(X); y = labels.values
+    out = {}
+    if len(set(y)) >= 2:
+        nc = min(2, len(set(y)) - 1)
+        lda = LinearDiscriminantAnalysis(n_components=nc, solver="eigen", shrinkage="auto").fit(Z, y)
+        P = lda.transform(Z)
+        out["lda_xy"] = pd.DataFrame(P if P.shape[1] == 2 else np.column_stack([P[:, 0], np.zeros(len(P))]), index=X.index, columns=["LD1", "LD2"])
+        lr = LogisticRegression(C=1.0, max_iter=2000).fit(Z, y)
+        coef = pd.DataFrame(lr.coef_, columns=X.columns, index=[f"군집 {c}" for c in lr.classes_]) if lr.coef_.shape[0] > 1 else \
+            pd.DataFrame(np.vstack([-lr.coef_[0], lr.coef_[0]]), columns=X.columns, index=[f"군집 {c}" for c in lr.classes_])
+        out["coef"] = coef
+        try:
+            out["svm_acc"] = float(cross_val_score(SVC(C=1.0, gamma="scale"), Z, y, cv=LeaveOneOut()).mean())
+        except Exception:
+            out["svm_acc"] = np.nan
+    return out
+
+
+def ewma_corr(R: pd.DataFrame, halflife: float = 8, weeks: int = 104) -> pd.DataFrame:
+    """오늘 기준 상관 추정: 최근 주에 더 큰 가중(반감기 halflife주)을 준 지수가중 상관."""
+    X = R.iloc[-weeks:].dropna(axis=1, thresh=int(weeks * 0.8)).fillna(0.0)
+    w = 0.5 ** (np.arange(len(X))[::-1] / halflife); w = w / w.sum()
+    Xc = X - (w[:, None] * X.values).sum(0)
+    C = (w[:, None] * Xc.values).T @ Xc.values
+    d = np.sqrt(np.diag(C))
+    return pd.DataFrame(C / np.outer(d, d), index=X.columns, columns=X.columns)

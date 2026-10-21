@@ -2007,9 +2007,15 @@ AUC는 Mann-Whitney U 통계량을 표준화한 값과 같아서 'AUC > 0.5'를 
 
 **MIDAS** → 일간 자료(원자재·거시)의 시차들을 Beta 가중치로 요약해 월간 목표를 예측 — 월 평균으로 뭉개지 않고 최근 날에 더 큰 비중.
 
-**횡단면 분석(④+ 탭)의 군집·분류 후보** → 군집(정답 없음): K-평균 · 계층(Ward) · 가우시안 혼합 — 특성을 품목 간 z점수로 맞춘 뒤, K는 실루엣 점수로 추천 / 상관 기반 계층 군집(거리 √(2(1−ρ))) = '같이 움직이는 묶음'.
-분류(정답 있음, 목표 = 다음 4주 수익이 품목 중앙값보다 큰가): 로지스틱 · LDA(선형판별 = 최소제곱 판별과 같은 해) · SVM(RBF) · 랜덤포레스트 · 그래디언트 부스팅 · k-최근접. 4주 간격 표본 · 시점별 순위 특성 · 매년 재학습.
-결과(19품목, 2008–): AUC 0.505–0.523, 상위−하위 t 최대 1.44 → 상대 강세는 거의 예측 안 됨. 군집·상관 블록은 '무엇이 비슷한가 / 같이 움직이나'를 보는 설명용.
+**횡단면 군집(④+ 탭)의 원리와 쓰임** → 같은 시점에 품목마다 특성(★ 구매 탭의 가격 매력 점수·가격 위치·단기 반등·상대가치·계절성 + 13·52주 수익률·고점 대비·범위 내 위치·변동성·추세)을 계산,
+특성마다 품목 간 평균 0·표준편차 1로 맞춘 뒤 특성 공간에서 가까운 품목끼리 묶음(K-평균 = 중심까지 거리 최소, 계층 Ward = 합칠 때 분산 증가 최소 순, GMM = 군집별 정규분포). K는 실루엣 점수로 추천.
+군집 1 = 가격 매력 점수 평균이 가장 높은 묶음 → '지금 상대적으로 싼 상태의 품목들'이 어디인지, 여러 품목 중 어디부터 살지 판단. 같은 군집은 비슷한 이유로 싸졌으므로 한꺼번에 사면 분산 효과가 작을 수 있음.
+
+**분류 모델(로지스틱·LDA·SVM)은 군집에 어떻게 쓰나?** → 분류는 정답(라벨)이 있어야 해서 그 자체로는 군집을 만들 수 없음 → 군집 결과를 정답으로 두고 **경계를 설명**하는 데 씀:
+LDA = 군집이 가장 잘 갈리는 2차원 지도 축, 로지스틱 계수 = 어떤 특성이 품목을 어느 군집으로 보내나, SVM(RBF) = 하나씩 빼고 맞혀 본 정확도(군집이 얼마나 뚜렷한가).
+'다음 4주 상대 강세' 분류 예측은 AUC 0.505–0.523으로 운과 구별되지 않아 화면에서 제외.
+
+**'오늘 기준' 상관은 어떻게?** → 상관은 한 시점 값으로 계산할 수 없어, 최근 2년 주간 수익률에 최근일수록 큰 가중(반감기 8주: 8주 전 자료 1/2, 16주 전 1/4)을 준 지수가중 상관으로 오늘 시점을 추정.
 """)
     with st.expander("④ ★ 구매 판단 — 3색 · 점수 · 계절성 · 미루는 기간"):
         st.markdown("""
@@ -3824,130 +3830,125 @@ def _cs_fp(ids: tuple, roll: bool):
     return CS.feature_panel(_levels(None, roll), list(ids))
 
 
-@st.cache_data(show_spinner=False)
-def _cs_class(ids: tuple, feats: tuple, models: tuple, roll: bool):
-    import crosssec as CS
-    fp = _cs_fp(ids, roll)
-    D, fs = CS.class_panel(fp, feats=list(feats))
-    T, P = CS.walk_forward(D, fs, list(models))
-    S, _ = CS.current_scores(fp, D, fs, list(models))
-    return T, S, CS.importance(D, fs)
-
-
 def _norm100(v: pd.Series) -> pd.Series:
     lo, hi = float(v.min()), float(v.max())
     return (v - lo) / (hi - lo) * 100 if hi > lo else v * 0 + 50
 
 
+@st.cache_data(show_spinner=False)
+def _cs_buy(ids: tuple, roll: bool) -> pd.DataFrame:
+    """★ 구매 탭과 같은 방식(추천 프리셋 가중, 위험 = EWMA)으로 계산한 최신 가격 매력 점수·구성요소 (0–100)."""
+    import procurement as PR
+    La_ = _levels(None, True)
+    P0 = PR.PRESETS["추천 (고도화: 상대가치+계절+MIDAS)"]
+    rows = {}
+    for i in ids:
+        if i not in PR.BUY_IDS or i not in La_:
+            continue
+        try:
+            inp = _proc_inputs(i, "ewma", "price", roll, None)
+            sig = PR.signals(La_[i], PR.item_lookback(i, int(P0["lookback"])), inp["rel"], inp["rel_sign"], inp["vol_fc"], inp["crisis"], P0["season"])
+            sc = PR.score(sig, P0["w"])
+            last = sig.dropna(subset=["value"]).index.max()
+            r = {c: float(sig[c].loc[last]) * 100 if c in sig and np.isfinite(sig[c].loc[last]) else np.nan for c in ["value", "turn", "relval", "season"]}
+            r["score"] = float(sc.loc[last]) * 100
+            rows[i] = r
+        except Exception:
+            continue
+    return pd.DataFrame(rows).T
+
+
 def tab_cross():
     import crosssec as CS
     import ls_strategies as LS
-    st.subheader("횡단면 분석 — 지금 이 시점, 품목들을 나란히 놓고 묶고(군집) 가르기(분류)")
-    st.caption("시계열이 '한 품목의 시간에 따른 변화'라면, 횡단면은 '같은 시점에 품목끼리 비교'. 특성 = 수익률(4·13·26·52주) · 변동성 · 왜도·첨도 · 52주 고점 대비·범위 내 위치 · "
-               "S&P·달러 베타 · 다른 품목과 평균 상관 · 추세 강도 (모두 그 시점까지의 주간 자료). 군집 = 비슷한 품목끼리 묶기(정답 없음), "
-               "분류 = '다음 4주에 다른 품목보다 강할까'를 맞히기(정답 있음).")
+    st.subheader("횡단면 분석 — 지금 이 시점, 품목들을 나란히 놓고 '비슷한 상태'끼리 묶기")
+    st.caption("시계열이 '한 품목의 시간에 따른 변화'라면, 횡단면은 '같은 시점에 품목끼리 비교'. 구매 관점에서는 '지금 가격이 매력적인 상태인 품목 묶음'을 찾는 용도 — "
+               "★ 구매 탭의 가격 매력 점수·구성요소와 가격 흐름·위험 특성을 함께 넣어 군집.")
     c1_, c2_ = st.columns([3, 2])
     opts = [i for i in COMMOD_IDS if i.startswith("yf:")]
     ids = c1_.multiselect("품목", opts, [i for i in LS.BASKET if i in opts], format_func=lbl, key="cs_ids")
-    feats = c2_.multiselect("특성", list(CS.FEATS), list(CS.FEATS), format_func=lambda k: CS.FEATS[k], key="cs_feats")
-    if len(ids) < 6 or len(feats) < 2:
-        st.info("품목 6개 이상, 특성 2개 이상을 고르세요.")
+    fset = c2_.radio("특성 묶음", list(CS.SETS), 0, key="cs_fset",
+                     help="구매 매력도 중심 = ★ 구매 탭의 가격 매력 점수·가격 위치·단기 반등·상대가치·계절성 + 13·52주 수익률·고점 대비·범위 내 위치·변동성·추세")
+    if len(ids) < 6:
+        st.info("품목을 6개 이상 고르세요.")
         return
     fp = _cs_fp(tuple(ids), ROLL)
-    X, dt = CS.snapshot(fp)
-    X = X[feats].dropna()
+    X0, dt = CS.snapshot(fp)
+    B = _cs_buy(tuple(ids), ROLL)
+    X0 = X0.join(B, how="left")
+    all_f = list(CS.BUY_FEATS) + list(CS.FEATS)
+    feats = [f_ for f_ in (CS.SETS[fset] or all_f) if f_ in X0 and X0[f_].notna().sum() >= 6]
+    X = X0[feats]
+    X = X.fillna(X.median())                                 # 상대가치가 없는 품목 등은 중앙값(중립)으로
     last_d = min(dt, _levels(None, ROLL)[ids].dropna(how="all").index.max())
-    st.caption(f"기준: {last_d:%Y-%m-%d} 주 · 품목 {len(X)}개 · 특성 {len(feats)}개")
+    st.caption(f"기준: {last_d:%Y-%m-%d} 주 · 품목 {len(X)}개 · 특성 {len(feats)}개 ({', '.join(CS.label_of(f_) for f_ in feats)}) — "
+               "값이 없는 특성(예: 상대가치 관계가 없는 품목)은 품목 중앙값으로 채움")
 
-    # ① 현재 특성 지도
-    st.markdown("##### ① 지금 품목별 특성 — 색 = 품목 간 상대 위치(z), 숫자 = 실제 값")
-    Z = CS.zscore(X)
-    lab_x = [CS.FEATS[k].split(" (")[0] for k in X.columns]
-    f = go.Figure(go.Heatmap(z=Z.values, x=lab_x, y=[short(i) for i in X.index], zmin=-2.5, zmax=2.5, colorscale=DIV,
-                             text=[[f"{v:.2f}" if abs(v) < 10 else f"{v:.0f}" for v in row] for row in X.values], texttemplate="%{text}",
-                             textfont=dict(size=9), colorbar=dict(title="z", thickness=12), hovertemplate="%{y} · %{x}: %{text}<extra></extra>"))
-    f.update_layout(height=120 + 28 * len(X), margin=dict(l=10, r=10, t=30, b=10), yaxis=dict(autorange="reversed"),
-                    xaxis=dict(tickangle=-40, tickfont=dict(size=10)))
-    st.plotly_chart(f, key="cs_heat")
-
-    # ② 군집
-    st.markdown("##### ② 군집 — 비슷한 품목끼리 묶기")
+    st.markdown("##### 군집 — 지금 '비슷한 상태'인 품목끼리 묶기")
+    st.caption("원리: 특성마다 품목 간 평균 0·표준편차 1로 맞춘 뒤(단위 차이 제거), 특성 공간에서 서로 가까운 품목끼리 묶음. "
+               "군집 1 = 가격 매력 점수 평균이 가장 높은 묶음(지금 상대적으로 싼 상태) → 여러 품목 중 어디부터 살지, 같은 상태라 한꺼번에 움직일 품목은 무엇인지 판단에 사용.")
     g1, g2 = st.columns([1, 1])
     meth = g1.radio("방법", ["K-평균", "계층 (Ward)", "가우시안 혼합 (GMM)"], horizontal=True, key="cs_meth",
-                    help="K-평균 = 중심까지 거리 최소, 계층(Ward) = 묶을 때 분산 증가가 최소인 쌍부터 합침, GMM = 군집마다 정규분포를 가정한 확률적 묶음")
+                    help="K-평균 = 군집 중심까지 거리 합 최소 · 계층(Ward) = 합칠 때 분산 증가가 가장 작은 쌍부터 차례로 합침 · GMM = 군집마다 정규분포를 가정한 확률적 묶음")
     kk = g2.select_slider("군집 수 K", ["자동 (실루엣 최대)", 2, 3, 4, 5, 6], "자동 (실루엣 최대)", key="cs_k")
     cl = CS.cluster(X, meth, None if isinstance(kk, str) else int(kk))
     labs = cl["labels"]
-    COLS = [PAL[0], PAL[1], PAL[2], PAL[3], PAL[4], PAL[6]]
-    xy = cl["xy"]
-    nx, ny = _norm100(xy["PC1"]), _norm100(xy["PC2"])
+    ex = CS.explain(X, labs)
+    COLS = [PAL[2], PAL[0], PAL[3], PAL[1], PAL[4], PAL[6]]
+    proj = st.radio("지도 축", ["LDA (군집이 가장 잘 갈리는 방향)", "주성분 PCA (특성 전체 변동을 요약)"], horizontal=True, key="cs_proj")
+    if proj.startswith("LDA") and "lda_xy" in ex:
+        xy = ex["lda_xy"]; ax_t = ("LD1", "LD2"); ttl = "LDA 지도 — 선형판별로 군집 간 차이가 가장 크게 보이는 두 축"
+    else:
+        xy = cl["xy"]; ax_t = (f"PC1 ({cl['evr'][0]:.0%})", f"PC2 ({cl['evr'][1]:.0%})"); ttl = f"주성분 지도 — 특성 {len(feats)}개를 2차원으로 요약"
+    nx, ny = _norm100(xy.iloc[:, 0]), _norm100(xy.iloc[:, 1])
     f = go.Figure()
     for k_ in sorted(labs.unique()):
         m_ = labs == k_
-        f.add_trace(go.Scatter(x=nx[m_], y=ny[m_], mode="markers", marker=dict(size=14, color=COLS[(k_ - 1) % 6]), name=f"군집 {k_}",
+        sc_ = X.loc[m_, "score"].mean() if "score" in X else np.nan
+        f.add_trace(go.Scatter(x=nx[m_], y=ny[m_], mode="markers", marker=dict(size=15, color=COLS[(k_ - 1) % 6]),
+                               name=f"군집 {k_}" + (f" (매력 점수 평균 {sc_:.0f})" if np.isfinite(sc_) else ""),
                                text=[short(i) for i in labs.index[m_]], hovertemplate="%{text}<extra></extra>"))
     for (dx, dy), i in zip(_place_labels(nx, ny, [short(i) for i in xy.index]), xy.index):
         f.add_annotation(x=nx[i], y=ny[i], text=short(i), ax=dx, ay=dy, showarrow=True, arrowwidth=0.8, arrowhead=0, arrowcolor="#898781",
                          standoff=6, font=dict(size=11))
-    top1 = cl["load"]["PC1"].abs().sort_values().index[-2:][::-1]
-    top2 = cl["load"]["PC2"].abs().sort_values().index[-2:][::-1]
-    st.plotly_chart(fig_layout(f, 420, title=f"주성분 지도 (특성 {len(feats)}개를 2차원으로 요약) — K = {cl['k']}",
-                               xaxis=dict(title=f"PC1 ({cl['evr'][0]:.0%}: {', '.join(CS.FEATS[c].split(' (')[0] for c in top1)})", showticklabels=False),
-                               yaxis=dict(title=f"PC2 ({cl['evr'][1]:.0%}: {', '.join(CS.FEATS[c].split(' (')[0] for c in top2)})", showticklabels=False),
-                               hovermode="closest"), key="cs_pca")
-    p1, p2 = st.columns([2, 1])
+    st.plotly_chart(fig_layout(f, 430, title=f"{ttl} · K = {cl['k']}", xaxis=dict(title=ax_t[0], showticklabels=False),
+                               yaxis=dict(title=ax_t[1], showticklabels=False), hovermode="closest"), key="cs_pca")
     prof = cl["profile"].copy()
-    prof.columns = [CS.FEATS[c].split(" (")[0] for c in prof.columns]
+    prof.columns = [CS.label_of(c) for c in prof.columns]
     prof.insert(0, "품목", [", ".join(short(i) for i in labs.index[labs == k_]) for k_ in prof.index])
     prof.index = [f"군집 {k_}" for k_ in prof.index]
-    p1.dataframe(prof.style.format({c: "{:.2f}" for c in prof.columns if c != "품목"}))
-    if len(cl["silhouette"]):
-        f = go.Figure(go.Bar(x=[f"K={k_}" for k_ in cl["silhouette"].index], y=cl["silhouette"].values,
-                             marker_color=[PAL[1] if k_ == cl["k"] else PAL[0] for k_ in cl["silhouette"].index]))
-        p2.plotly_chart(fig_layout(f, 260, title="실루엣 점수 (높을수록 잘 갈림, 0.25↑ 보통)", hovermode="x"), key="cs_sil")
-    st.caption("군집 번호 = 52주 수익률 평균 오름차순 (군집 1 = 가장 약했던 묶음). 표 = 군집별 특성 평균(실제 값). 주성분 축 제목 = 그 축을 가장 크게 움직이는 특성 2개.")
+    st.dataframe(prof.style.format({c: "{:.1f}" for c in prof.columns if c != "품목"}))
+    if "score" in X:
+        best = prof.index[0]
+        st.info(f"**{best}**이 가격 매력 점수 평균이 가장 높은 묶음 ({prof.iloc[0]['가격 매력 점수']:.0f}점): {prof.iloc[0]['품목']} — "
+                "지금 품목들 가운데 상대적으로 싼 상태. 같은 군집 품목은 비슷한 이유로 싸진 것이므로 한꺼번에 살 때 분산 효과는 아래 '현재 상관'으로 확인.")
 
-    # ③ 상관 기반 계층 군집
-    st.markdown("##### ③ 같이 움직이는 품목 — 상관 기반 계층 군집 (최근 2년 주간 수익률)")
-    from scipy.cluster.hierarchy import dendrogram
-    C, Lk = CS.corr_dendrogram(fp["R"][X.index], 104)
-    order = dendrogram(Lk, no_plot=True, labels=list(C.index))["ivl"]
+    st.markdown("##### 군집을 가르는 특성 — 분류 모델로 경계 설명")
+    st.caption("군집 결과를 '정답'으로 두고 분류 모델을 맞춰, 무엇이 품목을 각 군집으로 보내는지 읽음 (예측용이 아님). "
+               "로지스틱 계수 = 그 특성이 1표준편차 높을 때 해당 군집에 속할 가능성이 커지는(+) / 작아지는(−) 정도 · "
+               "LDA = 위 지도의 축 · SVM(RBF) = 비선형 경계로 하나씩 빼고 맞혀 본 정확도(높을수록 군집이 뚜렷).")
+    e1, e2 = st.columns([2, 1])
+    if "coef" in ex:
+        cf = ex["coef"].copy(); cf.columns = [CS.label_of(c) for c in cf.columns]
+        fz = heat(cf, "로지스틱 회귀 계수 (군집 × 특성, + = 그 군집 쪽으로)", fmt=".1f", h=150 + 40 * len(cf))
+        fz.update_xaxes(tickangle=-40, tickfont=dict(size=10))
+        e1.plotly_chart(fz, key="cs_coef")
+    sil = cl["silhouette"]
+    e2.metric("SVM (RBF) 경계 정확도 (하나씩 빼고 검증)", f"{ex.get('svm_acc', np.nan):.0%}" if np.isfinite(ex.get("svm_acc", np.nan)) else "–")
+    e2.metric(f"실루엣 점수 (K = {cl['k']})", f"{sil.get(cl['k'], np.nan):.2f}" if len(sil) else "–", "0.25↑ 보통 · 0.5↑ 뚜렷", delta_color="off")
+
+    st.markdown("##### 현재 상관 — 지금 같이 움직이는 품목 (지수가중, 반감기 8주)")
+    C = CS.ewma_corr(fp["R"][X.index], halflife=8)
+    from scipy.cluster.hierarchy import dendrogram, linkage
+    from scipy.spatial.distance import squareform
+    Dm = np.sqrt(np.clip(2 * (1 - C.values), 0, None)); np.fill_diagonal(Dm, 0)
+    order = dendrogram(linkage(squareform(Dm, checks=False), "average"), no_plot=True, labels=list(C.index))["ivl"]
     Co = C.loc[order, order]
-    fh = heat(Co, "상관행렬 (덴드로그램 순서로 정렬 — 블록 = 같이 움직이는 묶음)", *range_of(Co), fmt=".2f", h=140 + 28 * len(Co), nodiag=True)
+    fh = heat(Co, "오늘 기준 상관 (최근 주일수록 큰 가중 · 같이 움직이는 품목끼리 정렬)", *range_of(Co), fmt=".2f", h=140 + 28 * len(Co), nodiag=True)
     fh.update_traces(textfont=dict(size=9))
     st.plotly_chart(fh, key="cs_corr")
-    st.caption("거리 = √(2(1−상관)), 평균 연결. 같은 블록끼리는 분산 효과가 작음 → 여러 품목을 살 때 블록이 다른 품목을 섞을수록 위험이 줄어듦. "
-               "② 군집(특성이 비슷한가)과 ③(같이 움직이는가)은 다른 질문.")
-
-    # ④ 분류
-    st.markdown("##### ④ 분류 — 다음 4주에 다른 품목보다 강할까? (상대 강세 예측)")
-    st.caption("목표 = 다음 4주 수익률 > 그 시점 품목 중앙값. 4주 간격 표본(목표 겹침 방지), 특성은 시점별 순위로 변환, 매년 1월 그 이전 자료로 재학습 → 그해 예측(walk-forward). "
-               "AUC 0.5 = 동전, '상위 1/3 − 하위 1/3' = 점수 높은 품목을 사고 낮은 품목을 팔았을 때 4주 수익 차.")
-    models = st.multiselect("분류 모델", CS.CLASSIFIERS, CS.CLASSIFIERS, key="cs_models",
-                            help="로지스틱 = 선형 확률 모형 · LDA = 선형판별(두 그룹 평균 차를 공분산으로 나눈 방향, 최소제곱 판별과 같은 해) · SVM(RBF) = 비선형 경계 · "
-                                 "랜덤포레스트·그래디언트 부스팅 = 나무 모형 · k-최근접 = 특성이 비슷한 과거 15개 사례의 다수결")
-    if st.button("▶ 분류 백테스트 (약 30–60초)", type="primary", key="cs_run") and models:
-        st.session_state["cs_res"] = (tuple(ids), tuple(feats), tuple(models))
-    if st.session_state.get("cs_res") == (tuple(ids), tuple(feats), tuple(models)):
-        with st.spinner("매년 재학습 중…"):
-            T, S, IM = _cs_class(tuple(ids), tuple(feats), tuple(models), ROLL)
-        st.dataframe(T.set_index(["모델", "기간"]).style.format({"AUC": "{:.3f}", "상위 1/3 − 하위 1/3 (4주 %)": "{:+.2f}", "차이 t값": "{:+.2f}",
-                                                               "적중 시점 비율": "{:.0%}"}), height=36 * (len(T) + 1) + 4)
-        full = T[T["기간"] == "전체"].set_index("모델")
-        good = full.index[full["차이 t값"] > 2]
-        st.info(f"전체 AUC {full['AUC'].min():.3f}–{full['AUC'].max():.3f}, 상위−하위 t값 최대 {full['차이 t값'].max():+.2f} → "
-                + ("t > 2 인 모델 있음: " + ", ".join(good) if len(good) else
-                   "운과 구별되는 모델 없음 — 품목 간 상대 강세는 이 특성들로 거의 예측되지 않음 (④ 패널 탭 결과와 같음)."))
-        s1, s2 = st.columns(2)
-        sc = S["평균 순위"].sort_values()
-        f = go.Figure(go.Bar(x=sc.values, y=[short(i) for i in sc.index], orientation="h",
-                             marker_color=[PAL[2] if v >= 2 / 3 else (PAL[1] if v <= 1 / 3 else "#898781") for v in sc.values]))
-        s1.plotly_chart(fig_layout(f, 120 + 22 * len(sc), title=f"지금 '다음 4주 상대 강세' 점수 (모델 평균 순위, {last_d:%m-%d} 기준)",
-                                   hovermode="y", xaxis=dict(range=[0, 1])), key="cs_now")
-        im = IM.rename(index=lambda k: CS.FEATS[k].split(" (")[0])
-        f = go.Figure(go.Bar(x=im.values, y=im.index, orientation="h", marker_color=PAL[6]))
-        s2.plotly_chart(fig_layout(f, 120 + 22 * len(im), title="특성 중요도 (랜덤포레스트, 불순도 감소)", hovermode="y"), key="cs_imp")
-        st.caption("초록 = 상위 1/3 후보, 주황 = 하위 1/3 — 단 위 백테스트에서 예측력이 약하면 참고용. 중요도가 높아도 예측력이 있다는 뜻은 아님(잡음에도 나무는 분기를 만듦).")
+    st.caption("상관은 한 시점 값만으로는 계산할 수 없어, 최근 2년 주간 수익률에 '최근일수록 큰 가중'(반감기 8주 → 8주 전 자료는 절반, 16주 전은 1/4)을 줘서 오늘 시점의 상관을 추정. "
+               "같은 블록(진한 칸)끼리는 분산 효과가 작음 → 군집 1 품목을 여러 개 살 때 블록이 다른 품목을 섞을수록 위험이 줄어듦.")
 
 
 def page_atlas():

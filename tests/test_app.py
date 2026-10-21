@@ -59,8 +59,9 @@ at.button(key="rk_run").click().run(); check(at, "리스크: 옥수수 8개 변�
 at.selectbox(key="rk_hist").set_value(at.selectbox(key="rk_hist").options[-1]).run(); check(at, "리스크: 꼬리 히스토그램·왜도·첨도")
 assert any("통계 지표 — AUC" in e.label for e in at.expander)                              # ⑧ 방법론 Q&A
 assert any(t.label == "①+ 요인 모형" for t in at.tabs)
-at.radio(key="cs_meth").set_value("계층 (Ward)").run(); check(at, "④+ 횡단면: 계층 군집")
-at.button(key="cs_run").click().run(); check(at, "④+ 횡단면: 분류 백테스트 6모델")                                    # PCA·DY·TVP-VAR·FAVAR 새 탭
+at.radio(key="cs_meth").set_value("계층 (Ward)").run(); check(at, "④+ 횡단면: 계층 군집 (구매 매력도 특성)")
+at.radio(key="cs_proj").set_value("주성분 PCA (특성 전체 변동을 요약)").run(); check(at, "④+ 횡단면: PCA 지도")
+at.radio(key="cs_fset").set_value("전체").run(); check(at, "④+ 횡단면: 전체 특성")                                    # PCA·DY·TVP-VAR·FAVAR 새 탭
 at.button(key="vf_run").click().run(); check(at, "③ 변동성 예측 검증: 옥수수 경주")
 at.selectbox(key="vf_base").set_value("GARCH(1,1)").run(); check(at, "③ 변동성 예측 검증: DM 기준 GARCH")
 at.selectbox(key="vf_zm").set_value("HMM 3상태 λ").run(); check(at, "③ 변동성 예측 검증: HMM 잔차 진단")
