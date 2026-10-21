@@ -133,11 +133,12 @@ def describe(X: pd.DataFrame, target: str, K: int = 3, cov: str = "full", n_init
     G = pd.DataFrame(m.predict_proba(Z)[:, o], index=X.index, columns=lab)
     F = pd.DataFrame(filter_probs(m, Z)[:, o], index=X.index, columns=lab)
     prof = pd.DataFrame(m.means_[o], index=lab, columns=X.columns)
+    volr = pd.DataFrame(np.sqrt(np.array([np.diag(m.covars_[k]) for k in o])), index=lab, columns=X.columns)   # 전체 표준편차 = 1 기준 배수
     T = pd.DataFrame(m.transmat_[np.ix_(o, o)], index=lab, columns=lab)
     vol_y = np.sqrt(np.array([m.covars_[k][j, j] for k in o])) * sd[target]
     summ = pd.DataFrame({"Y 평균 수익률": my[o], "Y 변동성": vol_y, "유지확률": np.diag(T.values),
                          "기대 지속 (기간)": 1 / (1 - np.clip(np.diag(T.values), 0, 0.999)), "비중": G.mean().values}, index=lab)
-    return dict(smooth=G, filt=F, profile=prof, trans=T, summary=summ, names=auto_names(prof))
+    return dict(smooth=G, filt=F, profile=prof, vol=volr, trans=T, summary=summ, names=auto_names(prof))
 
 
 def auto_names(prof: pd.DataFrame, top: int = 2) -> dict:

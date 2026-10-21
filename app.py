@@ -521,9 +521,13 @@ def _rv_hmm(X, tgt, K, cov, F, comm, macro, fmt):
     st.plotly_chart(fig_layout(f, 520, hovermode="x"), key="rv_fig_ts")
     # ② 국면 프로파일 · ③ 전이행렬
     g1, g2 = st.columns([1.15, 1])
-    P = d["profile"].T.copy(); P.index = [RM.label(c) for c in P.index]
+    pv_ = g1.radio("프로파일", ["평균 (z)", "변동성 (전체 대비 배수)"], horizontal=True, key="rv_prof_kind",
+                   help="평균 = 국면 안에서 그 변수의 평균이 평소보다 몇 표준편차 높은가. 변동성 = 국면 안의 출렁임이 평소의 몇 배인가 (1 = 평소)")
+    isv = pv_.startswith("변동성")
+    P = (d["vol"] if isv else d["profile"]).T.copy(); P.index = [RM.label(c) for c in P.index]
     P.columns = [f"{k}<br>{d['names'][k].replace(' · ', '<br>')}" for k in P.columns]
-    fp = heat(P, "국면 프로파일 — 변수별 평균 (표준화 z, + = 평소보다 높음)", fmt=".1f", h=150 + 30 * len(P), text_max=40)
+    fp = heat(P, "국면 프로파일 — " + ("변수별 변동성 (1 = 평소, 2 = 평소의 2배)" if isv else "변수별 평균 (표준화 z, + = 평소보다 높음)"),
+              *((0, max(2.5, float(P.values.max()))) if isv else (None, None)), fmt=".1f", h=150 + 30 * len(P), text_max=40, scale=SEQ if isv else None)
     fp.update_layout(xaxis=dict(tickangle=0, tickfont=dict(size=11)), margin=dict(t=40, b=70))
     g1.plotly_chart(fp, key="rv_fig_prof")
     g2.plotly_chart(heat(d["trans"], "전이행렬 — 이번 국면(행) → 다음 기간 국면(열)", 0, 1, fmt=".2f", h=330, scale=SEQ), key="rv_fig_tr")
@@ -1112,6 +1116,8 @@ def tab_ml():
     feat_def = [i for i in ["yf:ZS=F", "yf:ZM=F", "yf:ZW=F", "yf:CL=F", "yf:HG=F", "yf:GC=F", "ak:macro_shipping_bdi",
                             "yf:DX-Y.NYB", "fred:VIXCLS", "fred:DGS10", "fred:DTB3", "fred:BAA10Y", "yf:^GSPC"] if i in NAME and i != tgt]
     feats = a2.multiselect("설명변수 (X)", [i for i in ALL_IDS if i != tgt], default=feat_def, format_func=lbl, key="feats")
+    _mac = [i for i in feats if GROUP.get(i) in ("Macro", "FX", "FRED daily")]
+    a2.caption(f"선택 {len(feats)}개 = 원자재·운임 {len(feats) - len(_mac)} · 거시 {len(_mac)} ({', '.join(short(i) for i in _mac) or '없음'}) — 칩이 많으면 옆으로 밀려 안 보일 수 있음")
     b1, b2, b3, b4, b5 = st.columns(5)
     mode = b1.radio("분석 목적", ["설명 (동시점 베타)", "예측 (미래 수익률)"], key="mode",
                     help="설명: Yₜ ~ Xₜ — 동조성/민감도 측정, R²가 높게 나옴. 예측: Yₜ₊ₕ ~ Xₜ, Xₜ₋₁… — 미래정보 누수 없음, 일간 OOS R²는 보통 0 근처.")
@@ -2301,19 +2307,19 @@ def tab_procure():
         st.caption(f"점수 = 구성 요소의 가중 평균 (0–100, 가중치 0인 요소는 참고 표시, 값이 없는 요소는 빼고 재배분). 위험 지표 = {risk_l}. "
                    "'4주 90% 범위' = 현재 변동성 × 과거 '표준화 4주 수익률'의 경험적 5%·95% 분위 → 하단 근처 지정가 주문 참고. 적중률 검증: ◆ 리스크 탭.")
 
-    st.markdown("##### 펀더멘털 맥락 (참고 — 점수에는 미반영)")
-    st.markdown("**곡물 수급 · 펀드 포지션** (USDA WASDE · CFTC COT)")
+    fund_box = st.expander("펀더멘털 맥락 — 곡물 수급·펀드 포지션 / 거시·금리·달러·해운 (참고 — 점수에는 미반영)", expanded=False)
+    fund_box.markdown("**곡물 수급 · 펀드 포지션** (USDA WASDE · CFTC COT)")
     FD = PR.fundamentals([i for i in ["yf:ZC=F", "yf:ZW=F", "yf:KE=F", "yf:ZS=F", "yf:ZM=F", "yf:ZL=F"] if i in NAME]).dropna(how="all")
-    st.dataframe(FD.style.format({c: "{:+.2f}" for c in ["전월 대비 (%p)", "USDA 가격 전망 수정 (%)", "펀드 포지션 z (3년)"]}
+    fund_box.dataframe(FD.style.format({c: "{:+.2f}" for c in ["전월 대비 (%p)", "USDA 가격 전망 수정 (%)", "펀드 포지션 z (3년)"]}
                                  | {"재고/사용비율 (%)": "{:.1f}", "같은 달 과거 분위": "{:.0%}", "펀드 순포지션 (% OI)": "{:+.1f}"}, na_rep="–"))
-    st.caption("WASDE 재고/사용비율이 낮을수록(분위↓) 수급이 빡빡 → 가격 상방 위험. 펀드 포지션 z가 크면 투기적 매수가 몰린 상태 → 되돌림 위험. "
+    fund_box.caption("WASDE 재고/사용비율이 낮을수록(분위↓) 수급이 빡빡 → 가격 상방 위험. 펀드 포지션 z가 크면 투기적 매수가 몰린 상태 → 되돌림 위험. "
                "검증 결과 이 지표들의 '발표 이후' 가격 예측력은 과거 20년에서 재현되지 않아 점수에 넣지 않고, 위험 맥락으로만 표시 (대두 계열은 미국 수급표 기준).")
-    st.markdown("**거시 · 금리 · 달러 · 해운** (FRED · Yahoo · akshare)")
+    fund_box.markdown("**거시 · 금리 · 달러 · 해운** (FRED · Yahoo · akshare)")
     MT = _macro_table()
     if len(MT):
-        st.dataframe(MT.style.format({"최근값": "{:,.2f}", "1주 변화": "{:+.2f}", "4주 변화": "{:+.2f}", "1년 변화": "{:+.2f}", "5년 분위": "{:.0%}"}, na_rep="–"),
+        fund_box.dataframe(MT.style.format({"최근값": "{:,.2f}", "1주 변화": "{:+.2f}", "4주 변화": "{:+.2f}", "1년 변화": "{:+.2f}", "5년 분위": "{:.0%}"}, na_rep="–"),
                      height=35 * (len(MT) + 1) + 3)
-        st.caption("변화 = 금리·스프레드는 %p 차이, 나머지는 % 변화 · 5년 분위 = 최근 5년 중 지금보다 낮았던 날의 비율 (높을수록 5년 고점권) · 점수에는 미반영, 맥락 참고용")
+        fund_box.caption("변화 = 금리·스프레드는 %p 차이, 나머지는 % 변화 · 5년 분위 = 최근 5년 중 지금보다 낮았던 날의 비율 (높을수록 5년 고점권) · 점수에는 미반영, 맥락 참고용")
 
     st.markdown("##### 신호 상세")
     di = st.selectbox("품목 선택", list(T["id"]), format_func=lambda i: PR.BUY_IDS[i], key="pc_detail")
@@ -2329,7 +2335,8 @@ def tab_procure():
     f.add_trace(go.Scatter(x=hi_, y=pa3.reindex(hi_), mode="markers", marker=dict(color=PAL[2], size=5), name="적극 매수 구간"), 1, 1)
     f.add_trace(go.Scatter(x=lo_, y=pa3.reindex(lo_), mode="markers", marker=dict(color=PAL[1], size=4, opacity=0.6), name="매수 늦춤 구간"), 1, 1)
     f.add_trace(go.Scatter(x=sc3.index, y=sc3.values, line=dict(color="#222", width=2), name="매수 점수"), 2, 1)
-    for j, c in enumerate([c for c in PR.COMP_LBL if w.get(c, 0) > 0]):
+    show_comp = st.checkbox("점수 구성 요소도 함께 그리기 (선이 많아짐)", False, key="pc_comp")
+    for j, c in enumerate([c for c in PR.COMP_LBL if w.get(c, 0) > 0 and show_comp]):
         s_ = sig[c][sig.index >= lo] * 100
         f.add_trace(go.Scatter(x=s_.index, y=s_.values, line=dict(color=PAL[(j + 3) % 8], width=1, dash="dot"), name=PR.COMP_LBL[c]), 2, 1)
     f.add_hline(y=65, line_dash="dash", line_color=PAL[2], row=2, col=1); f.add_hline(y=35, line_dash="dash", line_color=PAL[1], row=2, col=1)
@@ -3408,6 +3415,98 @@ def page_predict():
         tab_midas(vol_only=False)
 
 
+@st.cache_data(show_spinner=False)
+def _ls_run(cost_bp: float, with_hmm: bool, roll: bool):
+    import ls_strategies as LS
+    return LS.run_all(_levels(None, roll), cost_bp, with_hmm=with_hmm)
+
+
+def tab_ls():
+    import ls_strategies as LS
+    st.subheader("롱숏 전략 — 상관 · 레짐 · 추세 (헤지펀드 원자재 전략 묶음)")
+    st.caption("주간 금요일 종가로 결정 → 다음 주 수익률로 손익 (그 시점까지의 정보만 사용) · 비용 = 비중 변화량 × 편도 비용. "
+               "① 페어 평균회귀 = 관계가 강한 두 품목의 가격차가 평소보다 벌어지면 되돌림에 베팅 · ② 상관 급등 = 품목들이 한 방향으로 묶이기 시작하면(흡수비율↑) 동반 하락 대비 · "
+               "③ 국면 진입 = 다변량 HMM 스트레스 국면 확률 > 0.5 이면 위험 회피 · ④ 시계열 모멘텀 = 품목별 52주 추세 방향 (CTA의 기본 전략) · ⑤ 횡단면 모멘텀 = 강한 품목 롱 · 약한 품목 숏")
+    c1, c2, c3 = st.columns([1, 1, 2])
+    cost = c1.number_input("편도 비용 (bp)", 0.0, 50.0, 5.0, 1.0, key="ls_cost")
+    hmm = c2.checkbox("HMM 스트레스 국면 포함 (+20초)", True, key="ls_hmm")
+    with st.spinner("전략 계산 중… (처음 20–40초)"):
+        o = _ls_run(float(cost), bool(hmm), ROLL)
+    T, D = o["table"], o["returns"]
+    sp = [c for c in T.columns if c.startswith("Sharpe ~") or c.startswith("Sharpe 2")]
+    ok = (T["t값"] > 2) & (T[sp].min(1) > 0)
+    st.dataframe(T.style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}", sp[0]: "{:+.2f}", sp[1]: "{:+.2f}",
+                                 "보유 주 비율": "{:.0%}", "바스켓과 상관": "{:+.2f}", "t값": "{:+.2f}", "위약 95%": "{:+.2f}"}, na_rep="–"),
+                 height=38 * (len(T) + 1) + 3)
+    st.info(f"평가 {D.index.min():%Y-%m} – {D.index.max():%Y-%m} ({o['n_years']:.0f}년, 전략 {len(T) - 1}개). "
+            f"t값 > 2 이고 두 하위기간 모두 양수: **{', '.join(T.index[ok]) or '없음'}**. "
+            f"전략을 {len(T) - 1}개 시험했으므로 하나쯤 t > 2가 나오는 건 우연으로도 흔함(약 {1 - 0.977 ** (len(T) - 1):.0%}) — 문헌에서 이미 확인된 전략(시계열 모멘텀)인지가 중요.")
+    sel = st.multiselect("누적 수익 비교", list(D.columns), [c for c in D.columns if c.startswith(("기준", "② 상관 급등 시 바스켓 끔", "③ 스트레스 국면 시 바스켓 끔",
+                                                                                             "④ 시계열 모멘텀 52", "① 페어 + 상관 필터"))], key="ls_sel")
+    norm_ = st.checkbox("변동성 10%로 맞춰 비교 (사후 배율 — 모양 비교용)", True, key="ls_norm")
+    if sel:
+        f = go.Figure()
+        for j, c in enumerate(sel):
+            r = D[c]
+            if norm_ and r.std() > 0:
+                r = r * (10 / (r.std() * np.sqrt(52)))
+            f.add_trace(go.Scatter(x=r.index, y=r.cumsum(), name=c, line=dict(width=2.2 if c.startswith("④ 시계열 모멘텀 52") else 1.3, color=PAL[j % 8])))
+        st.plotly_chart(shade(fig_layout(f, 380, title="누적 수익 (%, 로그 합)", hovermode="x"), D.index), key="ls_cum")
+    with st.expander("① 페어별 성과 · 스프레드 z 점수"):
+        PB = o["pairs"].get("pairs_b")
+        if PB is not None and len(PB):
+            st.dataframe(PB.set_index("페어").style.format({"보유 비율": "{:.0%}", "Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}"}))
+            st.caption("상관 필터(52주 수익률 상관 > 0.5) 버전. 몇 개 페어가 양수여도 12개 중 결과를 보고 고르면 과적합 — 페어 전체 평균(위 표 ①)이 판단 기준.")
+        pr = st.selectbox("페어", [f"{a}|{b}" for a, b in LS.PAIRS if a in o["P"] and b in o["P"]], format_func=lambda x: " / ".join(short(i) for i in x.split("|")), key="ls_pair")
+        a, b = pr.split("|")
+        W, z = LS.pair_weights(o["P"], a, b, rho_min=0.5)
+        f = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.6, 0.4], vertical_spacing=0.06,
+                          subplot_titles=("스프레드 z = (ln A − β ln B − 52주 평균) / 52주 표준편차", "포지션 (+1 = A 롱·B 숏)"))
+        f.add_trace(go.Scatter(x=z.index, y=z, line=dict(color=PAL[0], width=1.2), name="z"), 1, 1)
+        for yv in (2, -2):
+            f.add_hline(y=yv, line_dash="dash", line_color=PAL[1], row=1, col=1)
+        pos = np.sign(W[a])
+        f.add_trace(go.Scatter(x=pos.index, y=pos, line=dict(color=PAL[2], width=1, shape="hv"), name="포지션"), 2, 1)
+        st.plotly_chart(fig_layout(f, 420, hovermode="x"), key="ls_pair_fig")
+    with st.expander("② 흡수비율 · ③ 스트레스 국면 확률 — 위험회피 신호가 언제 켜졌나"):
+        f = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08,
+                          subplot_titles=("흡수비율 AR (52주 상관행렬 1주성분 비중 — 높을수록 품목들이 한 요인에 묶임)", "HMM 스트레스 국면 실시간 확률 (VIX 최고 국면)"))
+        ar = o["ar"].dropna()
+        f.add_trace(go.Scatter(x=ar.index, y=ar, line=dict(color=PAL[0], width=1.4), name="AR"), 1, 1)
+        if o["stress"] is not None:
+            ps = o["stress"].dropna()
+            f.add_trace(go.Scatter(x=ps.index, y=ps, fill="tozeroy", line=dict(color=PAL[1], width=0.8), name="스트레스 확률"), 2, 1)
+        st.plotly_chart(shade(fig_layout(f, 440, hovermode="x"), ar.index), key="ls_sig_fig")
+    with st.expander("국면 진입 초기 — 신호가 켜진 직후 1·4·8·13주 동안 무슨 일이 있었나 (이벤트 분석)", expanded=True):
+        for nm, E in o["events"].items():
+            if len(E):
+                st.markdown(f"**{nm}** (직전 8주 꺼져 있다가 켜진 주 = 진입)")
+                st.dataframe(E.set_index(["묶음", "h주"]).style.format({"진입 후 평균 (%)": "{:+.2f}", "평소 평균 (%)": "{:+.2f}", "차이 t값": "{:+.2f}", "하락 비율": "{:.0%}"}))
+        st.caption("'진입 후 평균'이 '평소 평균'보다 확실히 낮아야(t값 < −2) 국면 진입이 동반 하락을 미리 알려준다고 볼 수 있음. "
+                   "HMM 스트레스 확률은 실시간 필터라 급락이 이미 진행된 뒤 켜지는 경우가 많아, 진입 직후엔 오히려 반등이 나오기도 함.")
+    with st.expander("헤지펀드·CTA가 원자재에서 흔히 쓰는 전략과 이 화면의 범위"):
+        st.markdown("""
+| 전략 | 핵심 | 여기서 | 비고 |
+|---|---|---|---|
+| **시계열 모멘텀 (추세추종, CTA)** | 품목별 과거 수익률 부호대로 롱/숏, 변동성 역비례 | ④ | 100년 이상 자료에서 확인된 대표 전략 (Hurst-Ooi-Pedersen) |
+| **횡단면 모멘텀** | 강한 품목 롱 · 약한 품목 숏 | ⑤ | 원자재에서는 추세보다 약하고 기간 의존 |
+| **캐리 (기간구조)** | 백워데이션 품목 롱 · 콘탱고 품목 숏 | ✗ | 원월물 가격 필요 — 다음 과제 (월물 수집) |
+| **페어 · 스프레드 차익** | 크러시·크랙·곡물 비율 등 관계의 평균회귀 | ① | 비용·관계 붕괴(구조 변화)에 취약 |
+| **상관 · 위험 국면 타이밍** | 흡수비율·VIX·신용 스프레드로 위험 축소 | ② ③ | 수익보다 낙폭 축소 목적 |
+| **가치 (장기 역추세)** | 5년 평균 대비 크게 싼 품목 롱 | – | ★ 구매 점수의 '가격 위치'와 비슷한 아이디어 |
+| **펀더멘털 · 포지션** | 재고·작황·COT 극단에서 역방향 | – | 펀더멘털 표는 참고용 (예측력 미재현) |
+| **변동성 · 분산(dispersion)** | 옵션 내재변동성·상관 프리미엄 | ✗ | 옵션 자료 없음 |
+""")
+
+
+def page_portfolio():
+    a, b = st.tabs(["바스켓 포트폴리오 (Newton 최적 비중)", "롱숏 전략 (상관 · 레짐 · 추세)"])
+    with a:
+        tab_portfolio()
+    with b:
+        tab_ls()
+
+
 def page_atlas():
     try:
         import model_atlas
@@ -3416,6 +3515,6 @@ def page_atlas():
         st.info("모델 도감 준비 중")
 
 
-for _t, _fn in zip(tabs, [tab_procure, tab_risk, page_structure, tab_regime, page_vol, page_predict, tab_portfolio, tab_experiments, page_atlas, tab_data]):
+for _t, _fn in zip(tabs, [tab_procure, tab_risk, page_structure, tab_regime, page_vol, page_predict, page_portfolio, tab_experiments, page_atlas, tab_data]):
     with _t:
         _fn()

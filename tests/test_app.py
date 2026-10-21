@@ -37,6 +37,11 @@ assert any("예측 정확도 (AUC)" in e.label for e in at.expander)            
 assert any("설명변수" in e.label for e in at.expander)                                      # 판단 기준(설명변수) 펼치기
 assert any(b.key == "data_update" for b in at.sidebar.button)                              # 사이드바 데이터 업데이트 버튼
 assert any("거시" in m.value for m in at.markdown)                                         # 거시·금리·해운 표
+assert any("펀더멘털 맥락" in e.label for e in at.expander)                                 # 펀더멘털 표 2개는 펼치기
+at.checkbox(key="pc_comp").check().run(); check(at, "구매 타이밍: 점수 구성 요소 표시"); at.checkbox(key="pc_comp").uncheck().run()
+assert any("t값 > 2" in i.value for i in at.info)                                          # ⑤ 롱숏 전략 표
+at.selectbox(key="ls_pair").set_value("yf:GC=F|yf:SI=F").run(); check(at, "⑤ 롱숏: 금/은 페어 z")
+at.number_input(key="ls_cost").set_value(10.0).run(); check(at, "⑤ 롱숏: 비용 10bp")
 at.slider(key="pc_aucmin").set_value(0.55).run(); at.slider(key="pc_pstar").set_value(0.55).run()
 at.multiselect(key="pc_ids").set_value(["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F"]).run()
 at.selectbox(key="pc_lb_추천 (고도화: 상대가치+계절+MIDAS)").set_value("1년").run(); check(at, "구매 타이밍: 가격 위치 창 1년 고정")
@@ -74,6 +79,7 @@ at.button(key="levbtn").click().run(); check(at, "레버리지 비교")
 check(at, "② 레짐: 다변량 HMM (원자재 6 + 거시 8, 주간)")
 assert any("지금 국면" in m.label for m in at.metric)
 at.button(key="rv_bt_run").click().run(); check(at, "② 레짐: walk-forward 백테스트 (4개 변수 묶음)")
+at.radio(key="rv_prof_kind").set_value("변동성 (전체 대비 배수)").run(); check(at, "② 레짐: 국면별 변동성 프로파일")
 at.radio(key="rv_k").set_value(2).run(); check(at, "② 레짐: 2국면")
 for m in ["Markov-switching 회귀", "Kalman TVP", "Threshold 회귀 (TAR)", "STAR (평활 전이)"]:
     at.selectbox(key="rv_model").set_value(m).run(); at.button(key="rv_reg_run").click().run(); check(at, f"  ② 레짐 회귀 (예측): {m}")
