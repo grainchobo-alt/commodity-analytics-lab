@@ -89,13 +89,14 @@ st.sidebar.caption("수익률 = 100×로그차분 (금리·스프레드는 단�
 
 
 def _update_data():
-    """증분 수집 → 정제 → 롤 보정 (run_daily.bat의 앞 3단계). 끝나면 캐시를 비우고 다시 그림."""
+    """증분 수집 → 정제 → 롤 보정 → 품질 점검 → 엑셀 내보내기 (run_daily.bat에서 대시보드 HTML 생성만 뺀 단계). 끝나면 캐시를 비우고 다시 그림."""
     import subprocess, sys, os
     from pathlib import Path
     root = Path(__file__).parent
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    with st.sidebar.status("데이터 업데이트 중… (보통 2–5분)", expanded=True) as stt:
-        for script, nm in [("collect.py", "① 수집 (Yahoo·FRED·akshare·COT 등)"), ("clean.py", "② 정제"), ("roll_adjust.py", "③ 롤오버 보정")]:
+    with st.sidebar.status("데이터 업데이트 중… (보통 3–6분)", expanded=True) as stt:
+        for script, nm in [("collect.py", "① 수집 (Yahoo·FRED·akshare·COT 등)"), ("clean.py", "② 정제"), ("roll_adjust.py", "③ 롤오버 보정"),
+                           ("data_quality.py", "④ 품질 점검"), ("export_excel.py", "⑤ 엑셀 내보내기 (data/excel)")]:
             st.write(nm)
             r = subprocess.run([sys.executable, script], cwd=root, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1800)
             if r.returncode != 0:
