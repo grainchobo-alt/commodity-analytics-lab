@@ -58,7 +58,9 @@ at.multiselect(key="pc_ids").set_value(["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=
 at.button(key="rk_run").click().run(); check(at, "리스크: 옥수수 8개 변동성 모형 추정")
 at.selectbox(key="rk_hist").set_value(at.selectbox(key="rk_hist").options[-1]).run(); check(at, "리스크: 꼬리 히스토그램·왜도·첨도")
 assert any("통계 지표 — AUC" in e.label for e in at.expander)                              # ⑧ 방법론 Q&A
-assert any(t.label == "①+ 요인 모형" for t in at.tabs)                                    # PCA·DY·TVP-VAR·FAVAR 새 탭
+assert any(t.label == "①+ 요인 모형" for t in at.tabs)
+at.radio(key="cs_meth").set_value("계층 (Ward)").run(); check(at, "④+ 횡단면: 계층 군집")
+at.button(key="cs_run").click().run(); check(at, "④+ 횡단면: 분류 백테스트 6모델")                                    # PCA·DY·TVP-VAR·FAVAR 새 탭
 at.button(key="vf_run").click().run(); check(at, "③ 변동성 예측 검증: 옥수수 경주")
 at.selectbox(key="vf_base").set_value("GARCH(1,1)").run(); check(at, "③ 변동성 예측 검증: DM 기준 GARCH")
 at.selectbox(key="vf_zm").set_value("HMM 3상태 λ").run(); check(at, "③ 변동성 예측 검증: HMM 잔차 진단")

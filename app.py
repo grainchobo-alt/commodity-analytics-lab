@@ -225,7 +225,7 @@ def panel_or_stop(ids, transform="logret"):
 DEF_COMOVE = [i for i in ["yf:ZC=F", "yf:ZS=F", "yf:ZM=F", "yf:ZW=F", "yf:CL=F", "yf:HG=F", "yf:GC=F",
                           "ak:macro_shipping_bdi", "yf:SB=F", "yf:LE=F"] if i in NAME]
 
-tabs = st.tabs(["★ 구매 타이밍", "◆ 리스크 (VaR·꼬리)", "① 시장 구조·동조성", "①+ 요인 모형", "② 레짐", "③ 변동성·공분산", "④ 수익률 예측", "⑤ 포트폴리오", "⑥ 실험 결과", "⑦ 모델 도감", "⑧ 데이터·방법론"])
+tabs = st.tabs(["★ 구매 타이밍", "◆ 리스크 (VaR·꼬리)", "① 시장 구조·동조성", "①+ 요인 모형", "② 레짐", "③ 변동성·공분산", "④ 수익률 예측", "④+ 횡단면 (군집·분류)", "⑤ 포트폴리오", "⑥ 실험 결과", "⑦ 모델 도감", "⑧ 데이터·방법론"])
 
 # ============================================================================
 # ① 동조성
@@ -2006,6 +2006,10 @@ AUC는 Mann-Whitney U 통계량을 표준화한 값과 같아서 'AUC > 0.5'를 
 **패널 모델에 거시 변수를 넣는 방법** → 거시 값은 모든 품목에 같아 시점별 순위 변환에서 사라짐 → **품목별 거시 민감도(과거 1년 β) × 이번 기간 거시 변화**를 특성 '거시 β×Δ'로 넣음 (예: 달러가 오른 주엔 달러 민감 품목이 불리).
 
 **MIDAS** → 일간 자료(원자재·거시)의 시차들을 Beta 가중치로 요약해 월간 목표를 예측 — 월 평균으로 뭉개지 않고 최근 날에 더 큰 비중.
+
+**횡단면 분석(④+ 탭)의 군집·분류 후보** → 군집(정답 없음): K-평균 · 계층(Ward) · 가우시안 혼합 — 특성을 품목 간 z점수로 맞춘 뒤, K는 실루엣 점수로 추천 / 상관 기반 계층 군집(거리 √(2(1−ρ))) = '같이 움직이는 묶음'.
+분류(정답 있음, 목표 = 다음 4주 수익이 품목 중앙값보다 큰가): 로지스틱 · LDA(선형판별 = 최소제곱 판별과 같은 해) · SVM(RBF) · 랜덤포레스트 · 그래디언트 부스팅 · k-최근접. 4주 간격 표본 · 시점별 순위 특성 · 매년 재학습.
+결과(19품목, 2008–): AUC 0.505–0.523, 상위−하위 t 최대 1.44 → 상대 강세는 거의 예측 안 됨. 군집·상관 블록은 '무엇이 비슷한가 / 같이 움직이나'를 보는 설명용.
 """)
     with st.expander("④ ★ 구매 판단 — 3색 · 점수 · 계절성 · 미루는 기간"):
         st.markdown("""
@@ -2652,28 +2656,20 @@ def tab_risk():
             st.caption("Hill α = 꼬리 지수 (작을수록 두꺼운 꼬리, 2~4가 원자재 전형; 정규분포는 무한대). 표준화 잔차의 초과첨도·|z|>3 비율은 "
                        "변동성 군집을 걸러낸 뒤에도 남는 꼬리 → 정규 VaR가 과소추정하는 이유. (표준화 잔차 항목은 위에서 추정한 품목만)")
             from scipy import stats as _ss
-            SK = pd.DataFrame({short(i): {"왜도": _ss.skew(Rt[i].dropna()), "초과첨도": _ss.kurtosis(Rt[i].dropna())} for i in tids}).T
-            hb1, hb2 = st.columns(2)
-            f = go.Figure(go.Bar(x=SK.index, y=SK["왜도"], marker_color=[PAL[0] if v >= 0 else PAL[1] for v in SK["왜도"]]))
-            f.add_hline(y=0, line_color="#898781")
-            hb1.plotly_chart(fig_layout(f, 300, title="왜도 (− = 급락 꼬리가 김 · + = 급등 꼬리가 김)", hovermode="x"), key="rk_skew")
-            f = go.Figure(go.Bar(x=SK.index, y=SK["초과첨도"], marker_color=PAL[6]))
-            hb2.plotly_chart(fig_layout(f, 300, title="초과첨도 (0 = 정규분포, 클수록 극단값 잦음)", hovermode="x"), key="rk_kurt")
-            hi = st.selectbox("수익률 분포 (히스토그램)", tids, 0, format_func=short, key="rk_hist")
+            hi = st.selectbox("수익률 분포를 볼 품목", tids, 0, format_func=short, key="rk_hist")
             x_ = Rt[hi].dropna()
             mu_, sd_ = float(x_.mean()), float(x_.std())
-            lg_ = st.checkbox("세로축 로그 (꼬리 확대)", True, key="rk_hlog")
-            f = go.Figure(go.Histogram(x=x_, nbinsx=120, histnorm="probability density", marker_color=PAL[0], opacity=0.75, name="실제 분포"))
-            gx = np.linspace(x_.min(), x_.max(), 400)
-            f.add_trace(go.Scatter(x=gx, y=_ss.norm.pdf(gx, mu_, sd_), line=dict(color=PAL[1], width=2), name="같은 평균·표준편차의 정규분포"))
-            for qv, nm_ in [(x_.quantile(0.01), "하위 1%"), (x_.quantile(0.99), "상위 1%")]:
-                f.add_vline(x=qv, line_dash="dot", line_color="#898781", annotation_text=f"{nm_} {qv:+.1f}%")
-            f.update_yaxes(type="log" if lg_ else "linear")
-            jb = _ss.jarque_bera(x_)
-            st.plotly_chart(fig_layout(f, 360, title=f"{short(hi)} 일간 수익률 분포 — 왜도 {_ss.skew(x_):+.2f} · 초과첨도 {_ss.kurtosis(x_):.1f} · "
-                                                     f"Jarque-Bera p {jb.pvalue:.1e} · |r| > 3σ 비율 {(np.abs(x_ - mu_) > 3 * sd_).mean():.2%} (정규 0.27%)",
-                                       hovermode="x", bargap=0), key="rk_hist_fig")
-            st.caption("막대가 빨간 정규 곡선보다 가운데는 뾰족하고 양 끝(꼬리)은 더 두꺼우면 '팻테일' — 정규분포를 가정한 VaR가 큰 손실을 과소평가함. 로그 축에서 꼬리 차이가 잘 보임.")
+            sk_, ku_ = float(_ss.skew(x_)), float(_ss.kurtosis(x_))
+            f = go.Figure(go.Histogram(x=x_, nbinsx=100, histnorm="probability density", marker_color=PAL[0], opacity=0.7, name="실제 일간 수익률"))
+            gx = np.linspace(x_.quantile(0.0005), x_.quantile(0.9995), 400)
+            f.add_trace(go.Scatter(x=gx, y=_ss.norm.pdf(gx, mu_, sd_), line=dict(color=PAL[1], width=2.5), name="같은 평균·표준편차의 정규분포"))
+            f.update_xaxes(range=[float(x_.quantile(0.0005)), float(x_.quantile(0.9995))], title="일간 수익률 (%)")
+            f.add_annotation(xref="paper", yref="paper", x=0.99, y=0.97, xanchor="right", showarrow=False, align="right", font=dict(size=13),
+                             text=f"<b>왜도 {sk_:+.2f}</b> ({'급락 꼬리가 김' if sk_ < -0.1 else '급등 꼬리가 김' if sk_ > 0.1 else '좌우 대칭에 가까움'})<br>"
+                                  f"<b>초과첨도 {ku_:.1f}</b> (0 = 정규, 클수록 극단값 잦음)<br>3σ 넘는 날 {(np.abs(x_ - mu_) > 3 * sd_).mean():.2%} (정규 0.27%)")
+            st.plotly_chart(fig_layout(f, 380, title=f"{short(hi)} 일간 수익률 분포 vs 정규분포", hovermode="x", bargap=0), key="rk_hist_fig")
+            st.caption("막대(실제)가 빨간 곡선(정규)보다 가운데가 뾰족하고 양 끝이 두꺼우면 '팻테일' → 정규분포 가정 VaR가 큰 손실을 과소평가. "
+                       "품목별 왜도·첨도 수치는 위 꼬리 통계 표에 있음.")
         p_ = _levels(extra_bytes, ROLL)[rid_].dropna().loc[str(start):str(end)]
         dd = RK.drawdown(p_)
         st.markdown(f"##### {short(rid_)} 낙폭·급등 · 최악 구간 (롤 보정 가격)")
@@ -3822,6 +3818,138 @@ def page_portfolio():
         tab_ls()
 
 
+@st.cache_data(show_spinner=False)
+def _cs_fp(ids: tuple, roll: bool):
+    import crosssec as CS
+    return CS.feature_panel(_levels(None, roll), list(ids))
+
+
+@st.cache_data(show_spinner=False)
+def _cs_class(ids: tuple, feats: tuple, models: tuple, roll: bool):
+    import crosssec as CS
+    fp = _cs_fp(ids, roll)
+    D, fs = CS.class_panel(fp, feats=list(feats))
+    T, P = CS.walk_forward(D, fs, list(models))
+    S, _ = CS.current_scores(fp, D, fs, list(models))
+    return T, S, CS.importance(D, fs)
+
+
+def _norm100(v: pd.Series) -> pd.Series:
+    lo, hi = float(v.min()), float(v.max())
+    return (v - lo) / (hi - lo) * 100 if hi > lo else v * 0 + 50
+
+
+def tab_cross():
+    import crosssec as CS
+    import ls_strategies as LS
+    st.subheader("횡단면 분석 — 지금 이 시점, 품목들을 나란히 놓고 묶고(군집) 가르기(분류)")
+    st.caption("시계열이 '한 품목의 시간에 따른 변화'라면, 횡단면은 '같은 시점에 품목끼리 비교'. 특성 = 수익률(4·13·26·52주) · 변동성 · 왜도·첨도 · 52주 고점 대비·범위 내 위치 · "
+               "S&P·달러 베타 · 다른 품목과 평균 상관 · 추세 강도 (모두 그 시점까지의 주간 자료). 군집 = 비슷한 품목끼리 묶기(정답 없음), "
+               "분류 = '다음 4주에 다른 품목보다 강할까'를 맞히기(정답 있음).")
+    c1_, c2_ = st.columns([3, 2])
+    opts = [i for i in COMMOD_IDS if i.startswith("yf:")]
+    ids = c1_.multiselect("품목", opts, [i for i in LS.BASKET if i in opts], format_func=lbl, key="cs_ids")
+    feats = c2_.multiselect("특성", list(CS.FEATS), list(CS.FEATS), format_func=lambda k: CS.FEATS[k], key="cs_feats")
+    if len(ids) < 6 or len(feats) < 2:
+        st.info("품목 6개 이상, 특성 2개 이상을 고르세요.")
+        return
+    fp = _cs_fp(tuple(ids), ROLL)
+    X, dt = CS.snapshot(fp)
+    X = X[feats].dropna()
+    last_d = min(dt, _levels(None, ROLL)[ids].dropna(how="all").index.max())
+    st.caption(f"기준: {last_d:%Y-%m-%d} 주 · 품목 {len(X)}개 · 특성 {len(feats)}개")
+
+    # ① 현재 특성 지도
+    st.markdown("##### ① 지금 품목별 특성 — 색 = 품목 간 상대 위치(z), 숫자 = 실제 값")
+    Z = CS.zscore(X)
+    lab_x = [CS.FEATS[k].split(" (")[0] for k in X.columns]
+    f = go.Figure(go.Heatmap(z=Z.values, x=lab_x, y=[short(i) for i in X.index], zmin=-2.5, zmax=2.5, colorscale=DIV,
+                             text=[[f"{v:.2f}" if abs(v) < 10 else f"{v:.0f}" for v in row] for row in X.values], texttemplate="%{text}",
+                             textfont=dict(size=9), colorbar=dict(title="z", thickness=12), hovertemplate="%{y} · %{x}: %{text}<extra></extra>"))
+    f.update_layout(height=120 + 28 * len(X), margin=dict(l=10, r=10, t=30, b=10), yaxis=dict(autorange="reversed"),
+                    xaxis=dict(tickangle=-40, tickfont=dict(size=10)))
+    st.plotly_chart(f, key="cs_heat")
+
+    # ② 군집
+    st.markdown("##### ② 군집 — 비슷한 품목끼리 묶기")
+    g1, g2 = st.columns([1, 1])
+    meth = g1.radio("방법", ["K-평균", "계층 (Ward)", "가우시안 혼합 (GMM)"], horizontal=True, key="cs_meth",
+                    help="K-평균 = 중심까지 거리 최소, 계층(Ward) = 묶을 때 분산 증가가 최소인 쌍부터 합침, GMM = 군집마다 정규분포를 가정한 확률적 묶음")
+    kk = g2.select_slider("군집 수 K", ["자동 (실루엣 최대)", 2, 3, 4, 5, 6], "자동 (실루엣 최대)", key="cs_k")
+    cl = CS.cluster(X, meth, None if isinstance(kk, str) else int(kk))
+    labs = cl["labels"]
+    COLS = [PAL[0], PAL[1], PAL[2], PAL[3], PAL[4], PAL[6]]
+    xy = cl["xy"]
+    nx, ny = _norm100(xy["PC1"]), _norm100(xy["PC2"])
+    f = go.Figure()
+    for k_ in sorted(labs.unique()):
+        m_ = labs == k_
+        f.add_trace(go.Scatter(x=nx[m_], y=ny[m_], mode="markers", marker=dict(size=14, color=COLS[(k_ - 1) % 6]), name=f"군집 {k_}",
+                               text=[short(i) for i in labs.index[m_]], hovertemplate="%{text}<extra></extra>"))
+    for (dx, dy), i in zip(_place_labels(nx, ny, [short(i) for i in xy.index]), xy.index):
+        f.add_annotation(x=nx[i], y=ny[i], text=short(i), ax=dx, ay=dy, showarrow=True, arrowwidth=0.8, arrowhead=0, arrowcolor="#898781",
+                         standoff=6, font=dict(size=11))
+    top1 = cl["load"]["PC1"].abs().sort_values().index[-2:][::-1]
+    top2 = cl["load"]["PC2"].abs().sort_values().index[-2:][::-1]
+    st.plotly_chart(fig_layout(f, 420, title=f"주성분 지도 (특성 {len(feats)}개를 2차원으로 요약) — K = {cl['k']}",
+                               xaxis=dict(title=f"PC1 ({cl['evr'][0]:.0%}: {', '.join(CS.FEATS[c].split(' (')[0] for c in top1)})", showticklabels=False),
+                               yaxis=dict(title=f"PC2 ({cl['evr'][1]:.0%}: {', '.join(CS.FEATS[c].split(' (')[0] for c in top2)})", showticklabels=False),
+                               hovermode="closest"), key="cs_pca")
+    p1, p2 = st.columns([2, 1])
+    prof = cl["profile"].copy()
+    prof.columns = [CS.FEATS[c].split(" (")[0] for c in prof.columns]
+    prof.insert(0, "품목", [", ".join(short(i) for i in labs.index[labs == k_]) for k_ in prof.index])
+    prof.index = [f"군집 {k_}" for k_ in prof.index]
+    p1.dataframe(prof.style.format({c: "{:.2f}" for c in prof.columns if c != "품목"}))
+    if len(cl["silhouette"]):
+        f = go.Figure(go.Bar(x=[f"K={k_}" for k_ in cl["silhouette"].index], y=cl["silhouette"].values,
+                             marker_color=[PAL[1] if k_ == cl["k"] else PAL[0] for k_ in cl["silhouette"].index]))
+        p2.plotly_chart(fig_layout(f, 260, title="실루엣 점수 (높을수록 잘 갈림, 0.25↑ 보통)", hovermode="x"), key="cs_sil")
+    st.caption("군집 번호 = 52주 수익률 평균 오름차순 (군집 1 = 가장 약했던 묶음). 표 = 군집별 특성 평균(실제 값). 주성분 축 제목 = 그 축을 가장 크게 움직이는 특성 2개.")
+
+    # ③ 상관 기반 계층 군집
+    st.markdown("##### ③ 같이 움직이는 품목 — 상관 기반 계층 군집 (최근 2년 주간 수익률)")
+    from scipy.cluster.hierarchy import dendrogram
+    C, Lk = CS.corr_dendrogram(fp["R"][X.index], 104)
+    order = dendrogram(Lk, no_plot=True, labels=list(C.index))["ivl"]
+    Co = C.loc[order, order]
+    fh = heat(Co, "상관행렬 (덴드로그램 순서로 정렬 — 블록 = 같이 움직이는 묶음)", *range_of(Co), fmt=".2f", h=140 + 28 * len(Co), nodiag=True)
+    fh.update_traces(textfont=dict(size=9))
+    st.plotly_chart(fh, key="cs_corr")
+    st.caption("거리 = √(2(1−상관)), 평균 연결. 같은 블록끼리는 분산 효과가 작음 → 여러 품목을 살 때 블록이 다른 품목을 섞을수록 위험이 줄어듦. "
+               "② 군집(특성이 비슷한가)과 ③(같이 움직이는가)은 다른 질문.")
+
+    # ④ 분류
+    st.markdown("##### ④ 분류 — 다음 4주에 다른 품목보다 강할까? (상대 강세 예측)")
+    st.caption("목표 = 다음 4주 수익률 > 그 시점 품목 중앙값. 4주 간격 표본(목표 겹침 방지), 특성은 시점별 순위로 변환, 매년 1월 그 이전 자료로 재학습 → 그해 예측(walk-forward). "
+               "AUC 0.5 = 동전, '상위 1/3 − 하위 1/3' = 점수 높은 품목을 사고 낮은 품목을 팔았을 때 4주 수익 차.")
+    models = st.multiselect("분류 모델", CS.CLASSIFIERS, CS.CLASSIFIERS, key="cs_models",
+                            help="로지스틱 = 선형 확률 모형 · LDA = 선형판별(두 그룹 평균 차를 공분산으로 나눈 방향, 최소제곱 판별과 같은 해) · SVM(RBF) = 비선형 경계 · "
+                                 "랜덤포레스트·그래디언트 부스팅 = 나무 모형 · k-최근접 = 특성이 비슷한 과거 15개 사례의 다수결")
+    if st.button("▶ 분류 백테스트 (약 30–60초)", type="primary", key="cs_run") and models:
+        st.session_state["cs_res"] = (tuple(ids), tuple(feats), tuple(models))
+    if st.session_state.get("cs_res") == (tuple(ids), tuple(feats), tuple(models)):
+        with st.spinner("매년 재학습 중…"):
+            T, S, IM = _cs_class(tuple(ids), tuple(feats), tuple(models), ROLL)
+        st.dataframe(T.set_index(["모델", "기간"]).style.format({"AUC": "{:.3f}", "상위 1/3 − 하위 1/3 (4주 %)": "{:+.2f}", "차이 t값": "{:+.2f}",
+                                                               "적중 시점 비율": "{:.0%}"}), height=36 * (len(T) + 1) + 4)
+        full = T[T["기간"] == "전체"].set_index("모델")
+        good = full.index[full["차이 t값"] > 2]
+        st.info(f"전체 AUC {full['AUC'].min():.3f}–{full['AUC'].max():.3f}, 상위−하위 t값 최대 {full['차이 t값'].max():+.2f} → "
+                + ("t > 2 인 모델 있음: " + ", ".join(good) if len(good) else
+                   "운과 구별되는 모델 없음 — 품목 간 상대 강세는 이 특성들로 거의 예측되지 않음 (④ 패널 탭 결과와 같음)."))
+        s1, s2 = st.columns(2)
+        sc = S["평균 순위"].sort_values()
+        f = go.Figure(go.Bar(x=sc.values, y=[short(i) for i in sc.index], orientation="h",
+                             marker_color=[PAL[2] if v >= 2 / 3 else (PAL[1] if v <= 1 / 3 else "#898781") for v in sc.values]))
+        s1.plotly_chart(fig_layout(f, 120 + 22 * len(sc), title=f"지금 '다음 4주 상대 강세' 점수 (모델 평균 순위, {last_d:%m-%d} 기준)",
+                                   hovermode="y", xaxis=dict(range=[0, 1])), key="cs_now")
+        im = IM.rename(index=lambda k: CS.FEATS[k].split(" (")[0])
+        f = go.Figure(go.Bar(x=im.values, y=im.index, orientation="h", marker_color=PAL[6]))
+        s2.plotly_chart(fig_layout(f, 120 + 22 * len(im), title="특성 중요도 (랜덤포레스트, 불순도 감소)", hovermode="y"), key="cs_imp")
+        st.caption("초록 = 상위 1/3 후보, 주황 = 하위 1/3 — 단 위 백테스트에서 예측력이 약하면 참고용. 중요도가 높아도 예측력이 있다는 뜻은 아님(잡음에도 나무는 분기를 만듦).")
+
+
 def page_atlas():
     try:
         import model_atlas
@@ -3830,6 +3958,6 @@ def page_atlas():
         st.info("모델 도감 준비 중")
 
 
-for _t, _fn in zip(tabs, [tab_procure, tab_risk, page_structure, page_factor, tab_regime, page_vol, page_predict, page_portfolio, tab_experiments, page_atlas, tab_data]):
+for _t, _fn in zip(tabs, [tab_procure, tab_risk, page_structure, page_factor, tab_regime, page_vol, page_predict, tab_cross, page_portfolio, tab_experiments, page_atlas, tab_data]):
     with _t:
         _fn()
