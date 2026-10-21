@@ -428,3 +428,56 @@ def run_alloc(L: pd.DataFrame, cost_bp=5.0, start="2001-01-01", split="2017-01-0
         rows.append({"방식": c, **metrics(r), f"Sharpe ~{split[:4]}": metrics(r[r.index < split])["Sharpe"],
                      f"Sharpe {split[:4]}~": metrics(r[r.index >= split])["Sharpe"], "t값": metrics(r)["Sharpe"] * np.sqrt(len(r) / ANN)})
     return dict(table=pd.DataFrame(rows).set_index("방식"), returns=D)
+
+
+def run_alloc_robust(L: pd.DataFrame, cost_bp=5.0, start="2001-01-01", split="2017-01-01", tgt=10.0) -> pd.DataFrame:
+    """MinVar 강건성: (a) 생우·금·돈육을 하나씩/모두 빼기 (b) 품목 상한 25% → 15% (c) MinVar 롱 50% + 모멘텀 롱숏 50% 혼합."""
+    P0 = weekly(L, BASKET, start); P0 = P0[[c for c in BASKET if c in P0]]
+    rows, books = [], {}
+
+    def mv(P, cap=0.25):
+        import ls_strategies as _me
+        W = _me.alloc_weights_cap(P, cap)
+        return _book(_vol_target(W, _ret(P), tgt), _ret(P), cost_bp)
+    books["MinVar (상한 25%, 기준)"] = mv(P0)
+    for drop, nm in [(["yf:LE=F"], "생우 제외"), (["yf:GC=F"], "금 제외"), (["yf:HE=F"], "돈육 제외"), (["yf:LE=F", "yf:GC=F", "yf:HE=F"], "생우·금·돈육 모두 제외")]:
+        books[f"MinVar — {nm}"] = mv(P0.drop(columns=[c for c in drop if c in P0]))
+    books["MinVar (상한 15%)"] = mv(P0, 0.15)
+    books["MinVar (상한 10%)"] = mv(P0, 0.10)
+    R0 = _ret(P0)
+    tsm = _book(tsmom_weights(P0, 52), R0, cost_bp)
+    books["모멘텀 롱숏 (TSMOM 10%)"] = tsm
+    mix = 0.5 * books["MinVar (상한 25%, 기준)"] + 0.5 * tsm
+    pv = mix.rolling(26, min_periods=13).std().shift(1) * np.sqrt(ANN)
+    books["혼합: MinVar 50% + 모멘텀 50% (10%로 재배율)"] = mix * (tgt / pv).clip(upper=4.0).fillna(1.0)
+    D = pd.DataFrame(books)
+    D = D[D.index >= D.index[0] + pd.DateOffset(years=3)]
+    D = D.loc[D.ne(0).all(1).idxmax():]
+    for c in D:
+        r = D[c]
+        rows.append({"구성": c, **metrics(r), f"Sharpe ~{split[:4]}": metrics(r[r.index < split])["Sharpe"],
+                     f"Sharpe {split[:4]}~": metrics(r[r.index >= split])["Sharpe"], "t값": metrics(r)["Sharpe"] * np.sqrt(len(r) / ANN),
+                     "MinVar와 상관": float(r.corr(D["MinVar (상한 25%, 기준)"]))})
+    return pd.DataFrame(rows).set_index("구성"), D
+
+
+def alloc_weights_cap(P: pd.DataFrame, cap: float = 0.25, cov_win=104, reb=4) -> pd.DataFrame:
+    """최소분산 롱온리 (품목 상한 cap)."""
+    from scipy.optimize import minimize
+    from sklearn.covariance import LedoitWolf
+    R = _ret(P)
+    W = pd.DataFrame(np.nan, index=P.index, columns=P.columns)
+    for t in range(cov_win, len(P), reb):
+        win = R.iloc[t - cov_win + 1:t + 1]
+        cols = [c for c in P.columns if win[c].notna().sum() >= cov_win * 0.8]
+        if len(cols) < 4:
+            continue
+        S = LedoitWolf().fit(win[cols].fillna(0.0).values / 100).covariance_; n = len(cols)
+        capn = max(cap, 1.0 / n + 1e-6)
+        res = minimize(lambda w: 1e4 * (w @ S @ w), np.ones(n) / n, jac=lambda w: 1e4 * 2 * S @ w, bounds=[(0, capn)] * n,
+                       constraints=[{"type": "eq", "fun": lambda w: w.sum() - 1}], method="SLSQP", options={"maxiter": 500, "ftol": 1e-12})
+        x = np.clip(res.x, 0, capn)
+        w = x / x.sum() if (abs(res.x.sum() - 1) < 1e-3 and np.isfinite(res.x).all()) else np.ones(n) / n
+        W.loc[P.index[t], cols] = w
+        W.loc[P.index[t], [c for c in P.columns if c not in cols]] = 0.0
+    return W.ffill().fillna(0.0)

@@ -3465,6 +3465,12 @@ def _alloc_run(cost_bp: float, roll: bool):
     return LS.run_alloc(_levels(None, roll), cost_bp)
 
 
+@st.cache_data(show_spinner=False)
+def _alloc_robust(cost_bp: float, roll: bool):
+    import ls_strategies as LS
+    return LS.run_alloc_robust(_levels(None, roll), cost_bp)
+
+
 def tab_ls():
     import ls_strategies as LS
     st.subheader("롱숏 전략 — 상관 · 레짐 · 추세 (헤지펀드 원자재 전략 묶음)")
@@ -3543,6 +3549,18 @@ def tab_ls():
     k2.plotly_chart(fig_layout(f, 330, title="누적 수익 (%, 목표 변동성 10%)", hovermode="x", legend=dict(orientation="h", y=-0.35, font=dict(size=10))), key="ls_alloc")
     st.caption("최소분산은 변동성이 낮고 다른 품목과 덜 같이 움직이는 생우·금·돈육에 평균 19%·17%·12%를 두게 됨 → 이 기간 그 품목들이 강해 성과가 좋았지만 "
                "소수 품목 집중의 결과일 수 있음. 평균-분산에 모멘텀 μ를 넣으면 추세 품목으로 몰려 오히려 나빠짐(낙폭 확대). 모멘텀은 롱숏 · 역변동성이 가장 안정적.")
+    with st.expander("MinVar 강건성 점검 — 특정 품목 덕인가? 집중을 줄이면? 모멘텀과 섞으면?", expanded=True):
+        RB, DB = _alloc_robust(float(cost), ROLL)
+        spr = [c for c in RB.columns if c.startswith("Sharpe ~") or c.startswith("Sharpe 2")]
+        st.dataframe(RB.style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}", spr[0]: "{:+.2f}",
+                                      spr[1]: "{:+.2f}", "t값": "{:+.2f}", "MinVar와 상관": "{:+.2f}"}, na_rep="–"))
+        f = go.Figure()
+        for j, c in enumerate([c for c in DB.columns if c.startswith(("MinVar (상한 25%", "MinVar — 생우·금·돈육", "MinVar (상한 15%", "모멘텀", "혼합"))]):
+            f.add_trace(go.Scatter(x=DB.index, y=DB[c].cumsum(), name=c, line=dict(color=PAL[j % 8], width=2.2 if c.startswith("혼합") else 1.3)))
+        st.plotly_chart(fig_layout(f, 320, title="누적 수익 (%, 모두 목표 변동성 10%)", hovermode="x"), key="ls_alloc_rb")
+        st.caption("생우·금·돈육을 모두 빼면 MinVar Sharpe가 절반으로 떨어짐 → 성과의 상당 부분이 그 세 품목(이 기간 저변동·상승) 덕. "
+                   "상한을 낮춰 집중을 줄이면 Sharpe가 단계적으로 내려감. MinVar와 모멘텀은 상관이 낮아(약 0.2) 반반 섞으면 "
+                   "두 하위기간 모두 0.7 안팎으로 가장 고르게 나옴.")
     with st.expander("헤지펀드·CTA가 원자재에서 흔히 쓰는 전략과 이 화면의 범위"):
         st.markdown("""
 | 전략 | 핵심 | 여기서 | 비고 |
