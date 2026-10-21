@@ -447,9 +447,10 @@ def run_alloc_robust(L: pd.DataFrame, cost_bp=5.0, start="2001-01-01", split="20
     R0 = _ret(P0)
     tsm = _book(tsmom_weights(P0, 52), R0, cost_bp)
     books["모멘텀 롱숏 (TSMOM 10%)"] = tsm
-    mix = 0.5 * books["MinVar (상한 25%, 기준)"] + 0.5 * tsm
-    pv = mix.rolling(26, min_periods=13).std().shift(1) * np.sqrt(ANN)
-    books["혼합: MinVar 50% + 모멘텀 50% (10%로 재배율)"] = mix * (tgt / pv).clip(upper=4.0).fillna(1.0)
+    for a_ in (0.3, 0.5, 0.7):                                   # 위험 기여 비율 (두 책 모두 10% 변동성)
+        mix = a_ * books["MinVar (상한 25%, 기준)"] + (1 - a_) * tsm
+        pv = mix.rolling(26, min_periods=13).std().shift(1) * np.sqrt(ANN)
+        books[f"혼합: MinVar {a_:.0%} + 모멘텀 {1 - a_:.0%}"] = mix * (tgt / pv).clip(upper=4.0).fillna(1.0)
     D = pd.DataFrame(books)
     D = D[D.index >= D.index[0] + pd.DateOffset(years=3)]
     D = D.loc[D.ne(0).all(1).idxmax():]

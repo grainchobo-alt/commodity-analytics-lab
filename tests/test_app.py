@@ -55,6 +55,8 @@ assert any("가중치 재배분" in c.value for c in at.caption)
 at.multiselect(key="pc_ids").set_value(["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F"]).run(); check(at, "구매 타이밍: 곡물 4품목 복귀")
 # ◆ 리스크
 at.button(key="rk_run").click().run(); check(at, "리스크: 옥수수 8개 변동성 모형 추정")
+at.selectbox(key="rk_hist").set_value(at.selectbox(key="rk_hist").options[-1]).run(); check(at, "리스크: 꼬리 히스토그램·왜도·첨도")
+assert any(t.label == "①+ 요인 모형" for t in at.tabs)                                    # PCA·DY·TVP-VAR·FAVAR 새 탭
 at.button(key="vf_run").click().run(); check(at, "③ 변동성 예측 검증: 옥수수 경주")
 at.selectbox(key="vf_base").set_value("GARCH(1,1)").run(); check(at, "③ 변동성 예측 검증: DM 기준 GARCH")
 at.selectbox(key="vf_zm").set_value("HMM 3상태 λ").run(); check(at, "③ 변동성 예측 검증: HMM 잔차 진단")

@@ -25,6 +25,7 @@ MID = "#383835" if DARK else "#f0efec"
 # 발산형(DIV): 음수 = 보라·파랑 계열, 0 근처 = 초록, 양수 = 노랑·주황·빨강. 순차형(SEQ): 같은 무지개를 0→최대로.
 DIV = [[0.0, "#3b0f70"], [0.1, "#5a2ca0"], [0.2, "#2c5fd6"], [0.3, "#1fa3e0"], [0.4, "#26c6a6"], [0.5, "#5fcf4a"],
        [0.6, "#c9e02f"], [0.7, "#ffd52e"], [0.8, "#ff9a1f"], [0.9, "#e8381f"], [1.0, "#8e0a24"]]
+RDBU = [[0.0, "#2166ac"], [0.2, "#4393c3"], [0.4, "#92c5de"], [0.5, "#f7f7f7"], [0.6, "#f4a582"], [0.8, "#d6604d"], [1.0, "#b2182b"]]
 SEQ = [[0.0, "#3b0f70"], [0.12, "#2c5fd6"], [0.25, "#1fa3e0"], [0.37, "#26c6a6"], [0.5, "#5fcf4a"], [0.62, "#c9e02f"],
        [0.75, "#ffd52e"], [0.87, "#ff9a1f"], [1.0, "#e8381f"]]
 
@@ -222,13 +223,14 @@ def panel_or_stop(ids, transform="logret"):
 DEF_COMOVE = [i for i in ["yf:ZC=F", "yf:ZS=F", "yf:ZM=F", "yf:ZW=F", "yf:CL=F", "yf:HG=F", "yf:GC=F",
                           "ak:macro_shipping_bdi", "yf:SB=F", "yf:LE=F"] if i in NAME]
 
-tabs = st.tabs(["★ 구매 타이밍", "◆ 리스크 (VaR·꼬리)", "① 시장 구조·동조성", "② 레짐", "③ 변동성·공분산", "④ 수익률 예측", "⑤ 포트폴리오", "⑥ 실험 결과", "⑦ 모델 도감", "⑧ 데이터·방법론"])
+tabs = st.tabs(["★ 구매 타이밍", "◆ 리스크 (VaR·꼬리)", "① 시장 구조·동조성", "①+ 요인 모형", "② 레짐", "③ 변동성·공분산", "④ 수익률 예측", "⑤ 포트폴리오", "⑥ 실험 결과", "⑦ 모델 도감", "⑧ 데이터·방법론"])
 
 # ============================================================================
 # ① 동조성
 # ============================================================================
 def tab_comove():
     st.subheader("원자재 간 동조성 (Co-movement)")
+    st.caption("상관 · 꼬리 의존 · 시간에 따른 동조성(평균 상관 · 흡수비율). 주성분 · 스필오버 · TVP-VAR · FAVAR는 '①+ 요인 모형' 탭으로 이동.")
     ids = st.multiselect("분석 품목", ALL_IDS, default=DEF_COMOVE, format_func=lbl, key="cm_ids")
     R = panel_or_stop(ids)
     if R is None:
@@ -279,61 +281,6 @@ def tab_comove():
         f.add_hline(y=0, line_color="#898781", line_width=1)
         st.plotly_chart(shade(fig_layout(f, 300, title=f"롤링 상관: {short(a)} vs {short(b)}"), rc.index), key="pair")
 
-    st.markdown("##### 주성분 분석 (PCA)")
-    ev, load, scores = A.pca(R)
-    k = min(4, R.shape[1])
-    cp = st.columns([1, 2])
-    f = go.Figure(go.Bar(x=[f"PC{i+1}" for i in range(len(ev))], y=ev * 100, marker_color=PAL[0], name="설명력"))
-    f.add_trace(go.Scatter(x=[f"PC{i+1}" for i in range(len(ev))], y=np.cumsum(ev) * 100, name="누적",
-                           line=dict(color=PAL[1], width=2)))
-    cp[0].plotly_chart(fig_layout(f, 380, title="Scree (설명분산 %)", hovermode="x"), key="scree")
-    cp[1].plotly_chart(heat(load.iloc[:, :k].T, "적재값 (Loadings) — PC1≈공통 원자재 요인", h=380), key="load")
-    pcs = scores["PC1"].cumsum()
-    f = go.Figure(go.Scatter(x=pcs.index, y=pcs.values, line=dict(color=PAL[0], width=2), name="PC1 누적 점수"))
-    st.plotly_chart(shade(fig_layout(f, 280, title="PC1 누적 점수 (공통요인 '지수')"), pcs.index), key="pc1")
-
-    st.markdown("##### Diebold-Yilmaz 스필오버 (연결성)")
-    st.caption("VAR + 일반화 예측오차분산분해(GFEVD). TO=해당 품목이 다른 품목에 주는 충격, FROM=받는 충격, NET>0이면 충격 전달자.")
-    d1, d2, d4 = st.columns(3)
-    p_dy = d1.number_input("VAR 시차 p", 1, 10, 2, key="dyp")
-    H_dy = d2.number_input("예측 기간 H", 2, 30, 10, key="dyh")
-    if d4.button("스필오버 계산", type="primary", key="dybtn"):
-        with st.spinner("VAR 추정 중..."):
-            st.session_state["dy"] = A.dy_spillover(R, int(p_dy), int(H_dy))
-    if "dy" in st.session_state:
-        tbl, tot = st.session_state["dy"]
-        x1, x2 = st.columns([3, 2])
-        core = tbl.iloc[:-2, :-1]
-        x1.plotly_chart(heat(core, f"스필오버 표 (%) — 총 스필오버 지수 {tot:.1f}% (대각 = 자기 몫, 색에서 제외)", 0, None,
-                             ".1f", scale=SEQ, text_max=12, nodiag=True), key="dyh_")
-        net = tbl.loc["NET (TO-FROM)"].iloc[:-1].sort_values()
-        f = go.Figure(go.Bar(x=net.values, y=[short(i) for i in net.index], orientation="h",
-                             marker_color=[PAL[0] if v >= 0 else PAL[1] for v in net.values]))
-        x2.plotly_chart(fig_layout(f, 420, title="NET 스필오버 (전달자 > 0 > 수신자)", hovermode="y"), key="dynet")
-        st.caption("전체 기간 정적 표. 시간에 따른 연결성은 아래 TVP-VAR (롤링창 선택에 좌우되던 롤링 DY는 v1.4.0에서 TVP-VAR로 대체).")
-
-    st.markdown("##### TVP-VAR 연결성 (롤링창 없음, Antonakakis-Chatziantoniou-Gabauer 2020)")
-    st.caption("VAR 계수가 매 시점 칼만필터(망각계수 κ1)로 갱신되고 공분산은 EWMA(κ2) → 시점별 일반화 FEVD. "
-               "롤링창 길이 선택에 결과가 좌우되는 DY 롤링의 약점 보완, 첫 60기간은 초기값 추정용.")
-    v1_, v2_, v3_, v4_ = st.columns(4)
-    tp = v1_.number_input("VAR 시차", 1, 4, 1, key="tvp_p")
-    tk1 = v2_.number_input("κ1 (계수 망각)", 0.90, 0.999, 0.99, 0.005, format="%.3f", key="tvp_k1", help="작을수록 계수가 빨리 변함")
-    tk2 = v3_.number_input("κ2 (공분산 EWMA)", 0.80, 0.999, 0.96, 0.005, format="%.3f", key="tvp_k2")
-    if v4_.button("TVP-VAR 연결성 계산", type="primary", key="tvpbtn"):
-        import regime as RG
-        with st.spinner("칼만필터 + 시점별 FEVD 계산 중..."):
-            st.session_state["tvp"] = RG.tvp_var_connectedness(R, int(tp), 10, float(tk1), float(tk2))
-    if "tvp" in st.session_state:
-        cn = st.session_state["tvp"]
-        f = go.Figure(go.Scatter(x=cn["tci"].index, y=cn["tci"].values, line=dict(color=PAL[6], width=2), name="TVP-VAR TCI"))
-        st.plotly_chart(shade(fig_layout(f, 320, title="총 연결성 지수 TCI (%, N/(N−1) 조정)"), cn["tci"].index), key="tvp_tci")
-        netm = cn["net"].resample("ME").mean() if len(cn["net"]) > 400 else cn["net"]
-        vmx = float(np.abs(netm.values).max()) or 1
-        f = go.Figure(go.Heatmap(z=netm.T.values, x=netm.index, y=[short(c) for c in netm.columns], zmin=-vmx, zmax=vmx,
-                                 colorscale=DIV, hovertemplate="%{y} %{x|%Y-%m}: %{z:.1f}<extra></extra>"))
-        f.update_layout(title="순 전이 (TO − FROM, 파랑 = 충격 전달자, 주황 = 수신자) — 월평균", height=120 + 26 * netm.shape[1],
-                        margin=dict(l=10, r=10, t=40, b=10))
-        st.plotly_chart(f, key="tvp_net")
 
 # ============================================================================
 # ② 변동성 · 레버리지
@@ -545,8 +492,10 @@ def _rv_hmm(X, tgt, K, cov, F, comm, macro, fmt):
                 Cs.append(sub.corr()); ts_.append(f"{c} ({len(sub)}개)")
         if len(Cs) >= 2:
             Cs.append(Cs[-1] - Cs[0]); ts_.append(f"차이 ({ts_[-1].split(' ')[0]} − {ts_[0].split(' ')[0]})")
-            st.plotly_chart(heat_row(Cs, ts_, [(-1, 1)] * (len(Cs) - 1) + [(-0.6, 0.6)], groups=[1] * (len(Cs) - 1) + [2],
-                                     h=170 + 26 * len(rc), text_max=0), key="rv_fig_corr")
+            fc_ = heat_row(Cs, ts_, [(-1, 1)] * (len(Cs) - 1) + [(-0.6, 0.6)], scales=[RDBU] * len(Cs), groups=[1] * (len(Cs) - 1) + [2],
+                           fmt=".1f", h=220 + 34 * len(rc), text_max=30)
+            fc_.update_traces(textfont=dict(size=10, color="#111"))
+            st.plotly_chart(fc_, key="rv_fig_corr")
             st.caption("국면별 상관 — 모델이 찾은 국면 안에서 변수들이 얼마나 같이 움직이는가 (① 시장 구조의 '평시 vs 위기'는 달력으로 정한 위기 구간, "
                        "여기는 데이터가 정한 국면). 마지막 칸 = 마지막 레짐(Y 강세) − 레짐1(Y 약세): 빨강이면 Y 강세 국면에서 같이 움직임이 커짐 → 분산 효과 감소.")
     st.caption(f"레짐1 = {fmt(tgt)} 평균 수익률이 가장 낮은 국면 → 마지막 레짐 = 가장 높은 국면. 위 음영·프로파일은 전 기간 추정(설명용, 미래 자료 포함 평활). "
@@ -2538,6 +2487,29 @@ def tab_risk():
             st.dataframe(TS.style.format("{:.3f}", na_rep="–"))
             st.caption("Hill α = 꼬리 지수 (작을수록 두꺼운 꼬리, 2~4가 원자재 전형; 정규분포는 무한대). 표준화 잔차의 초과첨도·|z|>3 비율은 "
                        "변동성 군집을 걸러낸 뒤에도 남는 꼬리 → 정규 VaR가 과소추정하는 이유. (표준화 잔차 항목은 위에서 추정한 품목만)")
+            from scipy import stats as _ss
+            SK = pd.DataFrame({short(i): {"왜도": _ss.skew(Rt[i].dropna()), "초과첨도": _ss.kurtosis(Rt[i].dropna())} for i in tids}).T
+            hb1, hb2 = st.columns(2)
+            f = go.Figure(go.Bar(x=SK.index, y=SK["왜도"], marker_color=[PAL[0] if v >= 0 else PAL[1] for v in SK["왜도"]]))
+            f.add_hline(y=0, line_color="#898781")
+            hb1.plotly_chart(fig_layout(f, 300, title="왜도 (− = 급락 꼬리가 김 · + = 급등 꼬리가 김)", hovermode="x"), key="rk_skew")
+            f = go.Figure(go.Bar(x=SK.index, y=SK["초과첨도"], marker_color=PAL[6]))
+            hb2.plotly_chart(fig_layout(f, 300, title="초과첨도 (0 = 정규분포, 클수록 극단값 잦음)", hovermode="x"), key="rk_kurt")
+            hi = st.selectbox("수익률 분포 (히스토그램)", tids, 0, format_func=short, key="rk_hist")
+            x_ = Rt[hi].dropna()
+            mu_, sd_ = float(x_.mean()), float(x_.std())
+            lg_ = st.checkbox("세로축 로그 (꼬리 확대)", True, key="rk_hlog")
+            f = go.Figure(go.Histogram(x=x_, nbinsx=120, histnorm="probability density", marker_color=PAL[0], opacity=0.75, name="실제 분포"))
+            gx = np.linspace(x_.min(), x_.max(), 400)
+            f.add_trace(go.Scatter(x=gx, y=_ss.norm.pdf(gx, mu_, sd_), line=dict(color=PAL[1], width=2), name="같은 평균·표준편차의 정규분포"))
+            for qv, nm_ in [(x_.quantile(0.01), "하위 1%"), (x_.quantile(0.99), "상위 1%")]:
+                f.add_vline(x=qv, line_dash="dot", line_color="#898781", annotation_text=f"{nm_} {qv:+.1f}%")
+            f.update_yaxes(type="log" if lg_ else "linear")
+            jb = _ss.jarque_bera(x_)
+            st.plotly_chart(fig_layout(f, 360, title=f"{short(hi)} 일간 수익률 분포 — 왜도 {_ss.skew(x_):+.2f} · 초과첨도 {_ss.kurtosis(x_):.1f} · "
+                                                     f"Jarque-Bera p {jb.pvalue:.1e} · |r| > 3σ 비율 {(np.abs(x_ - mu_) > 3 * sd_).mean():.2%} (정규 0.27%)",
+                                       hovermode="x", bargap=0), key="rk_hist_fig")
+            st.caption("막대가 빨간 정규 곡선보다 가운데는 뾰족하고 양 끝(꼬리)은 더 두꺼우면 '팻테일' — 정규분포를 가정한 VaR가 큰 손실을 과소평가함. 로그 축에서 꼬리 차이가 잘 보임.")
         p_ = _levels(extra_bytes, ROLL)[rid_].dropna().loc[str(start):str(end)]
         dd = RK.drawdown(p_)
         st.markdown(f"##### {short(rid_)} 낙폭·급등 · 최악 구간 (롤 보정 가격)")
@@ -3421,10 +3393,82 @@ def tab_experiments():
                    "(폭락 후 반등을 놓침). MIDAS·HAR 예측이 목표를 가장 정확히 맞춤.")
 
 
+def tab_factor():
+    st.subheader("요인 모형 — 주성분 · 스필오버(연결성) · TVP-VAR · FAVAR")
+    st.caption("여러 시장의 움직임을 소수의 공통 요인이나 '충격이 누구에게서 누구로 퍼지나'로 요약. 거시 변수는 변화율(금리·스프레드는 차분, 나머지는 로그수익률)로 함께 넣음.")
+    f1_, f2_ = st.columns([3, 2])
+    ids = f1_.multiselect("원자재", COMMOD_IDS, default=[i for i in DEF_COMOVE if i in COMMOD_IDS], format_func=lbl, key="fm_ids")
+    mac_opts = [i for i in ALL_IDS if GROUP.get(i) in ("Macro", "FX", "FRED daily")]
+    macs = f2_.multiselect("거시 변수 (PCA · 스필오버 · TVP-VAR에 함께 반영)", mac_opts, [i for i in ["fred:VIXCLS", "yf:DX-Y.NYB", "fred:DGS10"] if i in mac_opts],
+                           format_func=lbl, key="fm_macro", help="레짐 탭과 같은 거시 변수 목록. VAR는 정상 시계열이 필요해 수준 대신 변화로 넣음")
+    R = panel_or_stop(ids + [m for m in macs if m not in ids])
+    if R is None:
+        return
+    st.markdown("##### 주성분 분석 (PCA)")
+    ev, load, scores = A.pca(R)
+    k = min(4, R.shape[1])
+    cp = st.columns([1, 2])
+    f = go.Figure(go.Bar(x=[f"PC{i+1}" for i in range(len(ev))], y=ev * 100, marker_color=PAL[0], name="설명력"))
+    f.add_trace(go.Scatter(x=[f"PC{i+1}" for i in range(len(ev))], y=np.cumsum(ev) * 100, name="누적",
+                           line=dict(color=PAL[1], width=2)))
+    cp[0].plotly_chart(fig_layout(f, 380, title="Scree (설명분산 %)", hovermode="x"), key="scree")
+    cp[1].plotly_chart(heat(load.iloc[:, :k].T, "적재값 (Loadings) — PC1≈공통 원자재 요인", h=380), key="load")
+    pcs = scores["PC1"].cumsum()
+    f = go.Figure(go.Scatter(x=pcs.index, y=pcs.values, line=dict(color=PAL[0], width=2), name="PC1 누적 점수"))
+    st.plotly_chart(shade(fig_layout(f, 280, title="PC1 누적 점수 (공통요인 '지수')"), pcs.index), key="pc1")
+
+    st.markdown("##### Diebold-Yilmaz 스필오버 (연결성)")
+    st.caption("VAR + 일반화 예측오차분산분해(GFEVD). TO=해당 품목이 다른 품목에 주는 충격, FROM=받는 충격, NET>0이면 충격 전달자.")
+    d1, d2, d4 = st.columns(3)
+    p_dy = d1.number_input("VAR 시차 p", 1, 10, 2, key="dyp")
+    H_dy = d2.number_input("예측 기간 H", 2, 30, 10, key="dyh")
+    if d4.button("스필오버 계산", type="primary", key="dybtn"):
+        with st.spinner("VAR 추정 중..."):
+            st.session_state["dy"] = A.dy_spillover(R, int(p_dy), int(H_dy))
+    if "dy" in st.session_state:
+        tbl, tot = st.session_state["dy"]
+        x1, x2 = st.columns([3, 2])
+        core = tbl.iloc[:-2, :-1]
+        x1.plotly_chart(heat(core, f"스필오버 표 (%) — 총 스필오버 지수 {tot:.1f}% (대각 = 자기 몫, 색에서 제외)", 0, None,
+                             ".1f", scale=SEQ, text_max=12, nodiag=True), key="dyh_")
+        net = tbl.loc["NET (TO-FROM)"].iloc[:-1].sort_values()
+        f = go.Figure(go.Bar(x=net.values, y=[short(i) for i in net.index], orientation="h",
+                             marker_color=[PAL[0] if v >= 0 else PAL[1] for v in net.values]))
+        x2.plotly_chart(fig_layout(f, 420, title="NET 스필오버 (전달자 > 0 > 수신자)", hovermode="y"), key="dynet")
+        st.caption("전체 기간 정적 표. 시간에 따른 연결성은 아래 TVP-VAR (롤링창 선택에 좌우되던 롤링 DY는 v1.4.0에서 TVP-VAR로 대체).")
+
+    st.markdown("##### TVP-VAR 연결성 (롤링창 없음, Antonakakis-Chatziantoniou-Gabauer 2020)")
+    st.caption("VAR 계수가 매 시점 칼만필터(망각계수 κ1)로 갱신되고 공분산은 EWMA(κ2) → 시점별 일반화 FEVD. "
+               "롤링창 길이 선택에 결과가 좌우되는 DY 롤링의 약점 보완, 첫 60기간은 초기값 추정용.")
+    v1_, v2_, v3_, v4_ = st.columns(4)
+    tp = v1_.number_input("VAR 시차", 1, 4, 1, key="tvp_p")
+    tk1 = v2_.number_input("κ1 (계수 망각)", 0.90, 0.999, 0.99, 0.005, format="%.3f", key="tvp_k1", help="작을수록 계수가 빨리 변함")
+    tk2 = v3_.number_input("κ2 (공분산 EWMA)", 0.80, 0.999, 0.96, 0.005, format="%.3f", key="tvp_k2")
+    if v4_.button("TVP-VAR 연결성 계산", type="primary", key="tvpbtn"):
+        import regime as RG
+        with st.spinner("칼만필터 + 시점별 FEVD 계산 중..."):
+            st.session_state["tvp"] = RG.tvp_var_connectedness(R, int(tp), 10, float(tk1), float(tk2))
+    if "tvp" in st.session_state:
+        cn = st.session_state["tvp"]
+        f = go.Figure(go.Scatter(x=cn["tci"].index, y=cn["tci"].values, line=dict(color=PAL[6], width=2), name="TVP-VAR TCI"))
+        st.plotly_chart(shade(fig_layout(f, 320, title="총 연결성 지수 TCI (%, N/(N−1) 조정)"), cn["tci"].index), key="tvp_tci")
+        netm = cn["net"].resample("ME").mean() if len(cn["net"]) > 400 else cn["net"]
+        vmx = float(np.abs(netm.values).max()) or 1
+        f = go.Figure(go.Heatmap(z=netm.T.values, x=netm.index, y=[short(c) for c in netm.columns], zmin=-vmx, zmax=vmx,
+                                 colorscale=DIV, hovertemplate="%{y} %{x|%Y-%m}: %{z:.1f}<extra></extra>"))
+        f.update_layout(title="순 전이 (TO − FROM, 파랑 = 충격 전달자, 주황 = 수신자) — 월평균", height=120 + 26 * netm.shape[1],
+                        margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(f, key="tvp_net")
+
+
 def page_structure():
-    a, b = st.tabs(["상관 · PCA · 스필오버 · TVP-VAR", "FAVAR (요인 충격의 전파)"])
+    tab_comove()
+
+
+def page_factor():
+    a, b = st.tabs(["주성분 · 스필오버 · TVP-VAR", "FAVAR (요인 충격의 전파)"])
     with a:
-        tab_comove()
+        tab_factor()
     with b:
         tab_favar()
 
@@ -3477,6 +3521,19 @@ def tab_ls():
     st.caption("주간 금요일 종가로 결정 → 다음 주 수익률로 손익 (그 시점까지의 정보만 사용) · 비용 = 비중 변화량 × 편도 비용. "
                "① 페어 평균회귀 = 관계가 강한 두 품목의 가격차가 평소보다 벌어지면 되돌림에 베팅 · ② 상관 급등 = 품목들이 한 방향으로 묶이기 시작하면(흡수비율↑) 동반 하락 대비 · "
                "③ 국면 진입 = 다변량 HMM 스트레스 국면 확률 > 0.5 이면 위험 회피 · ④ 시계열 모멘텀 = 품목별 52주 추세 방향 (CTA의 기본 전략) · ⑤ 횡단면 모멘텀 = 강한 품목 롱 · 약한 품목 숏")
+    with st.expander("헤지펀드·CTA가 원자재에서 흔히 쓰는 전략과 이 화면의 범위"):
+        st.markdown("""
+| 전략 | 핵심 | 여기서 | 비고 |
+|---|---|---|---|
+| **시계열 모멘텀 (추세추종, CTA)** | 품목별 과거 수익률 부호대로 롱/숏, 변동성 역비례 | ④ | 100년 이상 자료에서 확인된 대표 전략 (Hurst-Ooi-Pedersen) |
+| **횡단면 모멘텀** | 강한 품목 롱 · 약한 품목 숏 | ⑤ | 원자재에서는 추세보다 약하고 기간 의존 |
+| **캐리 (기간구조)** | 백워데이션 품목 롱 · 콘탱고 품목 숏 | – | v1.14.0 검증(에너지 음수·중국 약한 양수)에서 견고하지 않아 화면에서 제외 (`collect_carry.py`·`LS.run_carry`는 남김) |
+| **페어 · 스프레드 차익** | 크러시·크랙·곡물 비율 등 관계의 평균회귀 | ① | 비용·관계 붕괴(구조 변화)에 취약 |
+| **상관 · 위험 국면 타이밍** | 흡수비율·VIX·신용 스프레드로 위험 축소 | ② ③ | 수익보다 낙폭 축소 목적 |
+| **가치 (장기 역추세)** | 5년 평균 대비 크게 싼 품목 롱 | – | ★ 구매 점수의 '가격 위치'와 비슷한 아이디어 |
+| **펀더멘털 · 포지션** | 재고·작황·COT 극단에서 역방향 | – | 펀더멘털 표는 참고용 (예측력 미재현) |
+| **변동성 · 분산(dispersion)** | 옵션 내재변동성·상관 프리미엄 | ✗ | 옵션 자료 없음 |
+""")
     c1, c2, c3 = st.columns([1, 1, 2])
     cost = c1.number_input("편도 비용 (bp)", 0.0, 50.0, 5.0, 1.0, key="ls_cost")
     hmm = c2.checkbox("HMM 스트레스 국면 포함 (+20초)", True, key="ls_hmm")
@@ -3504,10 +3561,13 @@ def tab_ls():
         st.plotly_chart(shade(fig_layout(f, 380, title="누적 수익 (%, 로그 합)", hovermode="x"), D.index), key="ls_cum")
     with st.expander("① 페어별 성과 · 스프레드 z 점수"):
         PB = o["pairs"].get("pairs_b")
+        import procurement as PR
+        kn = lambda c: PR.BUY_IDS.get(f"yf:{c}", NAME.get(f"yf:{c}", c))
         if PB is not None and len(PB):
+            PB = PB.copy(); PB["페어"] = PB["페어"].map(lambda x: " / ".join(kn(c) for c in x.split("/")))
             st.dataframe(PB.set_index("페어").style.format({"보유 비율": "{:.0%}", "Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}"}))
             st.caption("상관 필터(52주 수익률 상관 > 0.5) 버전. 몇 개 페어가 양수여도 12개 중 결과를 보고 고르면 과적합 — 페어 전체 평균(위 표 ①)이 판단 기준.")
-        pr = st.selectbox("페어", [f"{a}|{b}" for a, b in LS.PAIRS if a in o["P"] and b in o["P"]], format_func=lambda x: " / ".join(short(i) for i in x.split("|")), key="ls_pair")
+        pr = st.selectbox("페어", [f"{a}|{b}" for a, b in LS.PAIRS if a in o["P"] and b in o["P"]], format_func=lambda x: " / ".join(PR.BUY_IDS.get(i, short(i)) for i in x.split("|")), key="ls_pair")
         a, b = pr.split("|")
         W, z = LS.pair_weights(o["P"], a, b, rho_min=0.5)
         f = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.6, 0.4], vertical_spacing=0.06,
@@ -3559,21 +3619,9 @@ def tab_ls():
             f.add_trace(go.Scatter(x=DB.index, y=DB[c].cumsum(), name=c, line=dict(color=PAL[j % 8], width=2.2 if c.startswith("혼합") else 1.3)))
         st.plotly_chart(fig_layout(f, 320, title="누적 수익 (%, 모두 목표 변동성 10%)", hovermode="x"), key="ls_alloc_rb")
         st.caption("생우·금·돈육을 모두 빼면 MinVar Sharpe가 절반으로 떨어짐 → 성과의 상당 부분이 그 세 품목(이 기간 저변동·상승) 덕. "
-                   "상한을 낮춰 집중을 줄이면 Sharpe가 단계적으로 내려감. MinVar와 모멘텀은 상관이 낮아(약 0.2) 반반 섞으면 "
-                   "두 하위기간 모두 0.7 안팎으로 가장 고르게 나옴.")
-    with st.expander("헤지펀드·CTA가 원자재에서 흔히 쓰는 전략과 이 화면의 범위"):
-        st.markdown("""
-| 전략 | 핵심 | 여기서 | 비고 |
-|---|---|---|---|
-| **시계열 모멘텀 (추세추종, CTA)** | 품목별 과거 수익률 부호대로 롱/숏, 변동성 역비례 | ④ | 100년 이상 자료에서 확인된 대표 전략 (Hurst-Ooi-Pedersen) |
-| **횡단면 모멘텀** | 강한 품목 롱 · 약한 품목 숏 | ⑤ | 원자재에서는 추세보다 약하고 기간 의존 |
-| **캐리 (기간구조)** | 백워데이션 품목 롱 · 콘탱고 품목 숏 | – | v1.14.0 검증(에너지 음수·중국 약한 양수)에서 견고하지 않아 화면에서 제외 (`collect_carry.py`·`LS.run_carry`는 남김) |
-| **페어 · 스프레드 차익** | 크러시·크랙·곡물 비율 등 관계의 평균회귀 | ① | 비용·관계 붕괴(구조 변화)에 취약 |
-| **상관 · 위험 국면 타이밍** | 흡수비율·VIX·신용 스프레드로 위험 축소 | ② ③ | 수익보다 낙폭 축소 목적 |
-| **가치 (장기 역추세)** | 5년 평균 대비 크게 싼 품목 롱 | – | ★ 구매 점수의 '가격 위치'와 비슷한 아이디어 |
-| **펀더멘털 · 포지션** | 재고·작황·COT 극단에서 역방향 | – | 펀더멘털 표는 참고용 (예측력 미재현) |
-| **변동성 · 분산(dispersion)** | 옵션 내재변동성·상관 프리미엄 | ✗ | 옵션 자료 없음 |
-""")
+                   "상한을 낮춰 집중을 줄이면 Sharpe가 단계적으로 내려감. MinVar와 모멘텀은 상관이 낮아(약 0.2) 섞으면 하위기간 간 차이가 줄어듦 — "
+                   "혼합 비율 = 두 전략(각 변동성 10%)에 주는 비중, 섞은 뒤 다시 10%로 배율.")
+
 
 
 def page_portfolio():
@@ -3592,6 +3640,6 @@ def page_atlas():
         st.info("모델 도감 준비 중")
 
 
-for _t, _fn in zip(tabs, [tab_procure, tab_risk, page_structure, tab_regime, page_vol, page_predict, page_portfolio, tab_experiments, page_atlas, tab_data]):
+for _t, _fn in zip(tabs, [tab_procure, tab_risk, page_structure, page_factor, tab_regime, page_vol, page_predict, page_portfolio, tab_experiments, page_atlas, tab_data]):
     with _t:
         _fn()
