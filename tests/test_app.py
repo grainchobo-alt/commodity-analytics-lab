@@ -76,7 +76,8 @@ assert any("지금 국면" in m.label for m in at.metric)
 at.button(key="rv_bt_run").click().run(); check(at, "② 레짐: walk-forward 백테스트 (4개 변수 묶음)")
 at.radio(key="rv_k").set_value(2).run(); check(at, "② 레짐: 2국면")
 for m in ["Markov-switching 회귀", "Kalman TVP", "Threshold 회귀 (TAR)", "STAR (평활 전이)"]:
-    at.selectbox(key="rv_model").set_value(m).run(); at.button(key="rv_reg_run").click().run(); check(at, f"  ② 레짐 회귀: {m}")
+    at.selectbox(key="rv_model").set_value(m).run(); at.button(key="rv_reg_run").click().run(); check(at, f"  ② 레짐 회귀 (예측): {m}")
+at.radio(key="rv_mode").set_value("설명 (동시점 베타)").run(); at.button(key="rv_reg_run").click().run(); check(at, "  ② 레짐 회귀 (설명): STAR")
 at.selectbox(key="rv_model").set_value("Hidden Markov (다변량 레짐)").run()
 at.radio(key="rv_fq").set_value("월간 (세계은행, 1990–)").run(); check(at, "② 레짐: 월간 1990– (세계은행 + 거시)")
 at.radio(key="rv_fq").set_value("주간 (선물, 2000–)").run()
@@ -95,10 +96,9 @@ at.button(key="mg_bbtn").click().run(); check(at, "BEKK Diagonal")
 
 # 설명 모드: 전 모델
 assert at.multiselect(key="models").value == A.CORE_MODELS and len(A.CORE_MODELS) <= 8
-at.multiselect(key="models").set_value(A.CORE_MODELS).run()
-at.multiselect(key="models_adv").set_value(A.ADV_MODELS).run()
+at.multiselect(key="models").set_value(A.CORE_MODELS + A.ADV_MODELS).run()                  # 한 목록에서 전체 선택
 at.button(key="runml").click().run(); check(at, "전 모델 실행 (설명)")
-for m in A.MODEL_LIST + ["앙상블 (단순평균)"]:
+for m in A.PREDICT_MODELS + ["앙상블 (단순평균)"]:
     at.selectbox(key="mlsel").set_value(m).run(); check(at, f"  상세: {m}")
 at.selectbox(key="mlsel").set_value("LightGBM").run()
 at.selectbox(key="shap_dep").set_value(at.selectbox(key="shap_dep").options[1]).run(); check(at, "  LightGBM SHAP 의존도")
@@ -107,11 +107,11 @@ for m in ["LightGBM", "Gaussian Process", "Ridge"]:
     at.button(key="cf_run").click().run(); check(at, f"  Conformal 구간: {m}")
 # 예측 모드
 at.radio(key="mode").set_value("예측 (미래 수익률)").run()
-at.multiselect(key="models").set_value(["OLS", "Lasso", "Kalman TVP", "Hidden Markov (HMM)"]).run()
-at.multiselect(key="models_adv").set_value(["MCP", "Gradient Boosting"]).run()
+at.multiselect(key="models").set_value(["OLS", "Lasso", "Elastic Net", "PLS (부분최소제곱)", "MCP", "Gradient Boosting"]).run()
 at.button(key="runml").click().run(); check(at, "예측 모드 실행")
 assert any(str(i).startswith("위약 · 모델 7개 중 최댓값") for d in at.dataframe for i in getattr(d.value, "index", [])), "위약 기준선 행 없음"
-at.selectbox(key="mlsel").set_value("Hidden Markov (HMM)").run(); check(at, "  상세: HMM (예측 모드)")
+at.selectbox(key="mlsel").set_value("PLS (부분최소제곱)").run(); check(at, "  상세: PLS (예측 모드)")
+assert not set(A.REGIME_SET) & set(A.CORE_MODELS + A.ADV_MODELS)                 # 레짐·시변 모델은 ② 레짐 탭에서만
 at.number_input(key="band").set_value(0.5).run()
 at.button(key="runml").click().run(); check(at, "예측 모드: 무거래 구간 c=0.5")
 at.number_input(key="band").set_value(0.0).run()
@@ -120,8 +120,7 @@ at.button(key="runml").click().run(); check(at, "예측 모드 h=4 (겹침 제�
 at.number_input(key="hor").set_value(1).run()
 at.multiselect(key="fk").set_value(["모멘텀", "실현변동성", "계절성", "COT 헤징압력"]).run()
 at.checkbox(key="wf").check().run()
-at.multiselect(key="models").set_value(["OLS", "Ridge", "Lasso", "Hidden Markov (HMM)"]).run()
-at.multiselect(key="models_adv").set_value([]).run()
+at.multiselect(key="models").set_value(["OLS", "Ridge", "Lasso", "Elastic Net"]).run()
 at.button(key="runml").click().run(); check(at, "추가 특성 + Walk-forward")
 import runlog as RL
 RR = RL.load_registry(); assert len(RR) >= 4 and RR.iloc[0]["WF Sharpe(비용 후)"] == RR.iloc[0]["WF Sharpe(비용 후)"], "walk-forward 실행이 기록되지 않음"
@@ -142,8 +141,8 @@ at.checkbox(key="vs").check().run()
 at.button(key="runml").click().run(); check(at, "목표 변동성 표준화")
 at.checkbox(key="vs").uncheck().run(); at.checkbox(key="wf").uncheck().run()
 at.button(key="runml").click().run()
-at.multiselect(key="ms_models").set_value(["OLS", "Ridge", "Kalman TVP"]).run()
-at.button(key="ms_run").click().run(); check(at, "④ 모델 선택 메타 전략 (OLS·Ridge·Kalman, 주간)")
+at.multiselect(key="ms_models").set_value(["OLS", "Ridge", "Elastic Net"]).run()
+at.button(key="ms_run").click().run(); check(at, "④ 모델 선택 메타 전략 (OLS·Ridge·Elastic Net, 주간)")
 at.button(key="statbtn").click().run(); check(at, "정상성 진단")
 
 at.button(key="pf_run").click().run(); check(at, "포트폴리오: 모멘텀·롱온리 (주간)")

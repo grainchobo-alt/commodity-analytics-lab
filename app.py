@@ -528,6 +528,22 @@ def _rv_hmm(X, tgt, K, cov, F, comm, macro, fmt):
     g1.plotly_chart(fp, key="rv_fig_prof")
     g2.plotly_chart(heat(d["trans"], "전이행렬 — 이번 국면(행) → 다음 기간 국면(열)", 0, 1, fmt=".2f", h=330, scale=SEQ), key="rv_fig_tr")
     g2.dataframe(S.style.format({"Y 평균 수익률": "{:+.3f}", "Y 변동성": "{:.2f}", "유지확률": "{:.1%}", "기대 지속 (기간)": "{:.1f}", "비중": "{:.0%}"}))
+    # ③-2 국면별 상관 (수익률·변화 변수만 — 수준 변수의 상관은 의미가 약해 제외)
+    rc = [c for c in X.columns if c in comm or RM.MACRO.get(c, ("", "ret"))[1] in ("ret", "diff")]
+    if len(rc) >= 3:
+        lab_ = pd.Series(G.values.argmax(1), index=G.index)
+        Cs, ts_ = [], []
+        Xr = X[rc].rename(columns=RM.label)
+        for j, c in enumerate(G.columns):
+            sub = Xr[lab_.values == j]
+            if len(sub) >= 20:
+                Cs.append(sub.corr()); ts_.append(f"{c} ({len(sub)}개)")
+        if len(Cs) >= 2:
+            Cs.append(Cs[-1] - Cs[0]); ts_.append(f"차이 ({ts_[-1].split(' ')[0]} − {ts_[0].split(' ')[0]})")
+            st.plotly_chart(heat_row(Cs, ts_, [(-1, 1)] * (len(Cs) - 1) + [(-0.6, 0.6)], groups=[1] * (len(Cs) - 1) + [2],
+                                     h=170 + 26 * len(rc), text_max=0), key="rv_fig_corr")
+            st.caption("국면별 상관 — 모델이 찾은 국면 안에서 변수들이 얼마나 같이 움직이는가 (① 시장 구조의 '평시 vs 위기'는 달력으로 정한 위기 구간, "
+                       "여기는 데이터가 정한 국면). 마지막 칸 = 마지막 레짐(Y 강세) − 레짐1(Y 약세): 빨강이면 Y 강세 국면에서 같이 움직임이 커짐 → 분산 효과 감소.")
     st.caption(f"레짐1 = {fmt(tgt)} 평균 수익률이 가장 낮은 국면 → 마지막 레짐 = 가장 높은 국면. 위 음영·프로파일은 전 기간 추정(설명용, 미래 자료 포함 평활). "
                "백테스트는 아래처럼 매년 그 이전 자료로만 재추정 + 실시간 필터.")
     # ④ walk-forward 백테스트
@@ -570,7 +586,8 @@ def _rv_reg(X, tgt, model, K, F):
     thr_def = "fred:VIXCLS" if "fred:VIXCLS" in others else others[0]
     e1, e2 = st.columns(2)
     thr = e1.selectbox("TAR·STAR 문턱 변수", others, others.index(thr_def), format_func=RM.label, key="rv_thr")
-    mode = e2.radio("분석 목적", ["설명 (동시점 베타)", "예측 (다음 기간)"], horizontal=True, key="rv_mode")
+    mode = e2.radio("분석 목적", ["예측 (다음 기간)", "설명 (동시점 베타)"], horizontal=True, key="rv_mode",
+                    help="예측 = 이번 기간 정보로 다음 기간 Y 수익률 (구매 판단용, 학습 70%·테스트 30%). 설명 = 같은 기간 관계(국면별 베타·헤지 비율)")
     md = "explain" if mode.startswith("설명") else "predict"
     hp_ = dict(thr_var=thr, ms_k=int(min(K, 3)), ms_pc=3, tar_boot=199, hmm_states=int(K), hmm_cov="full", kalman_q=1e-4, mode=md)
     if st.button(f"▶ {model} 실행", type="primary", key="rv_reg_run"):
@@ -1075,7 +1092,7 @@ def _restore_ml(cfg):
     ss["tgt"] = cfg["대상"]; ss["feats"] = [f for f in cfg["설명변수"] if f in NAME and f != cfg["대상"]]
     ss["mode"] = "설명 (동시점 베타)" if cfg["목적"] == "explain" else "예측 (미래 수익률)"
     ss["lags"], ss["hor"], ss["own"], ss["trf"] = int(cfg["시차"]), int(cfg["예측기간"]), bool(cfg["자기시차"]), float(cfg["학습비중"])
-    ss["models"] = [m for m in cfg["모델"] if m in A.CORE_MODELS]; ss["models_adv"] = [m for m in cfg["모델"] if m in A.ADV_MODELS]
+    ss["models"] = [m for m in cfg["모델"] if m in A.PREDICT_MODELS]
     ss["fk"] = list(cfg["추가특성"]); ss["vs"] = bool(cfg["변동성표준화"]); ss["wf"] = bool(cfg["walk_forward"])
     ss["wf_step"] = int(cfg["재추정주기"]); ss["cost"] = float(cfg["비용bp"]); ss["band"] = float(cfg["무거래c"]); ss["xlag"] = bool(cfg["비동기보정"])
     ss["hmm_k"] = int(cfg.get("hp", {}).get("hmm_states", 0))
@@ -1093,7 +1110,7 @@ def tab_ml():
     a1, a2 = st.columns([1, 2])
     tgt = a1.selectbox("종속변수 (Y)", ALL_IDS, ALL_IDS.index("yf:ZC=F") if "yf:ZC=F" in ALL_IDS else 0, format_func=lbl, key="tgt")
     feat_def = [i for i in ["yf:ZS=F", "yf:ZM=F", "yf:ZW=F", "yf:CL=F", "yf:HG=F", "yf:GC=F", "ak:macro_shipping_bdi",
-                            "yf:DX-Y.NYB", "fred:VIXCLS", "fred:DGS10", "yf:^GSPC"] if i in NAME and i != tgt]
+                            "yf:DX-Y.NYB", "fred:VIXCLS", "fred:DGS10", "fred:DTB3", "fred:BAA10Y", "yf:^GSPC"] if i in NAME and i != tgt]
     feats = a2.multiselect("설명변수 (X)", [i for i in ALL_IDS if i != tgt], default=feat_def, format_func=lbl, key="feats")
     b1, b2, b3, b4, b5 = st.columns(5)
     mode = b1.radio("분석 목적", ["설명 (동시점 베타)", "예측 (미래 수익률)"], key="mode",
@@ -1105,11 +1122,11 @@ def tab_ml():
                           help="'얼마나 앞'을 맞힐지. h=4(주간)이면 다음 4주 누적수익률(t+1~t+4)이 목표 (앞을 보는 창). h>1은 관측치가 겹치므로 지표는 겹침을 제거해 계산.")
     own = b4.checkbox("Y 자기시차 포함", True, disabled=md == "explain", key="own")
     trf = b5.slider("학습 비중", 0.5, 0.9, 0.7, 0.05, key="trf")
-    models = st.multiselect(f"모델 선택 (모형군별 대표 {len(A.CORE_MODELS)}개)", A.CORE_MODELS, default=A.CORE_MODELS, key="models",
-                            help="기준 OLS · 축소 Ridge · 변수 선택 Lasso · 요인 PLS · 시변 계수 Kalman · 레짐 HMM · 부스팅 LightGBM")
-    with st.expander(f"고급: 추가 모델 {len(A.ADV_MODELS)}개 (벌점 회귀 변형 · 밀집 요인 · 베이즈 · 레짐 회귀 · 커널 · LSTM)"):
-        models = models + st.multiselect("추가 모델", A.ADV_MODELS, default=[], key="models_adv")
-        st.caption("모델을 많이 돌릴수록 '그중 최고'의 성과는 운만으로도 높아집니다 — 성과 표의 '위약 · 모델 N개 중 최댓값' 기준선과 비교하세요.")
+    models = st.multiselect(f"모델 선택 (전체 {len(A.PREDICT_MODELS)}개 · 기본 = 모형군별 대표 {len(A.CORE_MODELS)}개)", A.CORE_MODELS + A.ADV_MODELS,
+                            default=A.CORE_MODELS, key="models",
+                            help="기본: 기준 OLS · 축소 Ridge · 변수 선택 Lasso · 결합 Elastic Net · 요인 PLS · 부스팅 GB·LightGBM. "
+                                 "추가로 벌점 회귀 변형(Adaptive Lasso·SCAD·MCP) · 밀집 요인 · 베이즈 · 트리 · 커널 · LSTM 선택 가능 "
+                                 "(레짐·시변 모델은 ② 레짐 탭). 모델을 많이 돌릴수록 '그중 최고'는 운만으로도 높아짐 → 성과 표의 '위약 · 모델 N개 중 최댓값'과 비교")
     f1, f2, f3, f4 = st.columns([3, 1.3, 1.3, 1])
     avail = [k for k in A.FEATURE_KINDS if not (k == "COT 헤징압력" and tgt not in A.COT_MAP)
              and not (k == "베이시스(캐리)" and tgt not in A.BASIS_MAP)]
@@ -1372,7 +1389,7 @@ def ml_meta():
         st.info("먼저 '예측 (미래 수익률)' 모드로 '▶ 모델 실행'을 누르세요."); return
     D, _, tgt_, _ = ml
     m1, m2, m3, m4 = st.columns([3, 1, 1, 1])
-    cands = m1.multiselect("후보 모델", [m for m in A.MODEL_LIST if m not in ("LSTM", "분위수 회귀")], MS.CANDIDATES, key="ms_models")
+    cands = m1.multiselect("후보 모델", [m for m in A.PREDICT_MODELS if m not in ("LSTM", "분위수 회귀")], MS.CANDIDATES, key="ms_models")
     nmo = m2.number_input("(a) 선택 창 (개월)", 1, 36, 6, key="ms_n")
     hl = m3.number_input("(b) 반감기 (개월)", 1, 36, 6, key="ms_hl")
     stp = m4.number_input("후보 재추정 주기", 5, 500, {"B": 126, "W-FRI": 26, "ME": 6}[FQ], key="ms_step")

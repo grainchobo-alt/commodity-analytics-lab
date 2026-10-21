@@ -23,7 +23,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-CANDIDATES = ["OLS", "Ridge", "Lasso", "Gradient Boosting", "LightGBM", "Kalman TVP"]
+CANDIDATES = ["OLS", "Ridge", "Lasso", "Elastic Net", "Gradient Boosting", "LightGBM"]   # v1.12.0: Kalman TVP → ② 레짐 탭
 REGIME_NAMES = {"hmm": "HMM 3상태 (필터)", "vol": "실현변동성 3분위", "corr": "평균 쌍별 상관 3분위"}
 META_NAMES = {"recent": "(a) 직전 {n}개월 최소손실", "ewc": "(b) 지수가중 역MSE 결합", "hmm": "(c) 레짐: HMM 3상태",
               "vol": "(c) 레짐: 실현변동성", "corr": "(c) 레짐: 평균 상관", "eq": "(d) 동일가중 앙상블", "mean": "(e) 과거 평균 (기준)",

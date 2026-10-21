@@ -878,9 +878,12 @@ ML_MODELS = ["LightGBM", "Gaussian Process", "Kernel Ridge"]                    
 REGIME_MODELS = ["Markov-switching 회귀", "Threshold 회귀 (TAR)", "STAR (평활 전이)"]   # C. 레짐·비선형
 MODEL_LIST = ["OLS", "Ridge", "Lasso", "Elastic Net", "Adaptive Lasso", "SCAD", "MCP"] + DENSE_MODELS + [
               "분위수 회귀", "Kalman TVP", "Hidden Markov (HMM)"] + REGIME_MODELS + ["Random Forest", "Gradient Boosting"] + ML_MODELS + ["LSTM"]
-# ④ 기본 노출 = 모형군별 대표 7개 (기준·축소·선택·요인·시변·레짐·부스팅). 나머지는 '고급' 확장 영역 — 많이 돌릴수록 최고값은 운으로도 높아짐
-CORE_MODELS = ["OLS", "Ridge", "Lasso", "PLS (부분최소제곱)", "Kalman TVP", "Hidden Markov (HMM)", "LightGBM"]
-ADV_MODELS = [m for m in MODEL_LIST if m not in CORE_MODELS]
+# 레짐·시변 모델은 ② 레짐 탭에서 다룸 (v1.12.0) → ④ 수익률 예측·메타 전략 후보에서 제외. run_model은 그대로 지원
+REGIME_SET = ["Kalman TVP", "Hidden Markov (HMM)"] + REGIME_MODELS
+PREDICT_MODELS = [m for m in MODEL_LIST if m not in REGIME_SET]
+# ④ 기본 노출 = 모형군별 대표 7개 (기준·축소·선택·결합·요인·부스팅). 나머지는 '고급' 확장 영역 — 많이 돌릴수록 최고값은 운으로도 높아짐
+CORE_MODELS = ["OLS", "Ridge", "Lasso", "Elastic Net", "PLS (부분최소제곱)", "Gradient Boosting", "LightGBM"]
+ADV_MODELS = [m for m in PREDICT_MODELS if m not in CORE_MODELS]
 
 
 def _run_regime(name: str, D: Design, ann: int, **hp):
