@@ -1635,10 +1635,10 @@ def tab_panel():
     avail = [i for i in avail if i in NAME]
     uni = c2_.multiselect("유니버스", avail, default=avail if basis == "etf" else [i for i in P.DEFAULT_UNIVERSE if i in NAME],
                           format_func=lbl, key=f"pn_uni_{basis}")
-    e1_, e2_ = st.columns([3, 2])
-    chars = e1_.multiselect("특성", PN.CHARS, default=PN.CHARS, key="pn_chars")
+    chars = st.multiselect("특성 (품목별 가격·포지션 정보)", PN.CHARS, default=PN.CHARS, key="pn_chars")
+    st.markdown("**🌐 거시 변수 추가** — 품목별 거시 민감도(과거 1년 β) × 이번 기간 거시 변화를 특성 '거시 β×Δ: …'로 넣음")
     mac_opts = [i for i in ALL_IDS if GROUP.get(i) in ("Macro", "FX") or i == "ak:macro_shipping_bdi"]
-    pmac = e2_.multiselect("거시 변수 (품목별 민감도 × 최근 변화로 반영)", mac_opts,
+    pmac = st.multiselect("거시 변수 (복수 선택, 비우면 거시 미반영)", mac_opts,
                            [i for i in ["yf:DX-Y.NYB", "fred:VIXCLS", "fred:DGS10", "fred:BAA10Y"] if i in mac_opts], format_func=lbl, key="pn_macro",
                            help="거시 변수는 모든 품목에 같은 값이라 '어느 품목이 상대적으로 오를까'를 직접 설명하지 못함 → "
                                 "품목별 과거 1년 민감도(β) × 이번 기간 거시 변화를 특성으로 사용 (예: 달러가 오른 주에 달러 민감도가 큰 품목은 불리)")
@@ -3458,6 +3458,12 @@ def _ls_run(cost_bp: float, with_hmm: bool, roll: bool):
     return LS.run_all(_levels(None, roll), cost_bp, with_hmm=with_hmm)
 
 
+@st.cache_data(show_spinner=False)
+def _alloc_run(cost_bp: float, roll: bool):
+    import ls_strategies as LS
+    return LS.run_alloc(_levels(None, roll), cost_bp)
+
+
 def tab_ls():
     import ls_strategies as LS
     st.subheader("롱숏 전략 — 상관 · 레짐 · 추세 (헤지펀드 원자재 전략 묶음)")
@@ -3521,6 +3527,21 @@ def tab_ls():
                 st.dataframe(E.set_index(["묶음", "h주"]).style.format({"진입 후 평균 (%)": "{:+.2f}", "평소 평균 (%)": "{:+.2f}", "차이 t값": "{:+.2f}", "하락 비율": "{:.0%}"}))
         st.caption("'진입 후 평균'이 '평소 평균'보다 확실히 낮아야(t값 < −2) 국면 진입이 동반 하락을 미리 알려준다고 볼 수 있음. "
                    "HMM 스트레스 확률은 실시간 필터라 급락이 이미 진행된 뒤 켜지는 경우가 많아, 진입 직후엔 오히려 반등이 나오기도 함.")
+    st.markdown("##### ⑦ 비중 결정 방식 비교 — 동일가중 · 역변동성 · 최소분산(MinVar) · 평균-분산(μ = 52주 모멘텀)")
+    st.caption("같은 19개 품목 · 공분산 = 과거 104주 Ledoit-Wolf 수축 · 롱온리는 4주마다, 모멘텀 롱숏은 매주 재조정 · 품목 상한 25% · "
+               "모두 사전 목표 변동성 10% (직전 26주 실현 변동성으로 배율, 최대 4배)로 맞춰 같은 위험에서 비교. "
+               "μ = IC 0.05 × 품목 변동성 × 52주 추세 부호 (Grinold 공식), 평균-분산 위험회피 λ = 5.")
+    AL = _alloc_run(float(cost), ROLL)
+    k1, k2 = st.columns([1.25, 1])
+    spa = [c for c in AL["table"].columns if c.startswith("Sharpe ~") or c.startswith("Sharpe 2")]
+    k1.dataframe(AL["table"].style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}",
+                                           spa[0]: "{:+.2f}", spa[1]: "{:+.2f}", "t값": "{:+.2f}"}, na_rep="–"))
+    f = go.Figure()
+    for j, c in enumerate(AL["returns"].columns):
+        f.add_trace(go.Scatter(x=AL["returns"].index, y=AL["returns"][c].cumsum(), name=c, line=dict(color=PAL[j % 8], width=2 if "MinVar" in c else 1.2)))
+    k2.plotly_chart(fig_layout(f, 330, title="누적 수익 (%, 목표 변동성 10%)", hovermode="x", legend=dict(orientation="h", y=-0.35, font=dict(size=10))), key="ls_alloc")
+    st.caption("최소분산은 변동성이 낮고 다른 품목과 덜 같이 움직이는 생우·금·돈육에 평균 19%·17%·12%를 두게 됨 → 이 기간 그 품목들이 강해 성과가 좋았지만 "
+               "소수 품목 집중의 결과일 수 있음. 평균-분산에 모멘텀 μ를 넣으면 추세 품목으로 몰려 오히려 나빠짐(낙폭 확대). 모멘텀은 롱숏 · 역변동성이 가장 안정적.")
     with st.expander("헤지펀드·CTA가 원자재에서 흔히 쓰는 전략과 이 화면의 범위"):
         st.markdown("""
 | 전략 | 핵심 | 여기서 | 비고 |

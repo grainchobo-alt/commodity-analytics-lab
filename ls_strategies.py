@@ -357,3 +357,74 @@ def run_carry(L: pd.DataFrame, cost_bp=5.0, split="2017-01-01") -> dict:
                          "바스켓과 상관": float(r.corr(B.iloc[:, 0].fillna(0)))})
         out[nm] = dict(table=pd.DataFrame(rows).set_index("전략"), returns=B, ic=carry_ic(K, R), carry=K)
     return out
+
+
+# ============================================================================
+# ⑦ 비중 결정 방식 비교 — 동일가중 · 역변동성 · 최소분산(MinVar) · 평균-분산(μ = 52주 모멘텀)
+#    공분산 = 과거 104주 Ledoit-Wolf 수축, 4주마다 재조정, 모두 사전 목표 변동성 10%로 배율 (같은 위험에서 비교)
+# ============================================================================
+def _vol_target(W: pd.DataFrame, R: pd.DataFrame, tgt=10.0, max_lev=4.0) -> pd.DataFrame:
+    rb = (W.shift(1) * R).sum(1)
+    pv = rb.rolling(26, min_periods=13).std() * np.sqrt(ANN)
+    return W.mul((tgt / pv).clip(upper=max_lev).fillna(0.0), axis=0)
+
+
+def alloc_weights(P: pd.DataFrame, method: str, cov_win=104, reb=4, look=52, lam=5.0) -> pd.DataFrame:
+    """reb = 재조정 주기(주). 모멘텀 계열은 신호가 매주 바뀌므로 run_alloc에서 1주로 돌림."""
+    from scipy.optimize import minimize
+    from sklearn.covariance import LedoitWolf
+    R = _ret(P); mom = np.sign(np.log(P).diff(look))
+    W = pd.DataFrame(np.nan, index=P.index, columns=P.columns)
+    for t in range(cov_win, len(P), reb):
+        win = R.iloc[t - cov_win + 1:t + 1]
+        cols = [c for c in P.columns if win[c].notna().sum() >= cov_win * 0.8 and np.isfinite(mom[c].iloc[t])]
+        if len(cols) < 4:
+            continue
+        X = win[cols].fillna(0.0).values
+        S = LedoitWolf().fit(X / 100).covariance_; sd = np.sqrt(np.diag(S)); n = len(cols)   # 소수 단위 (주간)
+        sgn = mom[cols].iloc[t].values
+        mu = sgn * sd * 0.05                                            # μ = IC(0.05) × σ × 추세 부호 (Grinold 공식)
+        if method == "eq":
+            w = np.ones(n) / n
+        elif method == "iv":
+            w = (1 / sd) / (1 / sd).sum()
+        elif method in ("minvar", "mv_lo"):
+            obj = (lambda w: 1e4 * (w @ S @ w)) if method == "minvar" else (lambda w: 1e4 * (lam / 2 * w @ S @ w - w @ mu))   # 1e4 = 수치 안정
+            jac = (lambda w: 1e4 * 2 * S @ w) if method == "minvar" else (lambda w: 1e4 * (lam * S @ w - mu))
+            res = minimize(obj, np.ones(n) / n, jac=jac, bounds=[(0, 0.25)] * n, constraints=[{"type": "eq", "fun": lambda w: w.sum() - 1}],
+                           method="SLSQP", options={"maxiter": 500, "ftol": 1e-12})
+            x = np.clip(res.x, 0, 0.25)
+            w = x / x.sum() if (abs(res.x.sum() - 1) < 1e-3 and np.isfinite(res.x).all()) else np.ones(n) / n
+        elif method == "tsmom":
+            w = sgn / sd                                                # 부호 / σ (역변동성)
+            w = w / np.abs(w).sum()
+        elif method == "mv_ls":
+            w = np.linalg.solve(S + 1e-8 * np.eye(n), mu)              # Σ⁻¹μ (상관까지 고려한 모멘텀)
+            w = w / np.abs(w).sum()
+        else:
+            raise ValueError(method)
+        W.loc[P.index[t], cols] = w
+        W.loc[P.index[t], [c for c in P.columns if c not in cols]] = 0.0
+    return W.ffill().fillna(0.0)
+
+
+ALLOC = {"eq": "동일가중 롱", "iv": "역변동성 롱 (위험 균등 근사)", "minvar": "최소분산 롱 (MinVar)",
+         "mv_lo": "최소분산 + μ 모멘텀 (평균-분산 롱온리)", "tsmom": "모멘텀 롱숏 · 역변동성 (④ TSMOM)", "mv_ls": "모멘텀 롱숏 · Σ⁻¹μ (상관 반영)"}
+
+
+def run_alloc(L: pd.DataFrame, cost_bp=5.0, start="2001-01-01", split="2017-01-01", tgt=10.0) -> dict:
+    P = weekly(L, BASKET, start); P = P[[c for c in BASKET if c in P]]; R = _ret(P)
+    D = {}
+    for k, nm in ALLOC.items():
+        Wk = tsmom_weights(P, 52, port_tgt=None) if k == "tsmom" else alloc_weights(P, k, reb=1 if k == "mv_ls" else 4)
+        W = _vol_target(Wk, R, tgt) if tgt else Wk
+        D[nm] = _book(W, R, cost_bp)
+    D = pd.DataFrame(D)
+    D = D[D.index >= D.index[0] + pd.DateOffset(years=3)]
+    D = D.loc[D.ne(0).all(1).idxmax():]
+    rows = []
+    for c in D:
+        r = D[c]
+        rows.append({"방식": c, **metrics(r), f"Sharpe ~{split[:4]}": metrics(r[r.index < split])["Sharpe"],
+                     f"Sharpe {split[:4]}~": metrics(r[r.index >= split])["Sharpe"], "t값": metrics(r)["Sharpe"] * np.sqrt(len(r) / ANN)})
+    return dict(table=pd.DataFrame(rows).set_index("방식"), returns=D)

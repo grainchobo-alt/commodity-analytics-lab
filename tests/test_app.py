@@ -40,6 +40,7 @@ assert any("거시" in m.value for m in at.markdown)                            
 assert any("펀더멘털 맥락" in e.label for e in at.expander)                                 # 펀더멘털 표 2개는 펼치기
 at.checkbox(key="pc_comp").check().run(); check(at, "구매 타이밍: 점수 구성 요소 표시"); at.checkbox(key="pc_comp").uncheck().run()
 assert any("t값 > 2" in i.value for i in at.info)                                          # ⑤ 롱숏 전략 표
+assert any("비중 결정 방식 비교" in m.value for m in at.markdown)                          # ⑤ ⑦ MinVar·평균-분산 비교
 assert any("흡수비율" in x.value for x in list(at.warning) + list(at.info) + list(at.caption))   # 리스크 탭 상관 급등 경고
 assert any("추세" in c.value and "점수 **" in c.value for c in at.caption)                  # ★ 카드 추세 배지
 at.selectbox(key="ls_pair").set_value("yf:GC=F|yf:SI=F").run(); check(at, "⑤ 롱숏: 금/은 페어 z")
