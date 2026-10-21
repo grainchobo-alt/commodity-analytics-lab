@@ -225,7 +225,7 @@ def panel_or_stop(ids, transform="logret"):
 DEF_COMOVE = [i for i in ["yf:ZC=F", "yf:ZS=F", "yf:ZM=F", "yf:ZW=F", "yf:CL=F", "yf:HG=F", "yf:GC=F",
                           "ak:macro_shipping_bdi", "yf:SB=F", "yf:LE=F"] if i in NAME]
 
-tabs = st.tabs(["★ 구매 타이밍", "◆ 리스크 (VaR·꼬리)", "① 시장 구조·동조성", "①+ 요인 모형", "② 레짐", "③ 변동성·공분산", "④ 수익률 예측", "④+ 횡단면 (군집·분류)", "⑤ 포트폴리오", "⑥ 실험 결과", "⑦ 모델 도감", "⑧ 데이터·방법론"])
+tabs = st.tabs(["★ 구매 의사결정", "◆ 리스크 (VaR·꼬리)", "① 시장 구조·동조성", "①+ 요인 모형", "② 레짐", "③ 변동성·공분산", "④ 수익률 예측", "⑤ 포트폴리오", "⑥ 실험 결과", "⑦ 모델 도감", "⑧ 데이터·방법론"])
 
 # ============================================================================
 # ① 동조성
@@ -2030,6 +2030,9 @@ LDA = 군집이 가장 잘 갈리는 2차원 지도 축, 로지스틱 계수 = �
 **'더 쌀 확률' 모델의 설명변수** → 점수·점수 변화, 구성요소(가격 위치·반등·상대가치·계절성)·변동성 분위, 1·4·13주 수익률, 13주 변동성, (선택) 연중 주차 사인·코사인 — 매년 1월 그 이전 자료로만 로지스틱 회귀 재학습.
 
 **추세 배지** → 52주 수익률 부호 (견고성이 확인된 유일한 방향 신호). 🔴 보류인데 상승 추세면 '보류는 신중'.
+
+**🏷️ 횡단면상 매력 묶음 배지** → '횡단면' 하위 탭과 같은 방식(기본 19개 품목 · 구매 매력도 특성 · K-평균, K = 실루엣 자동)으로 군집했을 때 가격 매력 점수 평균이 가장 높은 군집 1에 속한 품목.
+개별 점수(내 품목이 문턱을 넘었나)와 품목 간 비교(다른 품목들보다 상대적으로 싼 상태인가)를 한 카드에서 보기 위함. 하위 탭에서 품목·특성을 바꿔도 배지는 기본 설정 기준.
 """)
     with st.expander("⑤ 레짐 · 요인 · 상관"):
         st.markdown("""
@@ -2217,7 +2220,7 @@ def _macro_table() -> pd.DataFrame:
 
 def tab_procure():
     import procurement as PR
-    st.subheader("구매 타이밍 — 지금 살까, 미룰까")
+    st.subheader("구매 의사결정 — 지금 살까, 미룰까")
     st.caption("매주 금요일 판단 · 🟢 점수 ≥ τ → 적극 매수 · 🔴 점수 < τ 이고 더 쌀 확률 ≥ p* (AUC 기준 충족 품목) → 보류 · 🟠/🟡 그 외 → 판단 유보 (매수 쪽/대기 쪽)  \n"
                "점수·확률은 그 시점까지 데이터만 사용 · 체결 = 다음 거래일 종가 · 미루는 기간·특성은 학습(2008–2016)으로 고르고 시험(2017–)으로 확인")
     ids_av = [i for i in PR.BUY_IDS if i in NAME]
@@ -2325,7 +2328,12 @@ def tab_procure():
                 + box_("#b07c10", "rgba(210,153,34,0.20)", "🟡 판단 유보 · 대기 쪽", f"점수 0–{yb - 1:.0f} · 확률 &lt; {p_star:.0%}", "비싼 편 → 급하지 않으면 다음 주 재확인")
                 + box_("#da3633", "rgba(218,54,51,0.12)", "🔴 매수 보류", f"점수 0–{tl - 1:.0f} · 확률 ≥ {p_star:.0%}", f"AUC &gt; {auc_min:.2f} 품목만 → 1–4주 미루기")
                 + "</div>", unsafe_allow_html=True)
-    st.caption(f"확률 = 미루는 기간 안에 지금보다 쌀 확률 · 설정 AUC 기준치({auc_min:.2f}) 미달 품목은 확률과 무관하게 🟢/🟡만 (지도의 빈 원)")
+    st.caption(f"확률 = 미루는 기간 안에 지금보다 쌀 확률 · 설정 AUC 기준치({auc_min:.2f}) 미달 품목은 확률과 무관하게 🟢/🟡만 (지도의 빈 원) · "
+               "🏷️ 횡단면상 매력 묶음 = '횡단면' 하위 탭에서 19개 품목을 군집했을 때 가격 매력 점수 평균이 가장 높은 묶음(군집 1)에 속한 품목")
+    try:
+        cs1, cs1_sc, cs1_k, cs1_n = _cs_cluster1(ROLL)
+    except Exception:
+        cs1, cs1_sc = set(), np.nan
     ncol = min(len(T), 4)
     plan, cfg, pts = [], {}, []
     for j, r in T.iterrows():
@@ -2359,6 +2367,8 @@ def tab_procure():
                  f"📈 **추세 상승 중** (52주 {r52:+.{0 if abs(r52) >= 1 else 1}f}%)" + (" — 상승 추세에서 보류는 신중" if dec.startswith("🔴") else "") if r52 > 0
                  else f"📉 추세 하락 중 (52주 {r52:+.{0 if abs(r52) >= 1 else 1}f}%)")
         lines = [f"점수 **{s_:.0f}**/{tl:.0f} · {h}주 내 쌀 확률 **{pr_txt}**/{p_star:.0%}", f"근거: {short_r}"] + ([trend] if trend else [])
+        if i in cs1:
+            lines.insert(0, f"🏷️ **횡단면상 매력 묶음** (19개 품목 중 군집 1 · 묶음 평균 {cs1_sc:.0f}점)")
         if e_ is not None:
             lines.append(f"학습 AUC {e_['학습AUC']:.2f} · 시험 AUC {e_['시험AUC']:.2f}" + ("" if active else " · **기준치 미달**"))
             lines.append(f"시험 {e_['시험절감bp']:+.1f}bp (무작위 {e_['시험위약bp']:+.1f}) · {h}주{'·계절' if seaf else ''}")
@@ -3951,6 +3961,29 @@ def tab_cross():
                "같은 블록(진한 칸)끼리는 분산 효과가 작음 → 군집 1 품목을 여러 개 살 때 블록이 다른 품목을 섞을수록 위험이 줄어듦.")
 
 
+def page_procure():
+    a, b = st.tabs(["구매 타이밍 — 지금 살까, 미룰까", "횡단면 — 품목 비교 · 매력 묶음 (군집)"])
+    with a:
+        tab_procure()
+    with b:
+        tab_cross()
+
+
+@st.cache_data(show_spinner=False)
+def _cs_cluster1(roll: bool):
+    """★ 카드 배지용: 기본 19개 품목 · '구매 매력도 중심' 특성 · K-평균(실루엣 자동)으로 군집 → 군집 1(매력 점수 평균 최고) 품목."""
+    import crosssec as CS
+    import ls_strategies as LS
+    ids = tuple(i for i in LS.BASKET if i in NAME)
+    X0, _ = CS.snapshot(_cs_fp(ids, roll))
+    X0 = X0.join(_cs_buy(ids, roll), how="left")
+    feats = [f_ for f_ in CS.SETS["구매 매력도 중심 (권장)"] if f_ in X0 and X0[f_].notna().sum() >= 6]
+    X = X0[feats].fillna(X0[feats].median())
+    cl = CS.cluster(X, "K-평균")
+    lab = cl["labels"]
+    return set(lab.index[lab == 1]), float(X.loc[lab == 1, "score"].mean()) if "score" in X else np.nan, int(cl["k"]), len(X)
+
+
 def page_atlas():
     try:
         import model_atlas
@@ -3959,6 +3992,6 @@ def page_atlas():
         st.info("모델 도감 준비 중")
 
 
-for _t, _fn in zip(tabs, [tab_procure, tab_risk, page_structure, page_factor, tab_regime, page_vol, page_predict, tab_cross, page_portfolio, tab_experiments, page_atlas, tab_data]):
+for _t, _fn in zip(tabs, [page_procure, tab_risk, page_structure, page_factor, tab_regime, page_vol, page_predict, page_portfolio, tab_experiments, page_atlas, tab_data]):
     with _t:
         _fn()

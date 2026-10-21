@@ -45,6 +45,7 @@ assert any("MinVar 강건성" in e.label for e in at.expander)                  
 assert any("크기 조정(변동성 사이징)" in e.label for e in at.expander)                      # 사이징 방식·창 길이 비교
 assert any("흡수비율" in x.value for x in list(at.warning) + list(at.info) + list(at.caption))   # 리스크 탭 상관 급등 경고
 assert any("추세" in c.value and "점수 **" in c.value for c in at.caption)                  # ★ 카드 추세 배지
+assert any("횡단면상 매력 묶음" in c.value and "점수 **" in c.value for c in at.caption)      # ★ 카드 횡단면 배지
 at.selectbox(key="ls_pair").set_value("yf:GC=F|yf:SI=F").run(); check(at, "⑤ 롱숏: 금/은 페어 z")
 at.number_input(key="ls_cost").set_value(10.0).run(); check(at, "⑤ 롱숏: 비용 10bp")
 at.slider(key="pc_aucmin").set_value(0.55).run(); at.slider(key="pc_pstar").set_value(0.55).run()
