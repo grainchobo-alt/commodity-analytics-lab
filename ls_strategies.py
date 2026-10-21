@@ -510,3 +510,84 @@ def alloc_weights_cap(P: pd.DataFrame, cap: float = 0.25, cov_win=104, reb=4) ->
         W.loc[P.index[t], cols] = w
         W.loc[P.index[t], [c for c in P.columns if c not in cols]] = 0.0
     return W.ffill().fillna(0.0)
+
+
+# ============================================================================
+# 변동성 사이징 방식 비교 — 과거 실현 손익 vs 현시점 Ledoit-Wolf 공분산
+# ============================================================================
+def _vol_target_cov(W: pd.DataFrame, R: pd.DataFrame, win: int = 104, tgt=10.0, max_lev=4.0) -> pd.DataFrame:
+    """배율 = tgt / √(w_t' Σ̂_t w_t × 52), Σ̂_t = t까지 과거 win주 Ledoit-Wolf (현시점 비중 × 현시점 공분산)."""
+    from sklearn.covariance import LedoitWolf
+    k = pd.Series(np.nan, index=W.index)
+    Rv = R.reindex(W.index)
+    for t in range(win, len(W)):
+        w = W.iloc[t].values
+        if not np.any(w):
+            continue
+        X = Rv.iloc[t - win + 1:t + 1]
+        cols = [j for j, c in enumerate(W.columns) if X[c].notna().sum() >= win * 0.8]
+        if not cols:
+            continue
+        S = LedoitWolf().fit(X.iloc[:, cols].fillna(0.0).values).covariance_
+        pv = float(np.sqrt(max(w[cols] @ S @ w[cols], 1e-12) * ANN))
+        k.iloc[t] = min(max_lev, tgt / pv)
+    return W.mul(k.fillna(0.0), axis=0)
+
+
+def lw_shrinkage(L: pd.DataFrame, win: int = 104, start="2001-01-01") -> pd.Series:
+    """시점별 Ledoit-Wolf 수축 강도 δ (0 = 표본 공분산 그대로, 1 = 목표 행렬로 완전히 대체)."""
+    from sklearn.covariance import LedoitWolf
+    P = weekly(L, BASKET, start); P = P[[c for c in BASKET if c in P]]; R = _ret(P)
+    out = {}
+    for t in range(win, len(R), 4):
+        X = R.iloc[t - win + 1:t + 1].dropna(axis=1, thresh=int(win * 0.8)).fillna(0.0)
+        out[R.index[t]] = LedoitWolf().fit(X.values).shrinkage_
+    return pd.Series(out)
+
+
+def run_sizing(L: pd.DataFrame, cost_bp=5.0, start="2001-01-01", split="2017-01-01", tgt=10.0) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """같은 '상대 비중'에 크기만 다르게: (A) 과거 26주 실현 손익 · (B) 13·52주 실현 · (C) 현시점 LW 공분산 52·104·156주 · (D) 배율 없음."""
+    P = weekly(L, BASKET, start); P = P[[c for c in BASKET if c in P]]; R = _ret(P)
+    raw = {"MinVar 롱": alloc_weights_cap(P, 0.25), "모멘텀 롱숏 (52주)": tsmom_weights(P, 52, port_tgt=None)}
+
+    def realized(W, win):
+        rb = (W.shift(1) * R).sum(1)
+        pv = rb.rolling(win, min_periods=win // 2).std() * np.sqrt(ANN)
+        return W.mul((tgt / pv).clip(upper=4.0).fillna(0.0), axis=0)
+    methods = {"배율 없음 (원래 크기)": lambda W: W,
+               "과거 실현 13주": lambda W: realized(W, 13), "과거 실현 26주 (현재 방식)": lambda W: realized(W, 26),
+               "과거 실현 52주": lambda W: realized(W, 52),
+               "현시점 LW 공분산 52주": lambda W: _vol_target_cov(W, R, 52, tgt), "현시점 LW 공분산 104주": lambda W: _vol_target_cov(W, R, 104, tgt),
+               "현시점 LW 공분산 156주": lambda W: _vol_target_cov(W, R, 156, tgt)}
+    books, rows = {}, []
+    for sn, W0 in raw.items():
+        for mn, fn in methods.items():
+            books[(sn, mn)] = _book(fn(W0), R, cost_bp)
+    D = pd.DataFrame(books)
+    D = D[D.index >= pd.Timestamp(start) + pd.DateOffset(years=4)]                 # 156주 창 예열 이후 공통 구간
+    for (sn, mn) in D.columns:
+        r = D[(sn, mn)]
+        vol_roll = r.rolling(26).std() * np.sqrt(ANN)
+        rows.append({"전략": sn, "크기 조정 방식": mn, **metrics(r), f"Sharpe ~{split[:4]}": metrics(r[r.index < split])["Sharpe"],
+                     f"Sharpe {split[:4]}~": metrics(r[r.index >= split])["Sharpe"],
+                     "26주 변동성 범위 (5–95%)": f"{vol_roll.quantile(0.05):.1f}–{vol_roll.quantile(0.95):.1f}",
+                     "목표 이탈 (평균 |변동성−10|)": float((vol_roll - tgt).abs().mean()) if "없음" not in mn else np.nan})
+    return pd.DataFrame(rows).set_index(["전략", "크기 조정 방식"]), D
+
+
+def run_windows(L: pd.DataFrame, cost_bp=5.0, start="2001-01-01", split="2017-01-01") -> pd.DataFrame:
+    """창 길이 민감도: 모멘텀 역변동성의 품목 변동성 창 13·26·52주, MinVar 공분산 창 52·104·156주 (크기 = 과거 실현 26주, 10%)."""
+    P = weekly(L, BASKET, start); P = P[[c for c in BASKET if c in P]]; R = _ret(P)
+    books = {}
+    for vw in (13, 26, 52):
+        books[("모멘텀 롱숏 — 품목 변동성 창", f"{vw}주")] = _book(_vol_target(tsmom_weights(P, 52, vol_win=vw, port_tgt=None), R), R, cost_bp)
+    for cw in (52, 104, 156):
+        books[("MinVar 롱 — 공분산 창", f"{cw}주")] = _book(_vol_target(alloc_weights_cap(P, 0.25, cov_win=cw), R), R, cost_bp)
+    D = pd.DataFrame(books)
+    D = D[D.index >= pd.Timestamp(start) + pd.DateOffset(years=4)]
+    rows = []
+    for (a, b) in D.columns:
+        r = D[(a, b)]
+        rows.append({"대상": a, "창": b, **metrics(r), f"Sharpe ~{split[:4]}": metrics(r[r.index < split])["Sharpe"],
+                     f"Sharpe {split[:4]}~": metrics(r[r.index >= split])["Sharpe"]})
+    return pd.DataFrame(rows).set_index(["대상", "창"])
