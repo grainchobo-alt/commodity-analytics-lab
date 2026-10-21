@@ -153,8 +153,6 @@ at.checkbox(key="vs").check().run()
 at.button(key="runml").click().run(); check(at, "목표 변동성 표준화")
 at.checkbox(key="vs").uncheck().run(); at.checkbox(key="wf").uncheck().run()
 at.button(key="runml").click().run()
-at.multiselect(key="ms_models").set_value(["OLS", "Ridge", "Elastic Net"]).run()
-at.button(key="ms_run").click().run(); check(at, "④ 모델 선택 메타 전략 (OLS·Ridge·Elastic Net, 주간)")
 at.button(key="statbtn").click().run(); check(at, "정상성 진단")
 
 at.button(key="pf_run").click().run(); check(at, "포트폴리오: 모멘텀·롱온리 (주간)")

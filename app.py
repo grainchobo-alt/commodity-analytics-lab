@@ -197,14 +197,16 @@ def heat_row(mats, titles, ranges, scales=None, groups=None, fmt=".2f", h=470, t
         if nodiag and Z.shape[0] == Z.shape[1]:
             np.fill_diagonal(Z, np.nan)
         fig.add_trace(go.Heatmap(z=Z, x=[short(c) for c in M.columns], y=[short(r) for r in M.index], coloraxis=f"coloraxis{'' if groups[i] == 1 else groups[i]}",
-                                 texttemplate=("%{z:" + fmt + "}") if max(M.shape) <= text_max else None, textfont=dict(size=9),
+                                 texttemplate=("%{z:" + fmt + "}") if max(M.shape) <= text_max else None,
+                                 textfont=dict(size=9 if max(M.shape) <= 10 else 7.5),
                                  hovertemplate="%{y} / %{x}: %{z:.3f}<extra></extra>"), 1, i + 1)
     for j, g in enumerate(ng):
         i0 = groups.index(g)
         fig.layout[f"coloraxis{'' if g == 1 else g}"] = dict(colorscale=scales[i0], cmin=ranges[i0][0], cmax=ranges[i0][1],
                                                             colorbar=dict(thickness=12, len=0.9, x=1.0 + 0.09 * j))
     fig.update_yaxes(autorange="reversed", dtick=1)
-    fig.update_xaxes(dtick=1, tickangle=-45)
+    fig.update_xaxes(dtick=1, tickangle=-90 if n >= 3 and max(m.shape[1] for m in mats) > 8 else -45, tickfont=dict(size=9 if n >= 3 else 10))
+    fig.update_yaxes(tickfont=dict(size=10))
     fig.update_layout(height=h, margin=dict(l=10, r=10, t=50, b=10))
     return fig
 
@@ -492,10 +494,15 @@ def _rv_hmm(X, tgt, K, cov, F, comm, macro, fmt):
                 Cs.append(sub.corr()); ts_.append(f"{c} ({len(sub)}개)")
         if len(Cs) >= 2:
             Cs.append(Cs[-1] - Cs[0]); ts_.append(f"차이 ({ts_[-1].split(' ')[0]} − {ts_[0].split(' ')[0]})")
-            fc_ = heat_row(Cs, ts_, [(-1, 1)] * (len(Cs) - 1) + [(-0.6, 0.6)], scales=[RDBU] * len(Cs), groups=[1] * (len(Cs) - 1) + [2],
-                           fmt=".1f", h=220 + 34 * len(rc), text_max=30)
-            fc_.update_traces(textfont=dict(size=10, color="#111"))
-            st.plotly_chart(fc_, key="rv_fig_corr")
+            rr_ = range_of(*Cs[:-1]); vd_ = vmax_of(Cs[-1], nodiag=True)
+            hh_ = 160 + 30 * len(rc)
+            for k0 in range(0, len(Cs), 2):
+                cc_ = st.columns(2)
+                for j0 in range(k0, min(k0 + 2, len(Cs))):
+                    last_ = j0 == len(Cs) - 1
+                    fz = heat(Cs[j0], ts_[j0], *((-vd_, vd_) if last_ else rr_), fmt=".1f", h=hh_ + 40, text_max=30, nodiag=True)
+                    fz.update_traces(textfont=dict(size=10)); fz.update_xaxes(tickfont=dict(size=10), tickangle=-90); fz.update_yaxes(tickfont=dict(size=10))
+                    cc_[j0 - k0].plotly_chart(fz, key=f"rv_fig_corr_{j0}")
             st.caption("국면별 상관 — 모델이 찾은 국면 안에서 변수들이 얼마나 같이 움직이는가 (① 시장 구조의 '평시 vs 위기'는 달력으로 정한 위기 구간, "
                        "여기는 데이터가 정한 국면). 마지막 칸 = 마지막 레짐(Y 강세) − 레짐1(Y 약세): 빨강이면 Y 강세 국면에서 같이 움직임이 커짐 → 분산 효과 감소.")
     st.caption(f"레짐1 = {fmt(tgt)} 평균 수익률이 가장 낮은 국면 → 마지막 레짐 = 가장 높은 국면. 위 음영·프로파일은 전 기간 추정(설명용, 미래 자료 포함 평활). "
@@ -3412,7 +3419,7 @@ def tab_factor():
     f.add_trace(go.Scatter(x=[f"PC{i+1}" for i in range(len(ev))], y=np.cumsum(ev) * 100, name="누적",
                            line=dict(color=PAL[1], width=2)))
     cp[0].plotly_chart(fig_layout(f, 380, title="Scree (설명분산 %)", hovermode="x"), key="scree")
-    cp[1].plotly_chart(heat(load.iloc[:, :k].T, "적재값 (Loadings) — PC1≈공통 원자재 요인", h=380), key="load")
+    cp[1].plotly_chart(heat(load.iloc[:, :k].T, "적재값 (Loadings) — PC1≈공통 원자재 요인", h=380, text_max=30), key="load")
     pcs = scores["PC1"].cumsum()
     f = go.Figure(go.Scatter(x=pcs.index, y=pcs.values, line=dict(color=PAL[0], width=2), name="PC1 누적 점수"))
     st.plotly_chart(shade(fig_layout(f, 280, title="PC1 누적 점수 (공통요인 '지수')"), pcs.index), key="pc1")
@@ -3429,8 +3436,11 @@ def tab_factor():
         tbl, tot = st.session_state["dy"]
         x1, x2 = st.columns([3, 2])
         core = tbl.iloc[:-2, :-1]
-        x1.plotly_chart(heat(core, f"스필오버 표 (%) — 총 스필오버 지수 {tot:.1f}% (대각 = 자기 몫, 색에서 제외)", 0, None,
-                             ".1f", scale=SEQ, text_max=12, nodiag=True), key="dyh_")
+        fdy = heat(core, f"스필오버 표 (%) — 총 스필오버 지수 {tot:.1f}% (대각 = 자기 몫, 색에서 제외)", 0, None,
+                   ".1f", scale=DIV, text_max=30, nodiag=True, h=max(420, 32 * len(core) + 120))
+        fdy.update_traces(textfont=dict(size=9))
+        fdy.update_xaxes(tickfont=dict(size=10)); fdy.update_yaxes(tickfont=dict(size=10))
+        x1.plotly_chart(fdy, key="dyh_")
         net = tbl.loc["NET (TO-FROM)"].iloc[:-1].sort_values()
         f = go.Figure(go.Bar(x=net.values, y=[short(i) for i in net.index], orientation="h",
                              marker_color=[PAL[0] if v >= 0 else PAL[1] for v in net.values]))
@@ -3452,12 +3462,12 @@ def tab_factor():
         cn = st.session_state["tvp"]
         f = go.Figure(go.Scatter(x=cn["tci"].index, y=cn["tci"].values, line=dict(color=PAL[6], width=2), name="TVP-VAR TCI"))
         st.plotly_chart(shade(fig_layout(f, 320, title="총 연결성 지수 TCI (%, N/(N−1) 조정)"), cn["tci"].index), key="tvp_tci")
-        netm = cn["net"].resample("ME").mean() if len(cn["net"]) > 400 else cn["net"]
+        netm = cn["net"].resample("YE").mean()
         vmx = float(np.abs(netm.values).max()) or 1
-        f = go.Figure(go.Heatmap(z=netm.T.values, x=netm.index, y=[short(c) for c in netm.columns], zmin=-vmx, zmax=vmx,
-                                 colorscale=DIV, hovertemplate="%{y} %{x|%Y-%m}: %{z:.1f}<extra></extra>"))
-        f.update_layout(title="순 전이 (TO − FROM, 파랑 = 충격 전달자, 주황 = 수신자) — 월평균", height=120 + 26 * netm.shape[1],
-                        margin=dict(l=10, r=10, t=40, b=10))
+        f = go.Figure(go.Heatmap(z=netm.T.values, x=[str(d.year) for d in netm.index], y=[short(c) for c in netm.columns], zmin=-vmx, zmax=vmx,
+                                 colorscale=DIV, texttemplate="%{z:.0f}", textfont=dict(size=9), hovertemplate="%{y} %{x}: %{z:.1f}<extra></extra>"))
+        f.update_layout(title="순 전이 (TO − FROM) — 연평균 · 빨강 = 충격 전달자, 보라·파랑 = 수신자", height=140 + 30 * netm.shape[1],
+                        margin=dict(l=10, r=10, t=40, b=10), xaxis=dict(dtick=1, tickangle=-45, tickfont=dict(size=10)), yaxis=dict(tickfont=dict(size=10)))
         st.plotly_chart(f, key="tvp_net")
 
 
@@ -3490,7 +3500,6 @@ def page_predict():
     a, b, c = st.tabs(["단일 품목 (회귀 · ML · 계량)", "여러 품목 (패널 · 횡단면)", "MIDAS 수익 예측 (혼합 주기)"])
     with a:
         tab_ml()
-        ml_meta()
     with b:
         tab_panel()
     with c:
@@ -3613,7 +3622,7 @@ def tab_ls():
         RB, DB = _alloc_robust(float(cost), ROLL)
         spr = [c for c in RB.columns if c.startswith("Sharpe ~") or c.startswith("Sharpe 2")]
         st.dataframe(RB.style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}", spr[0]: "{:+.2f}",
-                                      spr[1]: "{:+.2f}", "t값": "{:+.2f}", "MinVar와 상관": "{:+.2f}"}, na_rep="–"))
+                                      spr[1]: "{:+.2f}", "t값": "{:+.2f}", "MinVar와 상관": "{:+.2f}"}, na_rep="–"), height=36 * (len(RB) + 1) + 4)
         f = go.Figure()
         for j, c in enumerate([c for c in DB.columns if c.startswith(("MinVar (상한 25%", "MinVar — 생우·금·돈육", "MinVar (상한 15%", "모멘텀", "혼합"))]):
             f.add_trace(go.Scatter(x=DB.index, y=DB[c].cumsum(), name=c, line=dict(color=PAL[j % 8], width=2.2 if c.startswith("혼합") else 1.3)))
