@@ -23,4 +23,11 @@ r = LS._book(W, R, 0.0)
 assert abs(r.loc[idx[101]] - R.iloc[101, 0]) < 1e-12 and r.drop(idx[101]).abs().sum() == 0   # t 결정 → t+1 손익
 ar = LS.absorption(R, 52)
 assert ar.dropna().between(0, 1).all()
+# 캐리: 월물 교체 주의 수익률은 '교체 전 차월물 → 교체 후 근월물'(같은 계약) 기준
+d = pd.date_range("2020-01-03", periods=4, freq="W-FRI")
+Cx = pd.DataFrame({"date": d, "id": "ak:M0", "f1": [100, 101, 110, 111], "f2": [105, 106, 112, 113], "months": 2.0,
+                   "c1": [2001, 2001, 2003, 2003], "c2": [2003, 2003, 2005, 2005]})
+K, Rr = LS.carry_panel(Cx, pd.DataFrame())
+assert abs(Rr["ak:M0"].iloc[2] - 100 * np.log(110 / 106)) < 1e-9 and abs(Rr["ak:M0"].iloc[1] - 100 * np.log(101 / 100)) < 1e-9
+assert K["ak:M0"].iloc[0] < 0                                            # 콘탱고(f2 > f1) → 캐리 음수
 print("LS STRATEGIES TEST PASSED")

@@ -1464,9 +1464,9 @@ def tab_portfolio():
     uni = st.multiselect("유니버스 (원자재 선물)", avail, default=avail if basis == "etf" else [i for i in P.DEFAULT_UNIVERSE if i in NAME],
                          format_func=lbl, key=f"pf_uni_{basis}")
     c1_, c2_, c3_ = st.columns(3)
-    sig = c1_.radio("기대수익 신호 μ", ["시계열 모멘텀 (기간 선택)", "Ridge 모델 예측 (특성)", "과거 평균 (무정보 기준)",
-                                         "패널 모델 예측 (④ 탭 '여러 품목'에서 전송)"], key="pf_sig",
-                    help="모멘텀: α = IC × σ × score(선택 기간 수익/변동성, ±2 제한).  Ridge: 종목별 walk-forward 예측(모멘텀·변동성·계절성·COT·베이시스).  과거 평균: 확장창 평균.")
+    sig = c1_.radio("기대수익 신호 μ", ["시계열 모멘텀 (기간 선택)", "과거 평균 (무정보 기준)"], key="pf_sig",
+                    help="모멘텀: α = IC × σ × score(선택 기간 수익/변동성, ±2 제한) — 롱숏 전략 탭에서 유일하게 견고했던 신호. "
+                         "과거 평균: 확장창 평균 (예측 없이 위험 분산만). Ridge·패널 예측 신호는 ⑥ 검증에서 과거 평균을 못 이겨 v1.14.0에서 제외")
     sigk = {"시계열": "momentum", "Ridge": "ridge", "과거": "hist_mean", "패널": "panel"}[sig.split()[0]]
     pfc = st.session_state.get("panel_fc")
     if sigk == "panel":
@@ -1763,10 +1763,6 @@ def tab_panel():
                          marker_color=[PAL[0] if v >= cur.quantile(1 - q) else (PAL[1] if v <= cur.quantile(q) else "#c3c2b7") for v in cur.values]))
     st.plotly_chart(fig_layout(f, max(300, 24 * len(cur) + 80), title=f"최신 신호 — {last:%Y-%m-%d} 결정 기준 예측 순위 (파랑 = 매수 후보, 주황 = 매도 후보)",
                                hovermode="y"), key="pn_cur")
-    if st.button("이 모델의 예측을 ⑤ 포트폴리오 탭 신호로 보내기", key="pn_send"):
-        st.session_state["panel_fc"] = dict(fc=PN.forecasts_for_portfolio(_panel_data(S["basis"], tuple(S["uni"]), S["freq"], S["target"], extra_bytes, ROLL), pred),
-                                            model=sel, basis=S["basis"], uni=S["uni"], freq=S["freq"])
-        st.success(f"전송 완료: {sel} ({S['basis']}, {len(S['uni'])}종목). ⑤ 탭에서 신호 '패널 모델 예측'을 선택하세요.")
 
 
 # ============================================================================
@@ -2225,7 +2221,12 @@ def tab_procure():
         down, up = qty * (r["4주 하단 90%"] - r["가격"]), qty * (r["4주 상단 90%"] - r["가격"])
         pr_txt = f"{pdn:.0%}" if np.isfinite(pdn) else "–"
         short_r = PR.reason(srow, w).replace(" (유리)", "↑").replace(" (불리)", "↓").replace(" (보통)", "").replace("단기 반등", "반등").replace("가격 위치", "위치")
-        lines = [f"점수 **{s_:.0f}**/{tl:.0f} · {h}주 내 쌀 확률 **{pr_txt}**/{p_star:.0%}", f"근거: {short_r}"]
+        pz = La_[i].dropna(); p0 = pz.asof(pz.index[-1] - pd.Timedelta(days=364))
+        r52 = float(np.log(pz.iloc[-1] / p0) * 100) if np.isfinite(p0) and p0 > 0 else np.nan
+        trend = ("" if not np.isfinite(r52) else
+                 f"📈 **추세 상승 중** (52주 {r52:+.{0 if abs(r52) >= 1 else 1}f}%)" + (" — 상승 추세에서 보류는 신중" if dec.startswith("🔴") else "") if r52 > 0
+                 else f"📉 추세 하락 중 (52주 {r52:+.{0 if abs(r52) >= 1 else 1}f}%)")
+        lines = [f"점수 **{s_:.0f}**/{tl:.0f} · {h}주 내 쌀 확률 **{pr_txt}**/{p_star:.0%}", f"근거: {short_r}"] + ([trend] if trend else [])
         if e_ is not None:
             lines.append(f"학습 AUC {e_['학습AUC']:.2f} · 시험 AUC {e_['시험AUC']:.2f}" + ("" if active else " · **기준치 미달**"))
             lines.append(f"시험 {e_['시험절감bp']:+.1f}bp (무작위 {e_['시험위약bp']:+.1f}) · {h}주{'·계절' if seaf else ''}")
@@ -2334,7 +2335,7 @@ def tab_procure():
     hi_, lo_ = sc3[sc3 >= 65].index.intersection(pa3.index), sc3[sc3 < 35].index.intersection(pa3.index)
     f.add_trace(go.Scatter(x=hi_, y=pa3.reindex(hi_), mode="markers", marker=dict(color=PAL[2], size=5), name="적극 매수 구간"), 1, 1)
     f.add_trace(go.Scatter(x=lo_, y=pa3.reindex(lo_), mode="markers", marker=dict(color=PAL[1], size=4, opacity=0.6), name="매수 늦춤 구간"), 1, 1)
-    f.add_trace(go.Scatter(x=sc3.index, y=sc3.values, line=dict(color="#222", width=2), name="매수 점수"), 2, 1)
+    f.add_trace(go.Scatter(x=sc3.index, y=sc3.values, line=dict(color=PAL[0], width=2.2), name="매수 점수"), 2, 1)
     show_comp = st.checkbox("점수 구성 요소도 함께 그리기 (선이 많아짐)", False, key="pc_comp")
     for j, c in enumerate([c for c in PR.COMP_LBL if w.get(c, 0) > 0 and show_comp]):
         s_ = sig[c][sig.index >= lo] * 100
@@ -2434,9 +2435,37 @@ def load_exp(name):
 RISK_DEF = [i for i in ["yf:ZC=F", "yf:ZS=F", "yf:ZM=F", "yf:ZW=F", "yf:TIO=F", "yf:HG=F", "yf:CL=F"] if i in NAME]
 
 
+@st.cache_data(show_spinner=False)
+def _ar_now(roll: bool):
+    import ls_strategies as LS
+    P = LS.weekly(_levels(None, roll), LS.BASKET, "2001-01-01")
+    ar = LS.absorption(LS._ret(P), 52)
+    d = ar - ar.shift(4)
+    return ar, d / d.rolling(156, min_periods=52).std()
+
+
+def _ar_alert():
+    """흡수비율(원자재 19개, 52주 상관의 1주성분 비중) 급등 경고 — 여러 품목을 함께 사도 분산 효과가 줄어드는 시기."""
+    ar, z = _ar_now(ROLL)
+    a, zz = ar.dropna(), z.dropna()
+    if not len(a) or not len(zz):
+        return
+    pct = float((a < a.iloc[-1]).mean())
+    last_d = min(a.index[-1], _levels(None, ROLL).index.max())
+    msg = (f"흡수비율 {a.iloc[-1]:.2f} (과거 {pct:.0%} 분위) · 4주 변화 z {zz.iloc[-1]:+.1f} ({last_d:%Y-%m-%d} 기준) — "
+           "원자재 19개가 하나의 요인에 얼마나 묶여 움직이는지 (높을수록 여러 품목을 함께 사도 분산 효과가 작음)")
+    if zz.iloc[-1] > 1:
+        st.warning("⚠️ **상관 급등 경고** — " + msg + ". 과거 급등 시작 후 13주 바스켓 평균 −1.1% (평소 +1.5%, t −1.5): 동반 하락 위험↑, 품목 분산에 기대지 말 것")
+    elif pct > 0.8:
+        st.info("ℹ️ 상관 높은 상태 — " + msg)
+    else:
+        st.caption("✅ 상관 급등 신호 없음 — " + msg)
+
+
 def tab_risk():
     import risk as RK
     st.subheader("리스크 — VaR/ES · 꼬리 위험 · 구매·보유 물량 위험")
+    _ar_alert()
     st.caption("모든 예측은 walk-forward (매년 1월 그 이전 데이터로만 재추정, 시점 t의 예측은 t−1 종가까지의 정보). 수익률 = 롤 보정 가격의 일간 로그수익률(%). "
                "구매자에게 위험은 '가격 상승'(매입 예정 물량 = 숏 노출), 재고 보유자에게는 '가격 하락' — 두 방향을 모두 평가.")
     ids_r = [i for i in COMMOD_IDS if GROUP.get(i) not in ("Freight",)]
@@ -3421,6 +3450,12 @@ def _ls_run(cost_bp: float, with_hmm: bool, roll: bool):
     return LS.run_all(_levels(None, roll), cost_bp, with_hmm=with_hmm)
 
 
+@st.cache_data(show_spinner=False)
+def _carry_run(cost_bp: float, roll: bool):
+    import ls_strategies as LS
+    return LS.run_carry(_levels(None, roll), cost_bp)
+
+
 def tab_ls():
     import ls_strategies as LS
     st.subheader("롱숏 전략 — 상관 · 레짐 · 추세 (헤지펀드 원자재 전략 묶음)")
@@ -3484,13 +3519,35 @@ def tab_ls():
                 st.dataframe(E.set_index(["묶음", "h주"]).style.format({"진입 후 평균 (%)": "{:+.2f}", "평소 평균 (%)": "{:+.2f}", "차이 t값": "{:+.2f}", "하락 비율": "{:.0%}"}))
         st.caption("'진입 후 평균'이 '평소 평균'보다 확실히 낮아야(t값 < −2) 국면 진입이 동반 하락을 미리 알려준다고 볼 수 있음. "
                    "HMM 스트레스 확률은 실시간 필터라 급락이 이미 진행된 뒤 켜지는 경우가 많아, 진입 직후엔 오히려 반등이 나오기도 함.")
+    st.markdown("##### ⑥ 캐리 (기간구조) — 백워데이션 품목 롱 · 콘탱고 품목 숏")
+    st.caption("캐리 = (ln 근월물 − ln 차월물) × 12 / 만기 간격(개월), 연율 %. 양수 = 백워데이션(당장 물건이 귀함 → 근월물 프리미엄), 음수 = 콘탱고(재고 충분). "
+               "Yahoo는 만기 지난 월물을 주지 않아 미국 곡물·금속은 과거 캐리를 만들 수 없음 → 미국 에너지(EIA, 2024-04까지)와 중국 대련·상해(Sina, 2018–)로 검증. "
+               "자료 갱신: `collect_carry.py` (약 10분).")
+    CR = _carry_run(float(cost), ROLL)
+    if not CR:
+        st.info("캐리 자료가 없습니다 — 터미널에서 `python collect_carry.py` 실행 후 새로고침.")
+    for nm, co in CR.items():
+        st.markdown(f"**{nm}**")
+        k1, k2 = st.columns([1.3, 1])
+        k1.dataframe(co["table"].style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}",
+                                               "t값": "{:+.2f}", "바스켓과 상관": "{:+.2f}"}, na_rep="–"))
+        f = go.Figure()
+        for j, c in enumerate(co["returns"].columns):
+            f.add_trace(go.Scatter(x=co["returns"].index, y=co["returns"][c].fillna(0).cumsum(), name=c, line=dict(color=PAL[j], width=1.6)))
+        k2.plotly_chart(fig_layout(f, 260, title="누적 수익 (%)", hovermode="x", legend=dict(orientation="h", y=-0.3)), key=f"ls_carry_{nm[:4]}")
+        if "에너지" in nm:
+            st.caption("천연가스·휘발유·난방유는 계절마다 곡선 모양이 정해져 있어(겨울물·여름물이 늘 비쌈) 인접 월물 캐리가 '재고 상황'보다 '계절'을 반영 → 천연가스를 빼도 "
+                       "시계열 캐리 Sharpe ≈ −0.1–0.1, 원유 단독 IC −0.21. 학계는 12개월 떨어진 월물로 계절을 제거하지만 EIA는 1·2번째 계약만 제공.")
+        ic = co["ic"].copy(); ic["id"] = ic["id"].map(short)
+        st.dataframe(ic.set_index("id").style.format({"평균 캐리 (연 %)": "{:+.1f}", "백워데이션 비율": "{:.0%}", ic.columns[5]: "{:+.3f}",
+                                                       ic.columns[6]: "{:+.2f}", ic.columns[7]: "{:+.2f}"}, na_rep="–"))
     with st.expander("헤지펀드·CTA가 원자재에서 흔히 쓰는 전략과 이 화면의 범위"):
         st.markdown("""
 | 전략 | 핵심 | 여기서 | 비고 |
 |---|---|---|---|
 | **시계열 모멘텀 (추세추종, CTA)** | 품목별 과거 수익률 부호대로 롱/숏, 변동성 역비례 | ④ | 100년 이상 자료에서 확인된 대표 전략 (Hurst-Ooi-Pedersen) |
 | **횡단면 모멘텀** | 강한 품목 롱 · 약한 품목 숏 | ⑤ | 원자재에서는 추세보다 약하고 기간 의존 |
-| **캐리 (기간구조)** | 백워데이션 품목 롱 · 콘탱고 품목 숏 | ✗ | 원월물 가격 필요 — 다음 과제 (월물 수집) |
+| **캐리 (기간구조)** | 백워데이션 품목 롱 · 콘탱고 품목 숏 | ⑥ | 미국 에너지·중국 품목만 (미국 곡물·금속 과거 월물 자료 없음) |
 | **페어 · 스프레드 차익** | 크러시·크랙·곡물 비율 등 관계의 평균회귀 | ① | 비용·관계 붕괴(구조 변화)에 취약 |
 | **상관 · 위험 국면 타이밍** | 흡수비율·VIX·신용 스프레드로 위험 축소 | ② ③ | 수익보다 낙폭 축소 목적 |
 | **가치 (장기 역추세)** | 5년 평균 대비 크게 싼 품목 롱 | – | ★ 구매 점수의 '가격 위치'와 비슷한 아이디어 |

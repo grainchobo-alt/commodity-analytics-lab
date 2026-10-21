@@ -272,3 +272,81 @@ def event_study(on: pd.Series, R: pd.DataFrame, groups: dict, hs=(1, 4, 8, 13), 
                              "차이 t값": (x.mean() - uncond.mean()) / (x.std(ddof=1) / np.sqrt(len(x))) if x.std() > 0 else np.nan,
                              "하락 비율": float((x < 0).mean())})
     return pd.DataFrame(rows)
+
+
+# ============================================================================
+# ⑥ 캐리 (기간구조, Koijen-Moskowitz-Pedersen-Vrugt 2018 · Erb-Harvey 2006)
+#    캐리 = (ln F1 − ln F2) × 12 / 만기 간격(개월) — 양수 = 백워데이션(근월물이 비쌈, 재고 부족) → 롱
+# ============================================================================
+def load_carry() -> pd.DataFrame:
+    from pathlib import Path
+    p = Path(__file__).parent / "data" / "carry.parquet"
+    return pd.read_parquet(p) if p.exists() else pd.DataFrame()
+
+
+def carry_panel(C: pd.DataFrame, L: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """주간 캐리(연율 %) · 근월물 보유 수익률(%) 패널. 중국 = 계약 식별로 월물 교체를 반영한 수익률, 미국 에너지 = Yahoo 롤 보정 수익률."""
+    K, R = {}, {}
+    for i, g in C.groupby("id"):
+        g = g.sort_values("date").set_index("date")
+        w = g.resample("W-FRI").last().dropna(subset=["f1", "f2"])
+        K[i] = 100 * (np.log(w.f1) - np.log(w.f2)) * 12 / w.months.clip(lower=1)
+        if "c1" in w and w["c1"].notna().any():
+            same = w.c1 == w.c1.shift(1); rolled = w.c1 == w.c2.shift(1)
+            r = np.where(same, np.log(w.f1 / w.f1.shift(1)), np.where(rolled, np.log(w.f1 / w.f2.shift(1)), np.nan))
+            R[i] = pd.Series(100 * r, index=w.index)
+        elif i in L:
+            R[i] = 100 * np.log(L[i].resample("W-FRI").last()).diff()
+    return pd.DataFrame(K), pd.DataFrame(R)
+
+
+def carry_books(K: pd.DataFrame, R: pd.DataFrame, cost_bp=5.0, vol_win=26) -> dict:
+    R = R.reindex(K.index); K = K.where(R.notna())
+    vol = R.rolling(vol_win, min_periods=13).std()
+    inv = (1 / vol).where(K.notna())
+    ts = np.sign(K) * inv
+    ts = ts.div(ts.abs().sum(1).replace(0, np.nan), axis=0)                       # 총노출 1
+    rk = K.rank(axis=1); dm = rk.sub(rk.mean(1), axis=0)
+    xs = dm.div(dm.abs().sum(1).replace(0, np.nan), axis=0)                        # 순위 편차 비중 (롱=숏)
+    lo = (K.notna() * inv).div((K.notna() * inv).sum(1).replace(0, np.nan), axis=0)  # 기준: 위험 균등 롱
+    return {"기준 롱 (위험 균등)": _book(lo.fillna(0), R.fillna(0), cost_bp), "캐리 시계열 (백워 롱 · 콘탱고 숏)": _book(ts.fillna(0), R.fillna(0), cost_bp),
+            "캐리 횡단면 (상대 캐리 순위)": _book(xs.fillna(0), R.fillna(0), cost_bp)}
+
+
+def carry_ic(K: pd.DataFrame, R: pd.DataFrame, h: int = 4) -> pd.DataFrame:
+    """캐리와 다음 h주 수익률의 관계: 품목별 상관(IC)·백워/콘탱고 구간의 평균 수익률."""
+    rows = []
+    for i in K:
+        k = K[i]; f = R[i].rolling(h).sum().shift(-h).reindex(k.index)
+        m = k.notna() & f.notna()
+        if m.sum() < 52:
+            continue
+        rows.append({"id": i, "기간": f"{k[m].index.min():%Y}–{k[m].index.max():%Y}", "주 수": int(m.sum()), "평균 캐리 (연 %)": float(k[m].mean()),
+                     "백워데이션 비율": float((k[m] > 0).mean()), f"IC (캐리 vs 다음 {h}주)": float(np.corrcoef(k[m], f[m])[0, 1]),
+                     f"백워 시 {h}주 평균 (%)": float(f[m][k[m] > 0].mean()) if (k[m] > 0).any() else np.nan,
+                     f"콘탱고 시 {h}주 평균 (%)": float(f[m][k[m] <= 0].mean()) if (k[m] <= 0).any() else np.nan})
+    return pd.DataFrame(rows)
+
+
+def run_carry(L: pd.DataFrame, cost_bp=5.0, split="2017-01-01") -> dict:
+    C = load_carry()
+    if C.empty:
+        return {}
+    out = {}
+    for nm, ids in [("미국 에너지 4 (EIA, 2001–2024.04)", ["yf:CL=F", "yf:HO=F", "yf:RB=F", "yf:NG=F"]),
+                    ("중국 대련·상해 8 (Sina, 2018–)", ["ak:M0", "ak:Y0", "ak:C0", "ak:A0", "ak:I0", "ak:J0", "ak:JM0", "ak:RB0"])]:
+        Ci = C[C.id.isin(ids)]
+        if Ci.empty:
+            continue
+        K, R = carry_panel(Ci, L)
+        if "yf:CL=F" in ids:
+            K = K[K.index >= "2001-01-01"]
+        B = pd.DataFrame(carry_books(K, R, cost_bp)).dropna(how="all")
+        B = B[B.index >= B.index.min() + pd.DateOffset(weeks=26)]
+        rows = []
+        for c in B:
+            r = B[c].fillna(0)
+            rows.append({"전략": c, **metrics(r), "t값": metrics(r)["Sharpe"] * np.sqrt(len(r) / ANN),
+                         "바스켓과 상관": float(r.corr(B.iloc[:, 0].fillna(0)))})
+        out[nm] = dict(table=pd.DataFrame(rows).set_index("전략"), returns=B, ic=carry_ic(K, R), carry=K)
+    return out

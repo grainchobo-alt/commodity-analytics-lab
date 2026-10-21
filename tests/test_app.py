@@ -40,6 +40,8 @@ assert any("거시" in m.value for m in at.markdown)                            
 assert any("펀더멘털 맥락" in e.label for e in at.expander)                                 # 펀더멘털 표 2개는 펼치기
 at.checkbox(key="pc_comp").check().run(); check(at, "구매 타이밍: 점수 구성 요소 표시"); at.checkbox(key="pc_comp").uncheck().run()
 assert any("t값 > 2" in i.value for i in at.info)                                          # ⑤ 롱숏 전략 표
+assert any("흡수비율" in x.value for x in list(at.warning) + list(at.info) + list(at.caption))   # 리스크 탭 상관 급등 경고
+assert any("추세" in c.value and "점수 **" in c.value for c in at.caption)                  # ★ 카드 추세 배지
 at.selectbox(key="ls_pair").set_value("yf:GC=F|yf:SI=F").run(); check(at, "⑤ 롱숏: 금/은 페어 z")
 at.number_input(key="ls_cost").set_value(10.0).run(); check(at, "⑤ 롱숏: 비용 10bp")
 at.slider(key="pc_aucmin").set_value(0.55).run(); at.slider(key="pc_pstar").set_value(0.55).run()
@@ -178,12 +180,7 @@ at.button(key="pn_econ").click().run(); check(at, "패널: 계량 추정 (FM·FE
 at.selectbox(key="pn_wffe").set_value("품목 FE").run(); at.checkbox(key="pn_wfsec").check().run()
 at.button(key="pn_run").click().run(); check(at, "패널: walk-forward 품목 FE + 섹터 기울기")
 at.selectbox(key="pn_wffe").set_value("없음 (Pooled)").run(); at.checkbox(key="pn_wfsec").uncheck().run()
-at.selectbox(key="pn_sel").set_value("Ridge").run()
-at.button(key="pn_send").click().run(); check(at, "패널 → 포트폴리오 신호 전송")
-at.radio(key="pf_basis").set_value("ETF 기반 선물 초과수익 (실제 롤 비용 반영, 권장)").run()
-at.selectbox(key="pf_reb").set_value("매주 (금요일)").run()
-at.radio(key="pf_sig").set_value("패널 모델 예측 (④ 탭 '여러 품목'에서 전송)").run()
-at.button(key="pf_run").click().run(); check(at, "포트폴리오: 패널 신호 + Newton 최적화")
+assert at.radio(key="pf_sig").options == ["시계열 모멘텀 (기간 선택)", "과거 평균 (무정보 기준)"]
 
 at.button(key="md_grun").click().run(); check(at, "MIDAS: GARCH-MIDAS (자기 실현분산)")
 at.selectbox(key="md_mac").set_value("fred:VIXCLS").run()
