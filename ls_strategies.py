@@ -233,6 +233,28 @@ def run_all(L: pd.DataFrame, cost_bp: float = 5.0, start="2001-01-01", split="20
     S["④ 시계열 모멘텀 52주 (TSMOM, 목표 변동성 10%)"] = _book(tsmom_weights(Pb, 52), Rb, cost_bp)
     S["④ 시계열 모멘텀 13주 (목표 변동성 10%)"] = _book(tsmom_weights(Pb, 13), Rb, cost_bp)
     S["⑤ 횡단면 모멘텀 26주 (상위−하위 1/3)"] = _book(xsmom_weights(Pb, 26), Rb, cost_bp)
+    # ⑥ 비중 조합: 최소분산 롱 + 모멘텀 롱숏 (두 책 모두 목표 변동성 10%, 섞은 뒤 다시 10%)
+    mvb = _book(_vol_target(alloc_weights_cap(Pb, 0.25), Rb), Rb, cost_bp)
+    S["⑥ 최소분산 롱 (MinVar, 목표 변동성 10%)"] = mvb
+    tsm = S["④ 시계열 모멘텀 52주 (TSMOM, 목표 변동성 10%)"]
+    for a_ in (0.3, 0.5, 0.7):
+        mix = (a_ * mvb + (1 - a_) * tsm.reindex(mvb.index).fillna(0)).fillna(0)
+        pv = mix.rolling(26, min_periods=13).std().shift(1) * np.sqrt(ANN)
+        S[f"⑥ 혼합 · MinVar {a_:.0%} + 모멘텀 {1 - a_:.0%}"] = mix * (10.0 / pv).clip(upper=4.0).fillna(1.0)
+    # ⑦ 국면 전환 오버레이: 평소 = 혼합 MinVar 70% + 모멘텀 30%, 신호가 켜진 다음 주에는 다른 구성으로 (신호는 t 결정 → t+1 적용)
+    base = S["⑥ 혼합 · MinVar 70% + 모멘텀 30%"]
+    alts = {"모멘텀 100%": tsm.reindex(base.index).fillna(0), "현금 (포지션 0)": base * 0}
+    cy_ = [i for i in CYCLICAL if i in P]
+    Wsp = pd.DataFrame(0.0, index=P.index, columns=list(dict.fromkeys(cy_ + [SAFE])))
+    Wsp.loc[:, SAFE] = 0.5; Wsp.loc[:, cy_] = -0.5 / len(cy_)
+    spread = _book(_vol_target(Wsp, R[Wsp.columns]), R[Wsp.columns], cost_bp).reindex(base.index).fillna(0)   # 항상 켜진 금/경기민감 책 (10%)
+    alts["혼합 50% + 금 롱·경기민감 숏 50%"] = 0.5 * base + 0.5 * spread
+    for sig_nm, on_ in [("스트레스 (HMM)", hm_on), ("상관 급등 (AR)", ar_on)]:
+        if on_ is None:
+            continue
+        o1 = on_.reindex(base.index).fillna(0).shift(1).fillna(0) > 0
+        for alt_nm, alt in alts.items():
+            S[f"⑦ 평소 70/30 → {sig_nm} 때 {alt_nm}"] = pd.Series(np.where(o1, alt, base), index=base.index)
     # 공통 평가 구간
     D = pd.DataFrame(S)
     first = D.apply(lambda c: c.ne(0).idxmax() if c.ne(0).any() else D.index[0]).max()
@@ -252,6 +274,12 @@ def run_all(L: pd.DataFrame, cost_bp: float = 5.0, start="2001-01-01", split="20
         T.loc["② 상관 급등 시 바스켓 끔 (AR)", "위약 95%"] = placebo_timing(1 - ar_on.reindex(D.index).shift(1).fillna(0), rb, rb * 0)
     if hm_on is not None:
         T.loc["③ 스트레스 국면 시 바스켓 끔 (HMM)", "위약 95%"] = placebo_timing(1 - hm_on.reindex(D.index).shift(1).fillna(0), rb, rb * 0)
+    b70 = D["⑥ 혼합 · MinVar 70% + 모멘텀 30%"]
+    for sig_nm, on_ in [("스트레스 (HMM)", hm_on), ("상관 급등 (AR)", ar_on)]:
+        for alt_nm, alt in [("모멘텀 100%", D["④ 시계열 모멘텀 52주 (TSMOM, 목표 변동성 10%)"]), ("현금 (포지션 0)", b70 * 0)]:
+            k_ = f"⑦ 평소 70/30 → {sig_nm} 때 {alt_nm}"
+            if on_ is not None and k_ in T.index:                    # 위약 = 같은 빈도·지속성의 무작위 전환
+                T.loc[k_, "위약 95%"] = placebo_timing(1 - on_.reindex(D.index).shift(1).fillna(0), b70, alt)
     grp = {"바스켓 (동일가중)": list(Pb.columns), "경기민감 (원유·구리·대두·면화)": CYCLICAL, "금": [SAFE]}
     ev = {}
     if hm_on is not None:

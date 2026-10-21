@@ -167,7 +167,7 @@ def range_of(*Ms, nodiag=True, step=0.05):
     return (lo, hi) if hi > lo else (lo - step, hi + step)
 
 
-def heat(M: pd.DataFrame, title, zmin=None, zmax=None, fmt=".2f", h=420, scale=None, text_max=12, nodiag=False):
+def heat(M: pd.DataFrame, title, zmin=None, zmax=None, fmt=".2f", h=420, scale=None, text_max=30, nodiag=False):
     """zmin/zmax 생략 → 실제 값 범위로 자동 (발산형은 ±max, 비음수면 0~max). nodiag=True → 대각(자기 자신=1)을 비워 색 범위를 쌍별 값에 씀."""
     Z = M.values.astype(float).copy()
     if nodiag and Z.shape[0] == Z.shape[1]:
@@ -180,13 +180,13 @@ def heat(M: pd.DataFrame, title, zmin=None, zmax=None, fmt=".2f", h=420, scale=N
     fig = go.Figure(go.Heatmap(z=Z, x=[short(c) for c in M.columns], y=[short(i) for i in M.index],
                                zmin=zmin, zmax=zmax, colorscale=scale or DIV, colorbar=dict(thickness=12),
                                texttemplate=("%{z:" + fmt + "}") if show_text else None,
-                               textfont=dict(size=10), hovertemplate="%{y} / %{x}: %{z:.3f}<extra></extra>"))
+                               textfont=dict(size=10 if max(M.shape) <= 12 else 8), hovertemplate="%{y} / %{x}: %{z:.3f}<extra></extra>"))
     fig.update_layout(title=title, height=h, margin=dict(l=10, r=10, t=40, b=10),
                       yaxis=dict(autorange="reversed", dtick=1), xaxis=dict(dtick=1, tickangle=-45))
     return fig
 
 
-def heat_row(mats, titles, ranges, scales=None, groups=None, fmt=".2f", h=470, text_max=12, nodiag=True):
+def heat_row(mats, titles, ranges, scales=None, groups=None, fmt=".2f", h=470, text_max=30, nodiag=True):
     """여러 행렬을 한 그림에 나란히 (y 라벨 1번만, 같은 group은 색 막대 공유) → 좁은 3열 배치보다 칸이 크고 비교 쉬움.
     ranges[i] = (zmin, zmax), groups[i] = 색 축 번호(같으면 같은 색 범위·막대)."""
     n = len(mats); groups = groups or [1] * n; scales = scales or [DIV] * n
@@ -1306,7 +1306,7 @@ def tab_ml():
             vmax = float(np.nanmax(np.abs(CM.values))) or 1
             st.markdown("##### 계수 비교 (표준화 계수: X 1σ 변화당 Y 변화)")
             fig = go.Figure(go.Heatmap(z=CM.values, x=list(CM.columns), y=list(CM.index), zmin=-vmax, zmax=vmax,
-                                       colorscale=DIV, texttemplate="%{z:.2f}" if CM.shape[1] <= 14 else None,
+                                       colorscale=DIV, texttemplate="%{z:.2f}" if CM.shape[1] <= 30 else None,
                                        textfont=dict(size=9), hovertemplate="%{y} · %{x}: %{z:.4f}<extra></extra>"))
             fig.update_layout(height=max(260, 40 * len(CM) + 120), margin=dict(l=10, r=10, t=10, b=10),
                               yaxis=dict(autorange="reversed"))
@@ -1769,10 +1769,15 @@ def tab_midas(vol_only: bool = True):
             e2_.plotly_chart(shade(fig_layout(f, 380, title=f"{short(gid_)} GARCH-MIDAS: 장기 vs 총 변동성 (연율 %) — 요인: {gm['source'] if mac_.startswith('(') else short(mac_)}"),
                                    gm["tau_vol"].index), key="md_gmchart")
     else:
-        c1_, c2_, c3_ = st.columns([1, 2, 1])
+        c1_, c2_, c4_, c3_ = st.columns([1, 1.5, 1.8, 0.8])
         tid = c1_.selectbox("목표 품목 (다음 달 수익)", ids_c, ids_c.index("yf:ZC=F") if "yf:ZC=F" in ids_c else 0, format_func=lbl, key="md_tid")
-        rids = c2_.multiselect("일간 설명변수 (수익률)", ALL_IDS, default=[i for i in [tid, "yf:DX-Y.NYB", "fred:VIXCLS"] if i in NAME][:3],
-                               format_func=lbl, key="md_rids", max_selections=3)
+        rc_ = c2_.multiselect("원자재 일간 설명변수", COMMOD_IDS, default=[tid], format_func=lbl, key="md_rids", max_selections=2)
+        mac_o = [i for i in ALL_IDS if GROUP.get(i) in ("Macro", "FX", "FRED daily")]
+        rm_ = c4_.multiselect("🌐 거시 일간 설명변수 (금리·달러·VIX·스프레드)", mac_o, [i for i in ["yf:DX-Y.NYB", "fred:VIXCLS", "fred:DGS10"] if i in mac_o],
+                              format_func=lbl, key="md_rmac", max_selections=3,
+                              help="MIDAS는 일간(고빈도) 자료의 시차들을 Beta 가중으로 요약해 월간 목표를 예측 — 거시 변수도 매일 관측되므로 월 평균으로 뭉개지 않고 넣음. "
+                                   "변화로 변환 (금리·스프레드 = 차분, 나머지 = 로그수익률)")
+        rids = list(dict.fromkeys(rc_ + rm_))
         Kr = c3_.number_input("일간 시차 K", 5, 252, 63, key="md_Kr")
         if st.button("▶ MIDAS 수익 예측 (walk-forward)", type="primary", key="md_rrun") and rids:
             with st.spinner("월마다 재추정 중..."):
@@ -3529,7 +3534,9 @@ def tab_ls():
     st.subheader("롱숏 전략 — 상관 · 레짐 · 추세 (헤지펀드 원자재 전략 묶음)")
     st.caption("주간 금요일 종가로 결정 → 다음 주 수익률로 손익 (그 시점까지의 정보만 사용) · 비용 = 비중 변화량 × 편도 비용. "
                "① 페어 평균회귀 = 관계가 강한 두 품목의 가격차가 평소보다 벌어지면 되돌림에 베팅 · ② 상관 급등 = 품목들이 한 방향으로 묶이기 시작하면(흡수비율↑) 동반 하락 대비 · "
-               "③ 국면 진입 = 다변량 HMM 스트레스 국면 확률 > 0.5 이면 위험 회피 · ④ 시계열 모멘텀 = 품목별 52주 추세 방향 (CTA의 기본 전략) · ⑤ 횡단면 모멘텀 = 강한 품목 롱 · 약한 품목 숏")
+               "③ 국면 진입 = 다변량 HMM 스트레스 국면 확률 > 0.5 이면 위험 회피 · ④ 시계열 모멘텀 = 품목별 52주 추세 방향 (CTA의 기본 전략) · ⑤ 횡단면 모멘텀 = 강한 품목 롱 · 약한 품목 숏 · "
+               "⑥ 비중 조합 = 최소분산 롱(공분산 최적화)과 ④ 모멘텀을 30/70 · 50/50 · 70/30으로 섞음 (각 10% 변동성 → 섞은 뒤 다시 10%) · "
+               "⑦ 국면 전환 = 평소엔 ⑥ 70/30, 스트레스(HMM)·상관 급등(AR) 신호가 켜진 다음 주엔 모멘텀 100% / 현금 / 금 롱·경기민감 숏 혼합으로 바꿈")
     with st.expander("헤지펀드·CTA가 원자재에서 흔히 쓰는 전략과 이 화면의 범위"):
         st.markdown("""
 | 전략 | 핵심 | 여기서 | 비고 |
@@ -3603,7 +3610,7 @@ def tab_ls():
                 st.dataframe(E.set_index(["묶음", "h주"]).style.format({"진입 후 평균 (%)": "{:+.2f}", "평소 평균 (%)": "{:+.2f}", "차이 t값": "{:+.2f}", "하락 비율": "{:.0%}"}))
         st.caption("'진입 후 평균'이 '평소 평균'보다 확실히 낮아야(t값 < −2) 국면 진입이 동반 하락을 미리 알려준다고 볼 수 있음. "
                    "HMM 스트레스 확률은 실시간 필터라 급락이 이미 진행된 뒤 켜지는 경우가 많아, 진입 직후엔 오히려 반등이 나오기도 함.")
-    st.markdown("##### ⑦ 비중 결정 방식 비교 — 동일가중 · 역변동성 · 최소분산(MinVar) · 평균-분산(μ = 52주 모멘텀)")
+    st.markdown("##### ⑧ 비중 결정 방식 비교 — 동일가중 · 역변동성 · 최소분산(MinVar) · 평균-분산(μ = 52주 모멘텀)")
     st.caption("같은 19개 품목 · 공분산 = 과거 104주 Ledoit-Wolf 수축 · 롱온리는 4주마다, 모멘텀 롱숏은 매주 재조정 · 품목 상한 25% · "
                "모두 사전 목표 변동성 10% (직전 26주 실현 변동성으로 배율, 최대 4배)로 맞춰 같은 위험에서 비교. "
                "μ = IC 0.05 × 품목 변동성 × 52주 추세 부호 (Grinold 공식), 평균-분산 위험회피 λ = 5.")
