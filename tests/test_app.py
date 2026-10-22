@@ -41,6 +41,7 @@ assert any("펀더멘털 맥락" in e.label for e in at.expander)               
 at.checkbox(key="pc_comp").check().run(); check(at, "구매 타이밍: 점수 구성 요소 표시"); at.checkbox(key="pc_comp").uncheck().run()
 assert any("t값 > 2" in i.value for i in at.info)                                          # ⑤ 롱숏 전략 표
 assert any("비중 결정 방식 비교" in m.value for m in at.markdown)                          # ⑤ ⑦ MinVar·평균-분산 비교
+assert any("⑨ 확장 — 칼만 필터" in m.value for m in at.markdown)                          # ⑨ 칼만·헤지펀드식 확장
 assert any("MinVar 강건성" in e.label for e in at.expander)                               # ⑦ 강건성 점검
 assert any("크기 조정(변동성 사이징)" in e.label for e in at.expander)                      # 사이징 방식·창 길이 비교
 assert any("흡수비율" in x.value for x in list(at.warning) + list(at.info) + list(at.caption))   # 리스크 탭 상관 급등 경고
