@@ -218,4 +218,11 @@ def run_extra(L: pd.DataFrame, cost_bp: float = 5.0, start: str = "2001-01-01", 
                      f"Sharpe {split[:4]}~": LS.metrics(r[r.index >= split])["Sharpe"], "t값": LS.metrics(r)["Sharpe"] * np.sqrt(len(r) / ANN),
                      "기존 70/30과 상관": float(r.corr(base)), "52주 모멘텀과 상관": float(r.corr(D["기준 · 52주 모멘텀 (④)"])),
                      "기존 70/30 대비 차이 t": float(dlt.mean() / dlt.std() * np.sqrt(len(dlt))) if dlt.std() > 0 else np.nan})
-    return dict(table=pd.DataFrame(rows).set_index("전략"), returns=D)
+    # 사전 선택 검증: 혼합 후보(기존 70/30, MinVar 50 + 모멘텀 25 + 대체 전략 하나 25)를 학습(~split)으로만 고르고 시험(split~) 확인
+    sh = lambda r: float(r.mean() / r.std() * np.sqrt(ANN)) if r.std() > 0 else np.nan
+    cands = {"기존 70/30": D["혼합 · MinVar 70 + 모멘텀 30 (기존)"]}
+    for a in alt:
+        cands["50/25 + " + a.split(" (")[0]] = mix([(0.5, mvb), (0.25, tsm), (0.25, S[a])]).reindex(D.index)
+    sel = pd.DataFrame([{"후보": k, f"학습 Sharpe (~{int(split[:4]) - 1})": sh(v[v.index < split]), f"시험 Sharpe ({split[:4]}~)": sh(v[v.index >= split])}
+                        for k, v in cands.items()]).set_index("후보").sort_values(f"학습 Sharpe (~{int(split[:4]) - 1})", ascending=False)
+    return dict(table=pd.DataFrame(rows).set_index("전략"), returns=D, selection=sel)
