@@ -313,3 +313,15 @@ def item_contrib(L: pd.DataFrame, start: str = "2001-01-01", tgt: float = 10.0) 
         k_ = (tgt / (tot.rolling(26, min_periods=13).std().shift(1) * np.sqrt(ANN))).clip(upper=4.0).fillna(1.0)
         PnL[nm] = raw.mul(k_, axis=0)
     return PnL
+
+
+def rolling_alpha(r: pd.Series, bh: pd.Series, win: int = 104) -> pd.DataFrame:
+    """직전 win주(기본 2년) 롤링 회귀 r = α + β·바스켓: 연율 알파(%)·베타·알파 t값 (그 시점까지의 자료)."""
+    x = pd.concat([r, bh], axis=1).dropna(); x.columns = ["r", "m"]
+    cov = x["r"].rolling(win, min_periods=win // 2).cov(x["m"]); var = x["m"].rolling(win, min_periods=win // 2).var()
+    beta = cov / var
+    alpha = x["r"].rolling(win, min_periods=win // 2).mean() - beta * x["m"].rolling(win, min_periods=win // 2).mean()
+    resid_var = x["r"].rolling(win, min_periods=win // 2).var() - beta ** 2 * var
+    n = x["r"].rolling(win, min_periods=win // 2).count()
+    t = alpha / np.sqrt(resid_var.clip(lower=1e-12) / n)
+    return pd.DataFrame({"알파 (연 %)": alpha * ANN, "베타": beta, "알파 t값": t})

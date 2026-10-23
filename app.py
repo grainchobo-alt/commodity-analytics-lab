@@ -2165,6 +2165,10 @@ K2 칼만 동적 헤지 페어(회귀계수 β가 매주 변하는 페어의 예
 **강세장 덕 vs 전략 덕은 어떻게 나누나?** → 주간 수익률을 바스켓(19개 동일가중 Buy&Hold)에 회귀: r = α + β·바스켓. β = 원자재 시장을 얼마나 탔나, 시장 몫 = β × 바스켓 연수익, 알파 = 시장을 빼고 남은 연수익(품목 고르기·비중·롱숏).
 전체 2007–: 가치 혼합 연 9.7% = 시장 2.5% + 알파 7.2%(t 3.96), 기존 70/30 = 2.6% + 5.0%(t 2.83). 2017–20은 두 혼합 모두 알파가 작음(기존 −1.2%, 가치 +2.2%).
 
+**2년 롤링 알파 추세** → 가치 혼합의 2년 알파(연말 기준): 2014 +15.4 · 2016 +3.3 · 2018 −1.6 · 2020 +7.4 · 2022 +11.5 · 2024 +14.8 · 2026 +7.5%. 음수였던 기간 14%(기존 70/30은 29%), 유의(|t| ≥ 2) 29%.
+최근 2년 평균 +11.8% vs 그 전 4년 +11.5% → 우위가 줄어드는 신호는 아직 없음(단 2024 정점 이후 내려오는 중). 기존 70/30은 2016–2019 알파가 음수였고 가치 혼합은 그 시기 손실이 작았음 → 가치의 완충 효과.
+연도별 최대 기여 품목(가치 혼합): 생우 2010·2011·2014·2023·2024, 금 2009·2017·2019·2025, 대두박 2007·2020–2022 — 해마다 이끈 품목이 바뀌어 한 품목에만 의존하지는 않음.
+
 **캐리(기간구조)** → Yahoo는 만기 지난 개별 월물이 없어 미국 곡물·금속 과거 캐리 불가 → 미국 에너지(EIA, 2024-04까지)·중국(Sina 2018–)로 검증했으나 견고하지 않아 화면 제외 (`collect_carry.py` 보존).
 """)
 
@@ -3926,6 +3930,24 @@ def tab_ls():
         f = go.Figure([go.Bar(x=q_["기간"], y=q_["시장 몫 = β×바스켓 (%)"], name="시장 몫 (β × 바스켓 수익)", marker_color="#898781"),
                        go.Bar(x=q_["기간"], y=q_["알파 = 전략 몫 (연 %)"], name="전략 몫 (알파)", marker_color=PAL[2])])
         st.plotly_chart(fig_layout(f, 300, barmode="relative", title=f"{pick_} — 연수익 = 시장 몫 + 전략 몫 (%)", hovermode="x"), key="ls_ab_fig")
+        RA = LX.rolling_alpha(LX_["cands"][key_s[pick_]], LX_["bh"], 104).dropna()
+        RB_ = LX.rolling_alpha(LX_["cands"][key_s["기존 MinVar 70 + 모멘텀 30"]], LX_["bh"], 104).dropna()
+        f = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.65, 0.35], vertical_spacing=0.07,
+                          subplot_titles=("2년 롤링 알파 (연 %, 시장 몫을 뺀 전략 몫) · 주황 점 = 그 2년 알파가 유의(|t| ≥ 2)", "2년 롤링 베타 (원자재 시장을 탄 정도)"))
+        f.add_trace(go.Scatter(x=RA.index, y=RA["알파 (연 %)"], name=pick_, line=dict(color=PAL[2], width=2)), 1, 1)
+        if pick_ != "기존 MinVar 70 + 모멘텀 30":
+            f.add_trace(go.Scatter(x=RB_.index, y=RB_["알파 (연 %)"], name="기존 70/30", line=dict(color="#898781", width=1.3)), 1, 1)
+        sig_ = RA["알파 t값"].abs() >= 2
+        f.add_trace(go.Scatter(x=RA.index[sig_], y=RA["알파 (연 %)"][sig_], mode="markers", marker=dict(size=4, color=PAL[1]), name="|t| ≥ 2 (유의)"), 1, 1)
+        f.add_hline(y=0, line_color="#898781", row=1, col=1)
+        f.add_trace(go.Scatter(x=RA.index, y=RA["베타"], name="베타", line=dict(color=PAL[0], width=1.5), showlegend=False), 2, 1)
+        st.plotly_chart(shade(fig_layout(f, 460, hovermode="x"), RA.index), key="ls_ra_fig")
+        last_a, last_b = RA["알파 (연 %)"].iloc[-1], RA["베타"].iloc[-1]
+        rec = RA["알파 (연 %)"].loc[RA.index >= RA.index[-1] - pd.DateOffset(years=2)].mean()
+        prev = RA["알파 (연 %)"].loc[(RA.index < RA.index[-1] - pd.DateOffset(years=2)) & (RA.index >= RA.index[-1] - pd.DateOffset(years=6))].mean()
+        st.caption(f"최근 2년 알파 연 {last_a:+.1f}% · 베타 {last_b:.2f} · 최근 2년 평균 알파 {rec:+.1f}% vs 그 전 4년 평균 {prev:+.1f}% → "
+                   + ("우위가 커지는 추세." if rec > prev + 1 else "우위가 줄어드는 추세." if rec < prev - 1 else "비슷한 수준 유지.")
+                   + " 롤링 창이 2년이라 큰 사건(예: 2008·2020·2022) 전후로 크게 흔들림 — 추세는 여러 해에 걸친 방향으로 판단.")
         st.caption("바스켓 = 원자재 19개 동일가중 Buy&Hold. 주간 수익률을 바스켓에 회귀(r = α + β·바스켓): β = 원자재 시장을 얼마나 탔나, 시장 몫 = β × 바스켓 연수익(강세장 덕), "
                    "알파 = 시장 움직임을 빼고 남은 연수익(전략 덕 — 품목 고르기·비중·롱숏). 2021–2026 가치 혼합 연 18.3% 중 시장 몫 6.6% · 알파 11.7%(t 3.7) → "
                    "강세장만이 아니라 생우·금 같은 '바스켓보다 더 오른 품목'에 실려 있던 품목 선택 효과가 큼.")
@@ -3942,6 +3964,18 @@ def tab_ls():
                              text=[f"{v:+.2f}" for v in ct.values], textposition="outside"))
         st.plotly_chart(fig_layout(f, 120 + 24 * len(ct), title=f"{st_nm} · {per_} — 품목별 연평균 기여 (%p, 합계 {ct.sum():+.1f}%)", hovermode="y"), key="ls_ct_fig")
         st.caption("기여 = 그 품목 비중 × 그 품목 수익률을 기간 동안 더해 연평균으로 (거래비용 제외, 목표 변동성 배율 반영). 혼합은 구성 전략의 품목 손익을 비율대로 더한 뒤 혼합 배율까지 반영.")
+        Y_ = PnL[st_nm].loc["2007-01-01":].groupby(PnL[st_nm].loc["2007-01-01":].index.year).sum().T
+        Y_.index = [PR.BUY_IDS.get(i, short(i)) for i in Y_.index]
+        Y_ = Y_.loc[Y_.abs().sum(1).sort_values(ascending=False).index]
+        vmx = float(np.nanquantile(np.abs(Y_.values), 0.97)) or 1.0
+        fy = go.Figure(go.Heatmap(z=Y_.values, x=[str(c) for c in Y_.columns], y=list(Y_.index), zmin=-vmx, zmax=vmx, colorscale=DIV,
+                                  text=[[f"{v:+.1f}" for v in row] for row in Y_.values], texttemplate="%{text}", textfont=dict(size=9),
+                                  hovertemplate="%{y} · %{x}: %{z:+.2f}%p<extra></extra>", colorbar=dict(title="%p", thickness=12)))
+        fy.update_layout(title=f"{st_nm} — 품목 × 연도 기여 (%p, 그해 합계) · 위쪽일수록 기여 크기(절댓값) 큰 품목", height=140 + 26 * len(Y_),
+                         margin=dict(l=10, r=10, t=40, b=10), yaxis=dict(autorange="reversed"), xaxis=dict(dtick=1, tickangle=-45, tickfont=dict(size=10)))
+        st.plotly_chart(fy, key="ls_ct_heat")
+        tot_ = Y_.sum()
+        st.caption("빨강 = 그해 이익을 낸 품목, 보라·파랑 = 손실. 연도별 합계: " + " · ".join(f"{y} {v:+.1f}" for y, v in tot_.items()))
     st.caption("읽는 법: 칼만 추세(K1)는 52주 모멘텀보다 약하고(0.22 vs 0.50, 2017 이후 음수) MinVar 혼합에 넣어도 기존 70/30보다 나빠짐(0.59·0.64 vs 0.69). "
                "칼만 페어(K2)는 기존 페어(−0.15)보다 낫지만 0.14. 섹터 내 승자 롱(S1)은 크게 손해, 반대로 과열 숏·낙오 롱(S2)과 가치(V1)는 두 기간 모두 양수(0.41·0.42)이고 "
                "모멘텀과 음의 상관 → 기존 혼합에 가치 25%를 섞으면 0.89(차이 t 2.0)·낙폭 −28%. 단 가치·따라잡기 혼합은 결과를 보고 고른 '사후 선택'이라 과대평가 가능 — "
