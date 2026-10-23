@@ -2142,6 +2142,9 @@ K2 칼만 동적 헤지 페어(회귀계수 β가 매주 변하는 페어의 예
 재조정당 평균 교체 비중 0.3. 연도별로 들쭉날쭉(2010·2013·2025 손실, 2016·2020 큰 이익) — 가치는 수년 단위로 회복되는 느린 신호.
 주의: 롤 보정 연속월물 가격 기준이라 '5년 평균 대비'에 누적 롤 수익(콘탱고 손실·백워데이션 이익)이 섞임 → 순수한 현물 가치와는 다름.
 
+**'가치 단독 0.42'와 '가치 혼합 학습 0.71 · 시험 1.08'은 왜 다른가?** → 대상이 다름. 0.42 = 가치 롱숏 하나만(전체 기간), 0.71·1.08 = MinVar 50 + 모멘텀 25 + 가치 25 **혼합 전체**.
+같은 기간 비교: 학습(~2016) MinVar 0.36 · 모멘텀 0.66 · 가치 0.34 → 혼합 0.69–0.71 / 시험(2017~) 0.92 · 0.34 · 0.51 → 1.08. 혼합이 각 구성보다 높은 이유 = 상관이 낮거나 음수(가치–모멘텀 −0.44, 가치–MinVar −0.06)라 손실이 서로 상쇄돼 같은 10% 위험에서 Sharpe가 올라감.
+
 **캐리(기간구조)** → Yahoo는 만기 지난 개별 월물이 없어 미국 곡물·금속 과거 캐리 불가 → 미국 에너지(EIA, 2024-04까지)·중국(Sina 2018–)로 검증했으나 견고하지 않아 화면 제외 (`collect_carry.py` 보존).
 """)
 
@@ -3763,17 +3766,30 @@ def tab_ls():
     hmm = c2.checkbox("HMM 스트레스 국면 포함 (+20초)", True, key="ls_hmm")
     with st.spinner("전략 계산 중… (처음 20–40초)"):
         o = _ls_run(float(cost), bool(hmm), ROLL)
-    T, D = o["table"], o["returns"]
+    T, D = o["table"].copy(), o["returns"].copy()
     sp = [c for c in T.columns if c.startswith("Sharpe ~") or c.startswith("Sharpe 2")]
+    # ⑩ 혼합 후보 (⑨ 사전 선택 검증 상위): 가치 · 섹터 내 따라잡기 · 칼만 페어를 MinVar 50 + 모멘텀 25에 25%
+    LXo = _lx_run(float(cost), ROLL)
+    for key_, nm_ in [("V1 가치", "가치"), ("S2 섹터 내 따라잡기", "섹터 내 따라잡기"), ("K2 칼만 동적 헤지 페어", "칼만 페어")]:
+        ck = f"혼합 · MinVar 50 + 모멘텀 25 + {key_} 25"
+        if ck not in LXo["cands"]:
+            continue
+        r_ = LXo["cands"][ck].reindex(D.index).fillna(0.0)
+        rn = f"⑩ 혼합 후보 · MinVar 50 + 모멘텀 25 + {nm_} 25"
+        D[rn] = r_
+        m_ = LS.metrics(r_)
+        T.loc[rn] = {**m_, sp[0]: LS.metrics(r_[r_.index < "2017-01-01"])["Sharpe"], sp[1]: LS.metrics(r_[r_.index >= "2017-01-01"])["Sharpe"],
+                     "보유 주 비율": float((r_ != 0).mean()), "바스켓과 상관": float(r_.corr(D.iloc[:, 0])), "t값": m_["Sharpe"] * np.sqrt(len(r_) / 52)}
     ok = (T["t값"] > 2) & (T[sp].min(1) > 0)
     st.dataframe(T.style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}", sp[0]: "{:+.2f}", sp[1]: "{:+.2f}",
                                  "보유 주 비율": "{:.0%}", "바스켓과 상관": "{:+.2f}", "t값": "{:+.2f}", "위약 95%": "{:+.2f}"}, na_rep="–"),
-                 height=38 * (len(T) + 1) + 3)
+                 height=min(38 * (len(T) + 1) + 3, 470))
+    st.caption(f"전략 {len(T)}개 — 표 안에서 스크롤. ⑩ 혼합 후보 = ⑨ '사전 선택 검증'에서 2016년까지 학습 Sharpe 상위 조합(가치 1위 · 따라잡기 2위 · 칼만 페어 4위, 3위 왜도는 단독 성과가 약해 제외)")
     st.info(f"평가 {D.index.min():%Y-%m} – {D.index.max():%Y-%m} ({o['n_years']:.0f}년, 전략 {len(T) - 1}개). "
             f"t값 > 2 이고 두 하위기간 모두 양수: **{', '.join(T.index[ok]) or '없음'}**. "
             f"전략을 {len(T) - 1}개 시험했으므로 하나쯤 t > 2가 나오는 건 우연으로도 흔함(약 {1 - 0.977 ** (len(T) - 1):.0%}) — 문헌에서 이미 확인된 전략(시계열 모멘텀)인지가 중요.")
-    sel = st.multiselect("누적 수익 비교", list(D.columns), [c for c in D.columns if c.startswith(("기준", "② 상관 급등 시 바스켓 끔", "③ 스트레스 국면 시 바스켓 끔",
-                                                                                             "④ 시계열 모멘텀 52", "① 페어 + 상관 필터"))], key="ls_sel")
+    sel = st.multiselect("누적 수익 비교", list(D.columns), [c for c in D.columns if c.startswith(("기준", "④ 시계열 모멘텀 52", "⑥ 혼합 · MinVar 70",
+                                                                                             "⑩ 혼합 후보 · MinVar 50 + 모멘텀 25 + 가치", "⑩ 혼합 후보 · MinVar 50 + 모멘텀 25 + 섹터"))], key="ls_sel")
     norm_ = st.checkbox("변동성 10%로 맞춰 비교 (사후 배율 — 모양 비교용)", True, key="ls_norm")
     if sel:
         f = go.Figure()
@@ -3841,7 +3857,7 @@ def tab_ls():
     spx = [c for c in TX.columns if c.startswith("Sharpe ~") or c.startswith("Sharpe 2")]
     st.dataframe(TX.style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}", spx[0]: "{:+.2f}", spx[1]: "{:+.2f}",
                                   "t값": "{:+.2f}", "기존 70/30과 상관": "{:+.2f}", "52주 모멘텀과 상관": "{:+.2f}", "기존 70/30 대비 차이 t": "{:+.2f}"}, na_rep="–"),
-                 height=36 * (len(TX) + 1) + 4)
+                 height=min(36 * (len(TX) + 1) + 4, 470))
     DX = LX_["returns"]
     selx = st.multiselect("누적 수익 비교 (⑨)", list(DX.columns), [c for c in DX.columns if c.startswith(("혼합 · MinVar 70 + 모멘텀 30", "혼합 · MinVar 70 + 칼만",
                                                                                                      "V1", "S2", "K1 칼만 추세 (느림", "혼합 · MinVar 50 + 모멘텀 25 + 가치"))], key="ls_x_sel")
@@ -3851,9 +3867,9 @@ def tab_ls():
         st.plotly_chart(shade(fig_layout(f, 380, title="누적 수익 (%, 모두 목표 변동성 10%)", hovermode="x"), DX.index), key="ls_x_cum")
     with st.expander("사전 선택 검증 — 2016년까지 자료로만 혼합을 고르고 2017년 이후로 확인", expanded=True):
         SL = LX_["selection"]
-        st.dataframe(SL.style.format("{:+.2f}"), height=36 * (len(SL) + 1) + 4)
+        st.dataframe(SL.style.format("{:+.2f}"), height=min(36 * (len(SL) + 1) + 4, 470))
         st.caption(f"후보 = 기존 70/30 + 'MinVar 50 + 모멘텀 25 + 대체 전략 하나 25' 10개. 학습 Sharpe 1위({SL.index[0]})를 고르면 시험 기간 {SL.iloc[0, 1]:+.2f} "
-                   f"(기존 70/30 시험 {SL.loc['기존 70/30'].iloc[1]:+.2f}). 시험 기간은 고를 때 보지 않음 — 다만 전략 정의(5년 창·1/3·4주)와 후보 목록은 미리 정한 관례이지 이 자료로 튜닝한 것은 아님.")
+                   f"(기존 70/30 시험 {SL.loc['혼합 · MinVar 70 + 모멘텀 30 (기존)'].iloc[1]:+.2f}). 표의 숫자는 '혼합' 전체의 Sharpe — 대체 전략 단독 성과(위 큰 표)와 다름. 시험 기간은 고를 때 보지 않음 — 다만 전략 정의(5년 창·1/3·4주)와 후보 목록은 미리 정한 관례이지 이 자료로 튜닝한 것은 아님.")
     st.caption("읽는 법: 칼만 추세(K1)는 52주 모멘텀보다 약하고(0.22 vs 0.50, 2017 이후 음수) MinVar 혼합에 넣어도 기존 70/30보다 나빠짐(0.59·0.64 vs 0.69). "
                "칼만 페어(K2)는 기존 페어(−0.15)보다 낫지만 0.14. 섹터 내 승자 롱(S1)은 크게 손해, 반대로 과열 숏·낙오 롱(S2)과 가치(V1)는 두 기간 모두 양수(0.41·0.42)이고 "
                "모멘텀과 음의 상관 → 기존 혼합에 가치 25%를 섞으면 0.89(차이 t 2.0)·낙폭 −28%. 단 가치·따라잡기 혼합은 결과를 보고 고른 '사후 선택'이라 과대평가 가능 — "
@@ -3878,7 +3894,7 @@ def tab_ls():
         st.markdown("**① 같은 상대 비중에 크기만 다르게** (목표 10%, 최대 4배)")
         spz = [c for c in SZ.columns if c.startswith("Sharpe ~") or c.startswith("Sharpe 2")]
         st.dataframe(SZ.style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}", spz[0]: "{:+.2f}",
-                                      spz[1]: "{:+.2f}", "목표 이탈 (평균 |변동성−10|)": "{:.2f}"}, na_rep="–"), height=36 * (len(SZ) + 1) + 4)
+                                      spz[1]: "{:+.2f}", "목표 이탈 (평균 |변동성−10|)": "{:.2f}"}, na_rep="–"), height=min(36 * (len(SZ) + 1) + 4, 470))
         st.caption("과거 실현 = 그 전략이 실제로 낸 직전 N주 손익의 표준편차, 현시점 LW = 오늘 비중 × 직전 N주 Ledoit-Wolf 공분산 → √(w′Σ̂w). "
                    "두 전략 모두 '과거 실현 26주'(현재 방식)가 Sharpe·낙폭에서 가장 낫거나 비슷함. 현시점 LW 공분산은 긴 창일수록 급변에 늦게 반응해 목표 이탈·낙폭이 커짐. "
                    "'목표 이탈' = 26주 실현 변동성이 10%에서 평균 몇 %p 벗어났나.")
@@ -3892,7 +3908,7 @@ def tab_ls():
         RB, DB = _alloc_robust(float(cost), ROLL)
         spr = [c for c in RB.columns if c.startswith("Sharpe ~") or c.startswith("Sharpe 2")]
         st.dataframe(RB.style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}", spr[0]: "{:+.2f}",
-                                      spr[1]: "{:+.2f}", "t값": "{:+.2f}", "MinVar와 상관": "{:+.2f}"}, na_rep="–"), height=36 * (len(RB) + 1) + 4)
+                                      spr[1]: "{:+.2f}", "t값": "{:+.2f}", "MinVar와 상관": "{:+.2f}"}, na_rep="–"), height=min(36 * (len(RB) + 1) + 4, 470))
         f = go.Figure()
         for j, c in enumerate([c for c in DB.columns if c.startswith(("MinVar (상한 25%", "MinVar — 생우·금·돈육", "MinVar (상한 15%", "모멘텀", "혼합"))]):
             f.add_trace(go.Scatter(x=DB.index, y=DB[c].cumsum(), name=c, line=dict(color=PAL[j % 8], width=2.2 if c.startswith("혼합") else 1.3)))
