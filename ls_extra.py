@@ -162,6 +162,7 @@ def run_extra(L: pd.DataFrame, cost_bp: float = 5.0, start: str = "2001-01-01", 
     # 기준: 52주 모멘텀 · MinVar 70/30
     tsm = book(LS.tsmom_weights(P, 52, port_tgt=None))
     mvb = book(LS.alloc_weights_cap(P, 0.25))
+    mvb15 = book(LS.alloc_weights_cap(P, 0.15))
     S["기준 · 52주 모멘텀 (④)"] = tsm
     S["기준 · MinVar 롱 (⑥)"] = mvb
     # 칼만
@@ -223,9 +224,14 @@ def run_extra(L: pd.DataFrame, cost_bp: float = 5.0, start: str = "2001-01-01", 
     cands = {"혼합 · MinVar 70 + 모멘텀 30 (기존)": D["혼합 · MinVar 70 + 모멘텀 30 (기존)"]}
     for a in alt:
         cands["혼합 · MinVar 50 + 모멘텀 25 + " + a.split(" (")[0] + " 25"] = mix([(0.5, mvb), (0.25, tsm), (0.25, S[a])]).reindex(D.index)
+    # MinVar 품목 상한 15% (생우·금 쏠림 완화) 판
+    cands["혼합 · MinVar(상한 15%) 70 + 모멘텀 30"] = mix([(0.7, mvb15), (0.3, tsm)]).reindex(D.index)
+    for a in ["V1 가치 (5년 평균 대비 싼 품목 롱)", "S2 섹터 내 따라잡기 (과열 숏·낙오 롱)"]:
+        cands["혼합 · MinVar(상한 15%) 50 + 모멘텀 25 + " + a.split(" (")[0] + " 25"] = mix([(0.5, mvb15), (0.25, tsm), (0.25, S[a])]).reindex(D.index)
     sel = pd.DataFrame([{"후보": k, f"학습 Sharpe (~{int(split[:4]) - 1})": sh(v[v.index < split]), f"시험 Sharpe ({split[:4]}~)": sh(v[v.index >= split])}
                         for k, v in cands.items()]).set_index("후보").sort_values(f"학습 Sharpe (~{int(split[:4]) - 1})", ascending=False)
-    return dict(table=pd.DataFrame(rows).set_index("전략"), returns=D, selection=sel, cands=cands)
+    bh = R.mean(1).reindex(D.index)
+    return dict(table=pd.DataFrame(rows).set_index("전략"), returns=D, selection=sel, cands=cands, bh=bh)
 
 
 def run_walk(L: pd.DataFrame, cost_bp: float = 5.0) -> dict:
@@ -263,3 +269,47 @@ def walk_select(cands: dict, base_key: str, folds=FOLDS, train_start: str = "200
     summ = {"이어붙인 표본 외 Sharpe (선택 조합)": sh(oos), "같은 기간 기존 70/30": sh(bo), "연 수익 차 (%p)": float(d.mean() * ANN),
             "차이 t값": float(d.mean() / d.std() * np.sqrt(len(d))), "기간": f"{oos.index.min():%Y}–{oos.index.max():%Y}"}
     return dict(table=pd.DataFrame(rows), summary=summ, oos=oos, base=bo)
+
+
+
+# ============================================================================
+# 바스켓 대비 베타·알파 (강세장 덕 vs 전략 덕) · 품목 기여도
+# ============================================================================
+PERIODS = {"2007–2012": ("2007-01-01", "2012-12-31"), "2013–2016": ("2013-01-01", "2016-12-31"), "2017–2020": ("2017-01-01", "2020-12-31"),
+           "2021–2026": ("2021-01-01", "2026-12-31"), "전체 2007–": ("2007-01-01", "2026-12-31")}
+
+
+def alpha_table(series: dict, bh: pd.Series, periods: dict = PERIODS) -> pd.DataFrame:
+    """r_t = α + β·바스켓_t + e. β = 원자재 시장(동일가중 19개)을 얼마나 탔나, α(연 %) = 시장 움직임을 빼고 남은 전략 몫."""
+    rows = []
+    for nm, r in series.items():
+        for pn, (a, b) in periods.items():
+            x = pd.concat([r, bh], axis=1).loc[a:b].dropna()
+            if len(x) < 52:
+                continue
+            y_, m_ = x.iloc[:, 0].values, x.iloc[:, 1].values
+            X = np.column_stack([np.ones(len(m_)), m_])
+            co, *_ = np.linalg.lstsq(X, y_, rcond=None)
+            e = y_ - X @ co
+            se_a = np.sqrt(e.var(ddof=2) * np.linalg.inv(X.T @ X)[0, 0])
+            rows.append({"전략": nm, "기간": pn, "연수익 (%)": float(y_.mean() * ANN), "바스켓 연수익 (%)": float(m_.mean() * ANN),
+                         "베타 (바스켓)": float(co[1]), "시장 몫 = β×바스켓 (%)": float(co[1] * m_.mean() * ANN),
+                         "알파 = 전략 몫 (연 %)": float(co[0] * ANN), "알파 t값": float(co[0] / se_a) if se_a > 0 else np.nan})
+    return pd.DataFrame(rows)
+
+
+def item_contrib(L: pd.DataFrame, start: str = "2001-01-01", tgt: float = 10.0) -> dict:
+    """품목별 주간 손익 (비용 제외): MinVar · 52주 모멘텀 · 가치 · 혼합(기존 70/30, 가치 혼합 50/25/25). 혼합은 섞은 뒤 목표 변동성 배율까지 반영."""
+    P = LS.weekly(L, LS.BASKET, start); P = P[[c for c in LS.BASKET if c in P]]; R = LS._ret(P)
+    lp = np.log(P)
+    Ws = {"MinVar 롱": LS._vol_target(LS.alloc_weights_cap(P, 0.25), R, tgt),
+          "52주 모멘텀": LS._vol_target(LS.tsmom_weights(P, 52, port_tgt=None), R, tgt),
+          "가치 (V1)": LS._vol_target(xs_weights(-(lp - lp.rolling(260, min_periods=156).mean())), R, tgt)}
+    PnL = {k: (W.shift(1) * R) for k, W in Ws.items()}
+    for nm, parts in [("혼합 · 기존 MinVar 70 + 모멘텀 30", [(0.7, "MinVar 롱"), (0.3, "52주 모멘텀")]),
+                      ("혼합 · MinVar 50 + 모멘텀 25 + 가치 25", [(0.5, "MinVar 롱"), (0.25, "52주 모멘텀"), (0.25, "가치 (V1)")])]:
+        raw = sum(w * PnL[k].fillna(0) for w, k in parts)
+        tot = raw.sum(1)
+        k_ = (tgt / (tot.rolling(26, min_periods=13).std().shift(1) * np.sqrt(ANN))).clip(upper=4.0).fillna(1.0)
+        PnL[nm] = raw.mul(k_, axis=0)
+    return PnL

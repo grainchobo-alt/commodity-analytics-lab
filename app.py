@@ -2154,6 +2154,17 @@ K2 칼만 동적 헤지 페어(회귀계수 β가 매주 변하는 페어의 예
 선택: 2013–16 따라잡기 혼합(시험 0.35 vs 기존 0.29, 11개 중 3위), 2017–20 가치 혼합(0.26 vs −0.04, 2위), 2021–26 가치 혼합(1.66 vs 1.52, 1위) — 세 구간 모두 기존보다 나음.
 이어붙인 표본 외 2013–2026: 0.87 vs 기존 0.71, 연 +1.75%p, 차이 t 1.40 → 한 구간에만 의존하지 않고도 일관되게 우위지만 아직 t < 2.
 
+**2021–2026 가치 혼합 Sharpe 1.66은 왜 그렇게 높았나?** → 대부분 시장 환경과 MinVar(롱온리) 덕. 같은 기간 MinVar 단독 1.50 · 모멘텀 0.86 · 가치 0.24 · 기존 70/30 1.52 · 바스켓 B&H 0.83(2007–2020은 0.15).
+원자재 강세장(2021–22 인플레이션, 이후 금·축산·코코아 급등)에서 MinVar가 저변동 품목인 생우(평균 비중 22%, 연 +20%, 소 사육두수 감소로 사상 최고가)·금(18%, +13.5%)·대두박·코코아에 실려 있었음 — MinVar 품목별 연 기여 생우 +4.9%p · 코코아 +2.6 · 금 +2.6.
+가치는 이 기간 자체 성과는 약했지만(0.24, 2024·2025 손실) 모멘텀과 상관 −0.53이라 혼합의 흔들림을 줄이는 역할 → 기존 대비 +0.14. 바스켓 대비 회귀로 나누면 가치 혼합 연 18.3% = 시장 몫(β 0.59 × 바스켓 11.2%) 6.6% + 알파 11.7%(t 3.7) → '강세장 덕'은 약 1/3이고, 나머지는 바스켓보다 더 오른 품목(생우·금 등)에 실려 있던 품목 선택 효과. 가치 혼합만의 실력분은 기존 대비 차이(+0.14).
+연도별 혼합 Sharpe 2021 2.16 · 2022 1.71 · 2023 0.83 · 2024 2.21 · 2025 1.23 · 2026 1.89 (매년 양수). 생우·금이 꺾이면 MinVar 쪽이 크게 흔들릴 수 있는 집중 위험이 있음.
+
+**MinVar 품목 상한을 15%로 낮추면 (생우·금 쏠림 완화)?** → 가치 혼합: 전체 0.89 → 0.79, 2021–26 1.66 → 1.51, 2017–20 0.26 → 0.19. 기존 70/30도 0.69 → 0.60. 쏠림을 줄이면 성과가 조금 줄지만 가치 혼합은 여전히 기존(25%)보다 나음.
+구간 이동 선택 검증(후보 14개)에서도 상한 15%판은 한 번도 1위가 아님 → 25% 상한 유지, 대신 쏠림은 품목 기여도 표로 감시.
+
+**강세장 덕 vs 전략 덕은 어떻게 나누나?** → 주간 수익률을 바스켓(19개 동일가중 Buy&Hold)에 회귀: r = α + β·바스켓. β = 원자재 시장을 얼마나 탔나, 시장 몫 = β × 바스켓 연수익, 알파 = 시장을 빼고 남은 연수익(품목 고르기·비중·롱숏).
+전체 2007–: 가치 혼합 연 9.7% = 시장 2.5% + 알파 7.2%(t 3.96), 기존 70/30 = 2.6% + 5.0%(t 2.83). 2017–20은 두 혼합 모두 알파가 작음(기존 −1.2%, 가치 +2.2%).
+
 **캐리(기간구조)** → Yahoo는 만기 지난 개별 월물이 없어 미국 곡물·금속 과거 캐리 불가 → 미국 에너지(EIA, 2024-04까지)·중국(Sina 2018–)로 검증했으나 견고하지 않아 화면 제외 (`collect_carry.py` 보존).
 """)
 
@@ -3747,9 +3758,16 @@ def _lx_run(cost_bp: float, roll: bool):
     return LX.run_extra(_levels(None, roll), cost_bp)
 
 
+@st.cache_data(show_spinner=False)
+def _lx_contrib(roll: bool):
+    import ls_extra as LX
+    return LX.item_contrib(_levels(None, roll))
+
+
 def tab_ls():
     import ls_strategies as LS
     import ls_extra as LX
+    import procurement as PR
     st.subheader("롱숏 전략 — 상관 · 레짐 · 추세 (헤지펀드 원자재 전략 묶음)")
     st.caption("주간 금요일 종가로 결정 → 다음 주 수익률로 손익 (그 시점까지의 정보만 사용) · 비용 = 비중 변화량 × 편도 비용. "
                "① 페어 평균회귀 = 관계가 강한 두 품목의 가격차가 평소보다 벌어지면 되돌림에 베팅 · ② 상관 급등 = 품목들이 한 방향으로 묶이기 시작하면(흡수비율↑) 동반 하락 대비 · "
@@ -3878,7 +3896,7 @@ def tab_ls():
     with st.expander("사전 선택 검증 — 2016년까지 자료로만 혼합을 고르고 2017년 이후로 확인", expanded=True):
         SL = LX_["selection"]
         st.dataframe(SL.style.format("{:+.2f}"), height=min(36 * (len(SL) + 1) + 4, 470))
-        st.caption(f"후보 = 기존 70/30 + 'MinVar 50 + 모멘텀 25 + 대체 전략 하나 25' 10개. 학습 Sharpe 1위({SL.index[0]})를 고르면 시험 기간 {SL.iloc[0, 1]:+.2f} "
+        st.caption(f"후보 = 기존 70/30 + 'MinVar 50 + 모멘텀 25 + 대체 전략 하나 25' 10개 + MinVar 품목 상한 15%판 3개(생우·금 쏠림 완화). 학습 Sharpe 1위({SL.index[0]})를 고르면 시험 기간 {SL.iloc[0, 1]:+.2f} "
                    f"(기존 70/30 시험 {SL.loc['혼합 · MinVar 70 + 모멘텀 30 (기존)'].iloc[1]:+.2f}). 표의 숫자는 '혼합' 전체의 Sharpe — 대체 전략 단독 성과(위 큰 표)와 다름. 시험 기간은 고를 때 보지 않음 — 다만 전략 정의(5년 창·1/3·4주)와 후보 목록은 미리 정한 관례이지 이 자료로 튜닝한 것은 아님.")
     with st.expander("구간 이동 선택 검증 — 2013–16 · 2017–20 · 2021–26 시험 구간마다 그 전 자료로만 혼합 선택", expanded=True):
         WK = LX.walk_select(LX_["cands"], "혼합 · MinVar 70 + 모멘텀 30 (기존)")
@@ -3897,6 +3915,33 @@ def tab_ls():
         st.plotly_chart(fig_layout(f, 300, title="이어붙인 표본 외 누적 수익 (%) — 점선 = 다시 고른 시점", hovermode="x"), key="ls_walk")
         st.caption("매 시험 구간 시작 시점에 그 전 자료(2007–)만으로 11개 후보의 Sharpe 1위를 골라 다음 구간에 적용 → 고른 결과만 이어 붙인 것이 진짜 표본 외 성과. "
                    "'학습 순위 → 시험 순위' = 학습 1위가 시험 기간 11개 중 몇 위였나.")
+    with st.expander("강세장 덕 vs 전략 덕 — 바스켓 Buy&Hold 대비 베타 · 알파", expanded=True):
+        key_s = {"기존 MinVar 70 + 모멘텀 30": "혼합 · MinVar 70 + 모멘텀 30 (기존)", "가치 혼합 (50/25/25)": "혼합 · MinVar 50 + 모멘텀 25 + V1 가치 25",
+                 "따라잡기 혼합 (50/25/25)": "혼합 · MinVar 50 + 모멘텀 25 + S2 섹터 내 따라잡기 25",
+                 "가치 혼합 · MinVar 상한 15%": "혼합 · MinVar(상한 15%) 50 + 모멘텀 25 + V1 가치 25"}
+        AT = LX.alpha_table({k: LX_["cands"][v] for k, v in key_s.items() if v in LX_["cands"]}, LX_["bh"])
+        st.dataframe(AT.set_index(["전략", "기간"]).style.format({c: "{:+.2f}" for c in AT.columns if c not in ("전략", "기간")}), height=min(36 * (len(AT) + 1) + 4, 470))
+        pick_ = st.selectbox("기간별 분해 그림", list(key_s), 1, key="ls_ab_pick")
+        q_ = AT[AT["전략"] == pick_]
+        f = go.Figure([go.Bar(x=q_["기간"], y=q_["시장 몫 = β×바스켓 (%)"], name="시장 몫 (β × 바스켓 수익)", marker_color="#898781"),
+                       go.Bar(x=q_["기간"], y=q_["알파 = 전략 몫 (연 %)"], name="전략 몫 (알파)", marker_color=PAL[2])])
+        st.plotly_chart(fig_layout(f, 300, barmode="relative", title=f"{pick_} — 연수익 = 시장 몫 + 전략 몫 (%)", hovermode="x"), key="ls_ab_fig")
+        st.caption("바스켓 = 원자재 19개 동일가중 Buy&Hold. 주간 수익률을 바스켓에 회귀(r = α + β·바스켓): β = 원자재 시장을 얼마나 탔나, 시장 몫 = β × 바스켓 연수익(강세장 덕), "
+                   "알파 = 시장 움직임을 빼고 남은 연수익(전략 덕 — 품목 고르기·비중·롱숏). 2021–2026 가치 혼합 연 18.3% 중 시장 몫 6.6% · 알파 11.7%(t 3.7) → "
+                   "강세장만이 아니라 생우·금 같은 '바스켓보다 더 오른 품목'에 실려 있던 품목 선택 효과가 큼.")
+    with st.expander("기간별 품목 기여도 — 어떤 품목 덕분에 성과가 났나"):
+        PnL = _lx_contrib(ROLL)
+        k1_, k2_ = st.columns(2)
+        st_nm = k1_.selectbox("전략", list(PnL), 4 if len(PnL) > 4 else 0, key="ls_ct_strat")
+        per_ = k2_.selectbox("기간", list(LX.PERIODS), 3, key="ls_ct_per")
+        a_, b_ = LX.PERIODS[per_]
+        X_ = PnL[st_nm].loc[a_:b_]
+        yrs = max(len(X_) / 52, 1e-9)
+        ct = (X_.sum() / yrs).rename(lambda i: PR.BUY_IDS.get(i, short(i))).sort_values()
+        f = go.Figure(go.Bar(x=ct.values, y=ct.index, orientation="h", marker_color=[PAL[2] if v > 0 else PAL[1] for v in ct.values],
+                             text=[f"{v:+.2f}" for v in ct.values], textposition="outside"))
+        st.plotly_chart(fig_layout(f, 120 + 24 * len(ct), title=f"{st_nm} · {per_} — 품목별 연평균 기여 (%p, 합계 {ct.sum():+.1f}%)", hovermode="y"), key="ls_ct_fig")
+        st.caption("기여 = 그 품목 비중 × 그 품목 수익률을 기간 동안 더해 연평균으로 (거래비용 제외, 목표 변동성 배율 반영). 혼합은 구성 전략의 품목 손익을 비율대로 더한 뒤 혼합 배율까지 반영.")
     st.caption("읽는 법: 칼만 추세(K1)는 52주 모멘텀보다 약하고(0.22 vs 0.50, 2017 이후 음수) MinVar 혼합에 넣어도 기존 70/30보다 나빠짐(0.59·0.64 vs 0.69). "
                "칼만 페어(K2)는 기존 페어(−0.15)보다 낫지만 0.14. 섹터 내 승자 롱(S1)은 크게 손해, 반대로 과열 숏·낙오 롱(S2)과 가치(V1)는 두 기간 모두 양수(0.41·0.42)이고 "
                "모멘텀과 음의 상관 → 기존 혼합에 가치 25%를 섞으면 0.89(차이 t 2.0)·낙폭 −28%. 단 가치·따라잡기 혼합은 결과를 보고 고른 '사후 선택'이라 과대평가 가능 — "
