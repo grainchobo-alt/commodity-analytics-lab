@@ -2029,6 +2029,10 @@ LDA = 군집이 가장 잘 갈리는 2차원 지도 축, 로지스틱 계수 = �
 
 **'더 쌀 확률' 모델의 설명변수** → 점수·점수 변화, 구성요소(가격 위치·반등·상대가치·계절성)·변동성 분위, 1·4·13주 수익률, 13주 변동성, (선택) 연중 주차 사인·코사인 — 매년 1월 그 이전 자료로만 로지스틱 회귀 재학습.
 
+**롱숏 연구의 신호(가치·추세·칼만·레짐)를 넣으면 AUC가 오르나?** → 19개 품목, 품목별 미루는 기간·계절 특성은 그대로 두고 설명변수만 추가(학습 2008–16 / 시험 2017–).
+시험 AUC 평균: 기본 0.544 · +가치 0.553 · +추세 0.545 · +레짐 0.551 · +전체 0.555. 품목마다 학습 AUC 1위 묶음을 고르면 0.556(+0.012, 19개 중 11개 개선, t 2.07) — 레짐 묶음이 8품목에서 선택.
+개선은 통계적으로 의미 있는 경계지만 크기가 작고, 시험 AUC > 0.55 품목 수는 7 → 8. ★ 구매 탭 '보완 실험' 펼치기에 품목별 결과.
+
 **추세 배지** → 52주 수익률 부호 (견고성이 확인된 유일한 방향 신호). 🔴 보류인데 상승 추세면 '보류는 신중'.
 
 **🏷️ 횡단면상 매력 묶음 배지** → '횡단면' 하위 탭과 같은 방식(기본 19개 품목 · 구매 매력도 특성 · K-평균, K = 실루엣 자동)으로 군집했을 때 가격 매력 점수 평균이 가장 높은 군집 1에 속한 품목.
@@ -2505,6 +2509,33 @@ def tab_procure():
                        "시험 p값 = 'AUC가 0.5(동전)보다 큰가'의 한쪽 Mann-Whitney 근사 검정 (h주 목표가 겹치므로 표본을 1/h로 줄여 보수적으로 계산) — 0.05 미만이면 우연으로 보기 어려움.")
         else:
             st.info("⑥ 실험 결과 '미루기 권고'를 재실행하면 표시됩니다.")
+    with st.expander("보완 실험 — 롱숏 연구의 가치·추세·칼만·레짐 신호를 '더 쌀 확률'에 넣으면 AUC가 오르나"):
+        dp_, _m = EX.load("defer_plus")
+        if dp_ is None:
+            st.info("⑥ 실험 결과가 없습니다 — experiments.defer_plus() 실행 필요 (약 2분).")
+        else:
+            tr_ = dp_[dp_.기간 == "학습"].pivot_table(index="품목", columns="변수묶음", values="AUC")
+            te_ = dp_[dp_.기간 == "시험"].pivot_table(index="품목", columns="변수묶음", values="AUC")
+            base_ = "기본 (현재)"
+            order_ = [base_] + [c for c in te_.columns if c != base_]
+            pick_ = tr_.idxmax(1)
+            sel_ = pd.Series([te_.loc[i, pick_[i]] for i in te_.index], index=te_.index)
+            summ_ = []
+            for c in order_:
+                d_ = te_[c] - te_[base_]
+                summ_.append({"변수 묶음": c, "학습 AUC 평균": tr_[c].mean(), "시험 AUC 평균": te_[c].mean(), "기본 대비 시험 차": d_.mean(),
+                              "개선 품목 수": f"{int((d_ > 0).sum())} / {len(d_)}", "차이 t값": d_.mean() / d_.std() * np.sqrt(len(d_)) if d_.std() > 0 else np.nan})
+            d_ = sel_ - te_[base_]
+            summ_.append({"변수 묶음": "품목마다 학습 AUC 1위 묶음 선택", "학습 AUC 평균": tr_.max(1).mean(), "시험 AUC 평균": sel_.mean(), "기본 대비 시험 차": d_.mean(),
+                          "개선 품목 수": f"{int((d_ > 0).sum())} / {len(d_)}", "차이 t값": d_.mean() / d_.std() * np.sqrt(len(d_))})
+            st.dataframe(pd.DataFrame(summ_).set_index("변수 묶음").style.format({"학습 AUC 평균": "{:.3f}", "시험 AUC 평균": "{:.3f}", "기본 대비 시험 차": "{:+.4f}",
+                                                                                "차이 t값": "{:+.2f}"}, na_rep="–"))
+            show_ = te_[order_].copy(); show_["학습으로 고른 묶음"] = pick_.map(lambda c: c.split(" (")[0])
+            st.dataframe(show_.style.format({c: "{:.3f}" for c in order_}), height=min(36 * (len(show_) + 1) + 4, 470))
+            st.caption("품목마다 기존 '미루기' 실험이 고른 미루는 기간·계절 특성은 그대로 두고 설명변수만 추가. 가치 = 5년 평균 대비 위치·19개 품목 중 순위·섹터 평균 대비 뒤처짐, "
+                       "추세 = 52주 수익률·칼만 기울기 t, 레짐 = 다변량 HMM 스트레스 확률·VIX 3년 분위·흡수비율 급등 z·바스켓 13주 수익(모두 그 주까지 정보). "
+                       "결과: 평균 AUC +0.01 안팎(0.544 → 0.555), 품목별로 학습 1위 묶음을 고르면 +0.012(19품목 중 11개 개선, t 2.07) — 개선은 있으나 작음. "
+                       "레짐 신호가 가장 자주 선택(8품목). 품목 하나의 AUC 표준오차가 약 0.03이라 개별 품목의 ±0.02 변화는 잡음 범위.")
     with st.expander("신호 구성 상세표 (구성요소 점수 · 위험 · 4주 범위)"):
         show = T.drop(columns=["id"]).set_index("품목")
         st.dataframe(show.style.format({c: "{:,.1f}" for c in show.columns if show[c].dtype.kind == "f"}))

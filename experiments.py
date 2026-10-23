@@ -671,3 +671,60 @@ if __name__ == "__main__":
     import sys
     for n in (sys.argv[1:] or list(EXPERIMENTS)):
         print(n, end=" ", flush=True); t = time.time(); EXPERIMENTS[n]["fn"](); print(f"{time.time() - t:.0f}s")
+
+
+# ============================================================================
+# 구매 '더 쌀 확률' 보완: 롱숏 연구의 신호(가치·추세·칼만·레짐·상관)를 설명변수로 추가하면 AUC가 오르나
+# ============================================================================
+PLUS_GROUPS = {"기본 (현재)": [], "+ 가치 (5년 평균 대비·품목 간 순위·섹터 내 따라잡기)": ["v5", "v5_rank", "catchup"],
+               "+ 추세 (52주 모멘텀·칼만 기울기 t)": ["r52", "kal_t"], "+ 레짐 (HMM 스트레스·VIX 분위·상관 급등·바스켓 13주)": ["stress", "vix_pct", "ar_z", "mkt13"]}
+
+
+def defer_plus(progress=None, split: str = "2017-01-01") -> pd.DataFrame:
+    """품목마다 기존 '미루기' 실험이 학습으로 고른 (미룸 주, 계절 특성)을 그대로 쓰고, 설명변수만 바꿔 '더 쌀 확률' AUC 비교 (학습 2008–16 / 시험 2017–)."""
+    import procurement as PR
+    import ls_strategies as LS
+    import ls_extra as LX
+    from sklearn.metrics import roc_auc_score
+    t0 = time.time(); La, Lr, U, _ = _data()
+    ev = defer_evidence()
+    ids = [i for i in LS.BASKET if i in ev.index and i in La]
+    P = LS.weekly(La, LS.BASKET, "2001-01-01"); P = P[[c for c in LS.BASKET if c in P]]; lp = np.log(P); R = LS._ret(P)
+    v5 = 100 * (lp - lp.rolling(260, min_periods=156).mean())
+    v5r = v5.rank(axis=1, pct=True)
+    r26 = lp.diff(26)
+    sec_mean = r26.T.groupby(lambda c: LX.SECTOR.get(c, "기타")).transform("mean").T
+    catch = -(r26 - sec_mean) * 100                                             # 섹터 평균보다 뒤처질수록 +
+    r52 = 100 * lp.diff(52)
+    kal = pd.DataFrame({c: LX.kalman_trend(lp[c].ffill())["t"] for c in P})
+    stress = LS.stress_prob(La).reindex(P.index)
+    vix = La["fred:VIXCLS"].resample("W-FRI").last().reindex(P.index).ffill() if "fred:VIXCLS" in La else pd.Series(np.nan, index=P.index)
+    vix_pct = vix.rolling(156, min_periods=52).rank(pct=True)
+    ar = LS.absorption(R, 52); d_ = ar - ar.shift(4); ar_z = d_ / d_.rolling(156, min_periods=52).std()
+    mkt13 = 100 * R.mean(1).rolling(13).sum()
+    P0 = PR.PRESETS["추천 (고도화: 상대가치+계절+MIDAS)"]
+    rows = []
+    for j, i in enumerate(ids):
+        inp = PR.inputs(La, Lr, i, "ewma", "price")
+        sig = PR.signals(La[i], PR.item_lookback(i, int(P0["lookback"])), inp["rel"], inp["rel_sign"], inp["vol_fc"], inp["crisis"], P0["season"])
+        W_ = PR.weekly_frame(Lr[i], sig, PR.score(sig, P0["w"]))
+        h, sea = int(ev.loc[i, "미룸주"]), bool(ev.loc[i, "계절특성"])
+        allx = pd.DataFrame({"v5": v5[i], "v5_rank": v5r[i], "catchup": catch[i], "r52": r52[i], "kal_t": kal[i],
+                             "stress": stress, "vix_pct": vix_pct, "ar_z": ar_z, "mkt13": mkt13}).reindex(W_.index, method="ffill", limit=1)
+        groups = dict(PLUS_GROUPS); groups["+ 전체"] = sum(PLUS_GROUPS.values(), [])
+        for gname, cols in groups.items():
+            F = PR.fc_walkforward(W_, h, season=sea, extra=allx[cols] if cols else None)
+            for per, msk in [("학습", (F.index >= "2008-01-01") & (F.index < split)), ("시험", F.index >= split)]:
+                q = F[msk].dropna(subset=["p_down", "y_down"])
+                if len(q) > 52 and q.y_down.nunique() == 2:
+                    rows.append(dict(id=i, 품목=PR.BUY_IDS.get(i, i), 미룸주=h, 계절특성=sea, 변수묶음=gname, 기간=per,
+                                     AUC=float(roc_auc_score(q.y_down, q.p_down)), 표본=len(q)))
+        if progress:
+            progress((j + 1) / len(ids))
+    df = pd.DataFrame(rows)
+    _save("defer_plus", df, t0, dict(품목=len(ids), 묶음=list(groups), 분할=split, 시계="기존 미루기 실험이 품목별로 고른 값"))
+    return df
+
+
+EXPERIMENTS["defer_plus"] = dict(title="구매 '더 쌀 확률' 보완 — 가치·추세·칼만·레짐 신호 추가 시 AUC", file="defer_plus_compare.csv",
+                                 fn=defer_plus, eta="약 5~10분", cols=["id", "변수묶음", "기간"])
