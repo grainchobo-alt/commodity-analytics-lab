@@ -226,3 +226,40 @@ def run_extra(L: pd.DataFrame, cost_bp: float = 5.0, start: str = "2001-01-01", 
     sel = pd.DataFrame([{"후보": k, f"학습 Sharpe (~{int(split[:4]) - 1})": sh(v[v.index < split]), f"시험 Sharpe ({split[:4]}~)": sh(v[v.index >= split])}
                         for k, v in cands.items()]).set_index("후보").sort_values(f"학습 Sharpe (~{int(split[:4]) - 1})", ascending=False)
     return dict(table=pd.DataFrame(rows).set_index("전략"), returns=D, selection=sel, cands=cands)
+
+
+def run_walk(L: pd.DataFrame, cost_bp: float = 5.0) -> dict:
+    o = run_extra(L, cost_bp)
+    return walk_select(o["cands"], "혼합 · MinVar 70 + 모멘텀 30 (기존)")
+
+
+# ============================================================================
+# 구간 이동 선택 검증 (rolling-origin): 매 시험 구간마다 그 전 자료만으로 혼합을 고르고 다음 구간에서 확인
+# ============================================================================
+FOLDS = [("2013-01-01", "2016-12-31"), ("2017-01-01", "2020-12-31"), ("2021-01-01", "2026-12-31")]
+
+
+def walk_select(cands: dict, base_key: str, folds=FOLDS, train_start: str = "2007-01-01") -> dict:
+    """cands = {이름: 주간 수익률}. 각 시험 구간 [a, b]: 학습 = train_start ~ a 직전 Sharpe 1위 선택 → [a, b] 성과.
+    반환: 구간별 표, 이어붙인 선택 전략 vs 기존 수익률."""
+    sh = lambda r: float(r.mean() / r.std() * np.sqrt(ANN)) if r.std() > 0 else np.nan
+    rows, pieces, base_pieces = [], [], []
+    for a, b in folds:
+        tr = {k: sh(v[(v.index >= train_start) & (v.index < a)].dropna()) for k, v in cands.items()}
+        rank = sorted(tr, key=lambda k: -tr[k])
+        pick = rank[0]
+        te = cands[pick][(cands[pick].index >= a) & (cands[pick].index <= b)].dropna()
+        bs = cands[base_key][(cands[base_key].index >= a) & (cands[base_key].index <= b)].dropna()
+        d = (te - bs).dropna()
+        best_te = max(cands, key=lambda k: sh(cands[k][(cands[k].index >= a) & (cands[k].index <= b)].dropna()))
+        rows.append({"시험 구간": f"{a[:4]}–{b[:4]}", "학습 구간": f"{train_start[:4]}–{int(a[:4]) - 1}", "선택된 조합": pick,
+                     "선택 조합 학습 Sharpe": tr[pick], "선택 조합 시험 Sharpe": sh(te), "기존 70/30 시험 Sharpe": sh(bs),
+                     "기존 대비 연 수익 차 (%p)": float(d.mean() * ANN), "차이 t값": float(d.mean() / d.std() * np.sqrt(len(d))) if d.std() > 0 else np.nan,
+                     "선택 조합의 학습 순위 → 시험 순위": f"1 → {sorted(cands, key=lambda k: -sh(cands[k][(cands[k].index >= a) & (cands[k].index <= b)].dropna())).index(pick) + 1} / {len(cands)}",
+                     "사후 최고 조합 (참고)": best_te})
+        pieces.append(te); base_pieces.append(bs)
+    oos, bo = pd.concat(pieces), pd.concat(base_pieces)
+    d = (oos - bo).dropna()
+    summ = {"이어붙인 표본 외 Sharpe (선택 조합)": sh(oos), "같은 기간 기존 70/30": sh(bo), "연 수익 차 (%p)": float(d.mean() * ANN),
+            "차이 t값": float(d.mean() / d.std() * np.sqrt(len(d))), "기간": f"{oos.index.min():%Y}–{oos.index.max():%Y}"}
+    return dict(table=pd.DataFrame(rows), summary=summ, oos=oos, base=bo)

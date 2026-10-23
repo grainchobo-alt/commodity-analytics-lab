@@ -43,6 +43,7 @@ assert any("t값 > 2" in i.value for i in at.info)                              
 assert any("비중 결정 방식 비교" in m.value for m in at.markdown)                          # ⑤ ⑦ MinVar·평균-분산 비교
 assert any("⑨ 확장 — 칼만 필터" in m.value for m in at.markdown)                          # ⑨ 칼만·헤지펀드식 확장
 assert any("사전 선택 검증" in e.label for e in at.expander)                               # ⑨ 학습으로 고르고 시험 확인
+assert any("구간 이동 선택 검증" in e.label for e in at.expander)                          # ⑨ 시험 구간 3개 이동 선택
 assert any(str(i).startswith("⑩ 혼합 후보") for d in at.dataframe for i in getattr(d.value, "index", []))   # ⑩ 혼합 후보 행
 assert any("MinVar 강건성" in e.label for e in at.expander)                               # ⑦ 강건성 점검
 assert any("크기 조정(변동성 사이징)" in e.label for e in at.expander)                      # 사이징 방식·창 길이 비교
