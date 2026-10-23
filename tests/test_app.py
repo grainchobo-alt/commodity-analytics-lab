@@ -8,8 +8,23 @@ from streamlit.testing.v1 import AppTest
 import analytics as A
 
 t0 = time.time()
+LAST = ROOT / "data" / "last_test.txt"                 # 마지막 전체 앱 테스트 결과 한 줄 (대화가 바뀌어도 확인용, git 미추적)
+
+
+def _record(status, note=""):
+    import subprocess
+    try:
+        head = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+    except Exception:
+        head = "?"
+    line = f"{time.strftime('%Y-%m-%d %H:%M')} · {status} · 커밋 {head} · {time.time() - t0:.0f}초 {note}".rstrip()
+    LAST.write_text(line + "\n", encoding="utf-8")
+
+
 def check(at, label):
     errs = [e.value for e in at.exception]
+    if errs:
+        _record("APP TEST FAILED", f"· 단계: {label}")
     assert not errs, f"{label}: {errs[0][:500] if errs else ''}"
     print(f"[{time.time()-t0:6.1f}s] OK  {label}")
 
@@ -211,4 +226,5 @@ at.button(key="favbtn").click().run(); check(at, "FAVAR")
 # 빈도 변경 (월간) 후 전체 재렌더
 at.sidebar.radio[0].set_value("월간").run(); check(at, "월간 빈도 재렌더")
 at.button(key="favbtn").click().run(); check(at, "FAVAR (월간)")
+_record("APP TEST PASSED")
 print("APP TEST PASSED")
