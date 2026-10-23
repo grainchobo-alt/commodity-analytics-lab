@@ -2169,6 +2169,11 @@ K2 칼만 동적 헤지 페어(회귀계수 β가 매주 변하는 페어의 예
 최근 2년 평균 +11.8% vs 그 전 4년 +11.5% → 우위가 줄어드는 신호는 아직 없음(단 2024 정점 이후 내려오는 중). 기존 70/30은 2016–2019 알파가 음수였고 가치 혼합은 그 시기 손실이 작았음 → 가치의 완충 효과.
 연도별 최대 기여 품목(가치 혼합): 생우 2010·2011·2014·2023·2024, 금 2009·2017·2019·2025, 대두박 2007·2020–2022 — 해마다 이끈 품목이 바뀌어 한 품목에만 의존하지는 않음.
 
+**섹터별 기여 (가치 혼합, 2007–)** → 연평균 축산 +2.7 · 소프트 +2.2 · 곡물 +2.0 · 금속 +1.9 · 에너지 +1.3%p. 연도별 1위 섹터: 곡물 6회 · 축산 6회 · 에너지 3 · 금속 3 · 소프트 2 — 섹터도 해마다 돌아가며 이끔.
+최근: 2022 곡물 +13.2, 2023·2024 소프트 +9.4·+9.3(코코아·커피), 2025 금속 +9.7(금), 축산은 2023–25 꾸준히 +5–9.
+
+**전략 우위 경고 (리스크 탭 상단)** → 가치 혼합·기존 70/30의 2년 롤링 알파(바스켓 대비)가 0 아래면 ⚠️ 경고, 그 전 4년 평균의 절반 아래면 ℹ️ 주의, 그 외 ✅. 롤링 창 1·2·3년 선택은 롱숏 탭 그림에서(경고는 2년 고정).
+
 **캐리(기간구조)** → Yahoo는 만기 지난 개별 월물이 없어 미국 곡물·금속 과거 캐리 불가 → 미국 에너지(EIA, 2024-04까지)·중국(Sina 2018–)로 검증했으나 견고하지 않아 화면 제외 (`collect_carry.py` 보존).
 """)
 
@@ -2660,10 +2665,39 @@ def _ar_alert():
         st.caption("✅ 상관 급등 신호 없음 — " + msg)
 
 
+def _alpha_alert():
+    """롱숏 전략 우위 경고: 가치 혼합·기존 70/30의 2년 롤링 알파(바스켓 대비)가 0 아래면 경고, 그 전 4년 평균의 절반 아래면 주의."""
+    import ls_extra as LX
+    try:
+        o = _lx_run(5.0, ROLL)
+    except Exception:
+        return
+    msgs, worst = [], 2
+    for nm, k in [("가치 혼합", "혼합 · MinVar 50 + 모멘텀 25 + V1 가치 25"), ("기존 70/30", "혼합 · MinVar 70 + 모멘텀 30 (기존)")]:
+        RA = LX.rolling_alpha(o["cands"][k], o["bh"], 104).dropna()
+        if not len(RA):
+            continue
+        a_ = float(RA["알파 (연 %)"].iloc[-1])
+        prev = float(RA["알파 (연 %)"].loc[(RA.index < RA.index[-1] - pd.DateOffset(years=2)) & (RA.index >= RA.index[-1] - pd.DateOffset(years=6))].mean())
+        lvl = 0 if a_ < 0 else (1 if np.isfinite(prev) and prev > 0 and a_ < prev / 2 else 2)
+        worst = min(worst, lvl)
+        msgs.append(f"{nm} {a_:+.1f}% (그 전 4년 평균 {prev:+.1f}%)")
+    if not msgs:
+        return
+    txt = "롱숏 전략 2년 롤링 알파(바스켓 대비, 연): " + " · ".join(msgs)
+    if worst == 0:
+        st.warning("⚠️ **전략 우위 약화** — " + txt + ". 알파가 0 아래 = 최근 2년은 원자재 시장을 탄 것 이상의 성과가 없음 → 비중 축소·원인 점검 (⑤ 롱숏 → 품목 기여도)")
+    elif worst == 1:
+        st.info("ℹ️ 전략 우위 둔화 — " + txt + ". 그 전 4년 평균의 절반 아래로 내려옴")
+    else:
+        st.caption("✅ 전략 우위 유지 — " + txt)
+
+
 def tab_risk():
     import risk as RK
     st.subheader("리스크 — VaR/ES · 꼬리 위험 · 구매·보유 물량 위험")
     _ar_alert()
+    _alpha_alert()
     st.caption("모든 예측은 walk-forward (매년 1월 그 이전 데이터로만 재추정, 시점 t의 예측은 t−1 종가까지의 정보). 수익률 = 롤 보정 가격의 일간 로그수익률(%). "
                "구매자에게 위험은 '가격 상승'(매입 예정 물량 = 숏 노출), 재고 보유자에게는 '가격 하락' — 두 방향을 모두 평가.")
     ids_r = [i for i in COMMOD_IDS if GROUP.get(i) not in ("Freight",)]
@@ -3930,10 +3964,12 @@ def tab_ls():
         f = go.Figure([go.Bar(x=q_["기간"], y=q_["시장 몫 = β×바스켓 (%)"], name="시장 몫 (β × 바스켓 수익)", marker_color="#898781"),
                        go.Bar(x=q_["기간"], y=q_["알파 = 전략 몫 (연 %)"], name="전략 몫 (알파)", marker_color=PAL[2])])
         st.plotly_chart(fig_layout(f, 300, barmode="relative", title=f"{pick_} — 연수익 = 시장 몫 + 전략 몫 (%)", hovermode="x"), key="ls_ab_fig")
-        RA = LX.rolling_alpha(LX_["cands"][key_s[pick_]], LX_["bh"], 104).dropna()
-        RB_ = LX.rolling_alpha(LX_["cands"][key_s["기존 MinVar 70 + 모멘텀 30"]], LX_["bh"], 104).dropna()
+        rw_lbl = st.radio("롤링 창", ["1년", "2년", "3년"], 1, horizontal=True, key="ls_ra_win", help="짧을수록 최근 변화에 민감(흔들림 큼), 길수록 장기 추세")
+        rw = {"1년": 52, "2년": 104, "3년": 156}[rw_lbl]
+        RA = LX.rolling_alpha(LX_["cands"][key_s[pick_]], LX_["bh"], rw).dropna()
+        RB_ = LX.rolling_alpha(LX_["cands"][key_s["기존 MinVar 70 + 모멘텀 30"]], LX_["bh"], rw).dropna()
         f = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.65, 0.35], vertical_spacing=0.07,
-                          subplot_titles=("2년 롤링 알파 (연 %, 시장 몫을 뺀 전략 몫) · 주황 점 = 그 2년 알파가 유의(|t| ≥ 2)", "2년 롤링 베타 (원자재 시장을 탄 정도)"))
+                          subplot_titles=(f"{rw_lbl} 롤링 알파 (연 %, 시장 몫을 뺀 전략 몫) · 주황 점 = 그 {rw_lbl} 알파가 유의(|t| ≥ 2)", f"{rw_lbl} 롤링 베타 (원자재 시장을 탄 정도)"))
         f.add_trace(go.Scatter(x=RA.index, y=RA["알파 (연 %)"], name=pick_, line=dict(color=PAL[2], width=2)), 1, 1)
         if pick_ != "기존 MinVar 70 + 모멘텀 30":
             f.add_trace(go.Scatter(x=RB_.index, y=RB_["알파 (연 %)"], name="기존 70/30", line=dict(color="#898781", width=1.3)), 1, 1)
@@ -3945,9 +3981,9 @@ def tab_ls():
         last_a, last_b = RA["알파 (연 %)"].iloc[-1], RA["베타"].iloc[-1]
         rec = RA["알파 (연 %)"].loc[RA.index >= RA.index[-1] - pd.DateOffset(years=2)].mean()
         prev = RA["알파 (연 %)"].loc[(RA.index < RA.index[-1] - pd.DateOffset(years=2)) & (RA.index >= RA.index[-1] - pd.DateOffset(years=6))].mean()
-        st.caption(f"최근 2년 알파 연 {last_a:+.1f}% · 베타 {last_b:.2f} · 최근 2년 평균 알파 {rec:+.1f}% vs 그 전 4년 평균 {prev:+.1f}% → "
+        st.caption(f"지금 {rw_lbl} 알파 연 {last_a:+.1f}% · 베타 {last_b:.2f} · 최근 2년 평균 알파 {rec:+.1f}% vs 그 전 4년 평균 {prev:+.1f}% → "
                    + ("우위가 커지는 추세." if rec > prev + 1 else "우위가 줄어드는 추세." if rec < prev - 1 else "비슷한 수준 유지.")
-                   + " 롤링 창이 2년이라 큰 사건(예: 2008·2020·2022) 전후로 크게 흔들림 — 추세는 여러 해에 걸친 방향으로 판단.")
+                   + f" 롤링 창이 {rw_lbl}이라 큰 사건(예: 2008·2020·2022) 전후로 흔들림 — 창이 짧을수록 더 크게. 추세는 여러 해에 걸친 방향으로 판단.")
         st.caption("바스켓 = 원자재 19개 동일가중 Buy&Hold. 주간 수익률을 바스켓에 회귀(r = α + β·바스켓): β = 원자재 시장을 얼마나 탔나, 시장 몫 = β × 바스켓 연수익(강세장 덕), "
                    "알파 = 시장 움직임을 빼고 남은 연수익(전략 덕 — 품목 고르기·비중·롱숏). 2021–2026 가치 혼합 연 18.3% 중 시장 몫 6.6% · 알파 11.7%(t 3.7) → "
                    "강세장만이 아니라 생우·금 같은 '바스켓보다 더 오른 품목'에 실려 있던 품목 선택 효과가 큼.")
@@ -3967,11 +4003,17 @@ def tab_ls():
         Y_ = PnL[st_nm].loc["2007-01-01":].groupby(PnL[st_nm].loc["2007-01-01":].index.year).sum().T
         Y_.index = [PR.BUY_IDS.get(i, short(i)) for i in Y_.index]
         Y_ = Y_.loc[Y_.abs().sum(1).sort_values(ascending=False).index]
+        inv_ = {PR.BUY_IDS.get(i, short(i)): LX.SECTOR.get(i, "기타") for i in PnL[st_nm].columns}
+        SEC = Y_.groupby(lambda nm: inv_.get(nm, "기타")).sum()
+        SEC = SEC.loc[SEC.sum(1).sort_values(ascending=False).index]
+        SEC.index = [f"▣ 섹터 · {i}" for i in SEC.index]
+        Y_ = pd.concat([SEC, Y_])
         vmx = float(np.nanquantile(np.abs(Y_.values), 0.97)) or 1.0
         fy = go.Figure(go.Heatmap(z=Y_.values, x=[str(c) for c in Y_.columns], y=list(Y_.index), zmin=-vmx, zmax=vmx, colorscale=DIV,
                                   text=[[f"{v:+.1f}" for v in row] for row in Y_.values], texttemplate="%{text}", textfont=dict(size=9),
                                   hovertemplate="%{y} · %{x}: %{z:+.2f}%p<extra></extra>", colorbar=dict(title="%p", thickness=12)))
-        fy.update_layout(title=f"{st_nm} — 품목 × 연도 기여 (%p, 그해 합계) · 위쪽일수록 기여 크기(절댓값) 큰 품목", height=140 + 26 * len(Y_),
+        fy.add_hline(y=len(SEC) - 0.5, line_color="#898781", line_width=2)
+        fy.update_layout(title=f"{st_nm} — 섹터·품목 × 연도 기여 (%p, 그해 합계) · 위 ▣ = 섹터 합계, 아래 = 품목(기여 큰 순)", height=140 + 26 * len(Y_),
                          margin=dict(l=10, r=10, t=40, b=10), yaxis=dict(autorange="reversed"), xaxis=dict(dtick=1, tickangle=-45, tickfont=dict(size=10)))
         st.plotly_chart(fy, key="ls_ct_heat")
         tot_ = Y_.sum()
