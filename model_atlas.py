@@ -856,6 +856,265 @@ def viz_band(c):
 # ============================================================================
 # 모델 사전
 # ============================================================================
+
+
+# ---------------------------------------------------------------------------
+# 대안 시계열 모델 (⑤ 포트폴리오 › 대안 시계열 모델)
+# ---------------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def _prophet_demo(cps: float, seed: int = 0):
+    import logging
+    from prophet import Prophet
+    for lg in ("cmdstanpy", "prophet"):
+        logging.getLogger(lg).setLevel(logging.ERROR)
+    rng = np.random.default_rng(seed)
+    ds = pd.date_range("2018-01-05", periods=260, freq="W-FRI")
+    t = np.arange(260)
+    trend = 0.004 * t - 0.012 * np.maximum(t - 110, 0) + 0.015 * np.maximum(t - 190, 0)
+    y = trend + 0.08 * np.sin(2 * np.pi * ds.dayofyear / 365.25) + 0.035 * rng.standard_normal(260)
+    tr = 208
+    m = Prophet(weekly_seasonality=False, daily_seasonality=False, yearly_seasonality=3, changepoint_prior_scale=cps, uncertainty_samples=200)
+    m.fit(pd.DataFrame({"ds": ds[:tr], "y": y[:tr]}))
+    f = m.predict(pd.DataFrame({"ds": ds}))
+    deltas = np.abs(m.params["delta"].mean(0))
+    return ds, y, trend, f, tr, list(m.changepoints), deltas
+
+
+def viz_prophet(c):
+    cps = c.select_slider("변곡 유연성 (changepoint_prior_scale)", [0.005, 0.02, 0.05, 0.2, 0.8], 0.05, key="at_pr_cps")
+    ds, y, trend, f, tr, cpt, dl = _prophet_demo(cps)
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.65, 0.35], vertical_spacing=0.06)
+    fig.add_trace(go.Scatter(x=ds, y=y, mode="markers", marker=dict(size=3, color=GREY), name="관측 (주간 로그가격)"), 1, 1)
+    fig.add_trace(go.Scatter(x=ds, y=f.yhat_upper, line=dict(width=0), showlegend=False, hoverinfo="skip"), 1, 1)
+    fig.add_trace(go.Scatter(x=ds, y=f.yhat_lower, fill="tonexty", fillcolor="rgba(32,128,141,0.15)", line=dict(width=0), name="80% 구간"), 1, 1)
+    fig.add_trace(go.Scatter(x=ds, y=f.yhat, line=dict(color=PAL[0], width=2), name="적합·예측 (추세 + 계절)"), 1, 1)
+    fig.add_trace(go.Scatter(x=ds, y=f.trend, line=dict(color=PAL[1], width=2, dash="dot"), name="추세 성분"), 1, 1)
+    big = [d for d, v in zip(cpt, dl) if v > 0.1 * dl.max()]
+    for d in big:
+        fig.add_vline(x=d, line=dict(color=PAL[3], width=1, dash="dot"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=ds, y=f.yearly, line=dict(color=PAL[2], width=2), name="연간 계절 성분"), 2, 1)
+    fig.add_vrect(x0=ds[tr], x1=ds[-1], fillcolor="rgba(168,75,47,0.08)", line_width=0, annotation_text="예측 구간", row=1, col=1)
+    _lay(fig, 460, title=f"Prophet: 추세(변곡점) + 계절로 분해 — 실제로 꺾인 곳 2곳(110·190주), 강한 변곡 {len(big)}개 감지", hovermode="x unified")
+    c.plotly_chart(fig, key="at_pr_fig")
+    c.caption("실제 Meta prophet 패키지를 합성 자료에 적합. 유연성을 키우면 추세가 잡음까지 따라가고(과적합), 줄이면 실제 꺾임도 놓침. "
+              "예측 구간에서는 마지막 추세 기울기를 그대로 연장 — 원자재처럼 추세가 갑자기 바뀌는 자료에서 4주 수익률 예측력이 약했던 이유.")
+
+
+@st.cache_data(show_spinner=False)
+def _fm_cached(name: str):
+    """롱숏 19개 품목 백테스트 때 저장한 파운데이션 모델 예측 (data/fm/{name}_ls19.npz). 없으면 None."""
+    from pathlib import Path
+    fn = Path(__file__).resolve().parent / "data" / "fm" / f"{name}_ls19.npz"
+    if not fn.exists():
+        return None
+    import analytics as A
+    import forecast_lab as FL
+    out = np.load(fn, allow_pickle=True)["out"].item()
+    L = A.load_levels(roll_adjusted=True)
+    res = {}
+    for i in ("yf:ZC=F", "yf:CL=F", "yf:GC=F", "yf:HG=F", "yf:KC=F", "yf:LE=F"):
+        if i in out and i in L:
+            s = np.log(L[i].dropna())
+            res[i] = (s, FL.fridays(s.index, start="2012-01-01", end_pad=0), out[i])
+    return res
+
+
+def _fm_fan(c, name: str, key: str):
+    data = _fm_cached(name)
+    if not data:
+        c.info(f"{name} 예측 캐시가 없습니다 — `python experiments.py alt_ts` 실행 후 실제 원자재 예측 부채꼴이 표시됩니다.")
+        return
+    nm = {"yf:ZC=F": "옥수수", "yf:CL=F": "WTI 원유", "yf:GC=F": "금", "yf:HG=F": "구리", "yf:KC=F": "커피", "yf:LE=F": "생우"}
+    k1, k2 = c.columns([1, 2])
+    i = k1.selectbox("품목", list(data), format_func=lambda x: nm.get(x, x), key=f"{key}_item")
+    s, dates, q = data[i]
+    j = k2.slider("결정일 (과거 → 최근)", 0, len(dates) - 1, len(dates) - 30, key=f"{key}_j")
+    d0 = dates[j]
+    p = s.index.get_loc(d0)
+    hist = s.iloc[max(0, p - 120):p + 1]
+    fut = s.iloc[p + 1:p + 21]
+    fx = pd.bdate_range(d0, periods=21)[1:]
+    qq = np.exp(q[j]); px = np.exp
+    f = go.Figure([go.Scatter(x=hist.index, y=px(hist), line=dict(color=GREY, width=1.5), name="과거 (모델 입력 일부)")])
+    f.add_trace(go.Scatter(x=fx, y=qq[:, 8], line=dict(width=0), showlegend=False, hoverinfo="skip"))
+    f.add_trace(go.Scatter(x=fx, y=qq[:, 0], fill="tonexty", fillcolor="rgba(32,128,141,0.15)", line=dict(width=0), name="10–90% 분위"))
+    f.add_trace(go.Scatter(x=fx, y=qq[:, 6], line=dict(width=0), showlegend=False, hoverinfo="skip"))
+    f.add_trace(go.Scatter(x=fx, y=qq[:, 2], fill="tonexty", fillcolor="rgba(32,128,141,0.3)", line=dict(width=0), name="30–70% 분위"))
+    f.add_trace(go.Scatter(x=fx, y=qq[:, 4], line=dict(color=PAL[0], width=2), name="중앙값 예측"))
+    if len(fut):
+        f.add_trace(go.Scatter(x=fut.index, y=px(fut), line=dict(color=PAL[1], width=2), name="실제 (결과)"))
+    _lay(f, 360, title=f"{name} · {nm.get(i, i)} · {d0:%Y-%m-%d} 결정 → 20영업일 분위 예측 (zero-shot, 학습 없음)", hovermode="x unified")
+    c.plotly_chart(f, key=f"{key}_fig")
+
+
+def viz_chronos(c):
+    rng = np.random.default_rng(1)
+    x = 50 + np.cumsum(rng.normal(0, 1, 60))
+    nb = c.select_slider("토큰 구간 수 (예시 · 실제 Chronos는 4,096개)", [8, 16, 32, 64], 16, key="at_ch_nb")
+    sc = np.abs(x).mean()
+    edges = np.linspace((x / sc).min(), (x / sc).max(), nb + 1)
+    tok = np.clip(np.digitize(x / sc, edges) - 1, 0, nb - 1)
+    rec = (edges[tok] + edges[tok + 1]) / 2 * sc
+    f = go.Figure([go.Scatter(y=x, line=dict(color=GREY, width=1.5), name="원래 시계열"),
+                   go.Scatter(y=rec, line=dict(color=PAL[0], width=2, shape="hv"), name=f"토큰으로 복원 ({nb}개 구간)")])
+    _lay(f, 260, title="① 평균 절대값으로 나눈 뒤 구간 번호(토큰)로 바꿔 '단어열'처럼 처리", hovermode="x unified")
+    c.plotly_chart(f, key="at_ch_tok")
+    _fm_fan(c, "Chronos-2", "at_ch")
+    c.caption("Chronos는 값을 토큰(단어)으로 바꿔 언어모델(T5) 구조로 '다음 토큰 확률'을 학습 → 여러 번 표본을 뽑아 분위 예측. "
+              "Bolt·Chronos-2는 토큰 대신 패치를 직접 넣어 빠르게 분위를 출력. 아래 그림은 이 앱이 실제로 돌린 원자재 예측(캐시).")
+
+
+def viz_timesfm(c):
+    rng = np.random.default_rng(2)
+    n = 160
+    x = np.sin(np.arange(n) / 9) + 0.004 * np.arange(n) + 0.25 * rng.standard_normal(n)
+    pin = c.select_slider("입력 패치 길이", [8, 16, 32], 32, key="at_tf_p")
+    f = go.Figure()
+    for k in range(n // pin):
+        seg = slice(k * pin, (k + 1) * pin)
+        f.add_trace(go.Scatter(x=np.arange(n)[seg], y=x[seg], line=dict(color=PAL[k % 2], width=2), name=f"패치 {k + 1}", showlegend=k < 2))
+    f.add_vrect(x0=n - 1, x1=n - 1 + 4 * pin, fillcolor="rgba(168,75,47,0.08)", line_width=0, annotation_text="출력 패치 (한 번에 길게)")
+    _lay(f, 260, title=f"① 입력을 {pin}개씩 패치로 잘라 토큰화 → 디코더 트랜스포머가 다음 '긴' 패치를 한 번에 예측")
+    c.plotly_chart(f, key="at_tf_patch")
+    _fm_fan(c, "TimesFM-2.5", "at_tf")
+    c.caption("Google TimesFM: 수천억 시점의 실제·합성 시계열로 사전학습한 디코더 전용 모델. 입력 패치보다 긴 출력 패치를 내 긴 예측에서 오차 누적을 줄임. "
+              "이 앱 백테스트에서 순위 롱숏 0.45(t 1.7)로 가장 나았지만 우연과 구별되지 않음.")
+
+
+def viz_patchtst(c):
+    rng = np.random.default_rng(3)
+    L_ = 52
+    r = rng.normal(0, 1, L_)
+    p = c.select_slider("패치 길이 (주)", [1, 2, 4, 8, 13], 4, key="at_pt_p")
+    k = L_ // p
+    f = make_subplots(rows=1, cols=2, column_widths=[0.65, 0.35], subplot_titles=("52주 수익률 → 패치", "토큰 수 (어텐션 계산량 ∝ 토큰²)"))
+    for j in range(k):
+        seg = slice(j * p, (j + 1) * p)
+        f.add_trace(go.Bar(x=np.arange(L_)[seg], y=r[seg], marker_color=PAL[j % 2], showlegend=False), 1, 1)
+    f.add_trace(go.Bar(x=["점 하나 = 토큰", f"패치 {p}주 = 토큰"], y=[L_, k], marker_color=[GREY, PAL[0]], text=[L_, k], textposition="outside", showlegend=False), 1, 2)
+    _lay(f, 340, title=f"PatchTST: {p}주씩 묶어 토큰 {k}개 — 품목마다 따로(채널 독립) 같은 모델 공유")
+    c.plotly_chart(f, key="at_pt_fig")
+    c.caption("점 하나하나가 아닌 '구간 모양'을 토큰으로 써서 국소 패턴을 보존하고 계산량을 줄임(Nie 외 2023). 채널 독립 = 19개 품목을 각자의 시계열로 보되 가중치는 공유. "
+              "정식(neuralforecast)과 자체 경량판의 예측 상관이 0.25에 그쳐 설정에 민감함을 확인.")
+
+
+def viz_itransformer(c):
+    rng = np.random.default_rng(4)
+    names = ["옥수수", "밀", "대두", "WTI", "난방유", "가솔린", "금", "은", "구리"]
+    F = rng.normal(0, 1, (300, 3))
+    X = np.column_stack([F[:, g] * 0.9 + rng.normal(0, 0.6, 300) for g in (0, 0, 0, 1, 1, 1, 2, 2, 0)])
+    tau = c.slider("어텐션 온도 (낮을수록 비슷한 변수에 집중)", 0.1, 1.0, 0.3, 0.1, key="at_it_tau")
+    Z = (X - X.mean(0)) / X.std(0)
+    S = Z.T @ Z / len(Z)
+    A_ = np.exp(S / tau); A_ /= A_.sum(1, keepdims=True)
+    f = go.Figure(go.Heatmap(z=A_, x=names, y=names, colorscale="Teal", zmin=0, zmax=float(A_.max()), colorbar=dict(title="가중치"),
+                             hovertemplate="%{y} → %{x}: %{z:.2f}<extra></extra>"))
+    _lay(f, 380, title="iTransformer: 품목 하나의 전체 과거 = 토큰 하나 → 품목 간 어텐션 (예시: 유사도 기반 가중치)", yaxis=dict(autorange="reversed"))
+    c.plotly_chart(f, key="at_it_fig")
+    c.caption("일반 트랜스포머는 '시점'을 토큰으로 보지만 iTransformer는 축을 뒤집어 '변수'를 토큰으로(Liu 외 2024) → 어텐션이 품목 간 관계(같은 섹터끼리)를 학습. "
+              "그림은 상관에 소프트맥스를 씌운 개념 예시이며 실제 가중치는 학습으로 정해짐.")
+
+
+def viz_tft(c):
+    rng = np.random.default_rng(5)
+    n = 400
+    X = rng.normal(0, 1, (n, 4))
+    s = c.slider("잡음 크기", 0.2, 2.0, 0.8, 0.2, key="at_tft_s")
+    y = 0.9 * X[:, 0] + 0.4 * X[:, 1] + s * rng.standard_normal(n)
+    from sklearn.linear_model import QuantileRegressor
+    tr = 300
+    imp = np.abs([np.corrcoef(X[:tr, k], y[:tr])[0, 1] for k in range(4)])
+    w = np.exp(imp / 0.15); w /= w.sum()
+    qs = {}
+    for q in (0.1, 0.5, 0.9):
+        qs[q] = QuantileRegressor(quantile=q, alpha=0.0, solver="highs").fit(X[:tr], y[:tr]).predict(X[tr:])
+    f = make_subplots(rows=1, cols=2, column_widths=[0.35, 0.65], subplot_titles=("변수 선택 가중치 (예시)", "분위 예측 (10·50·90%)"))
+    f.add_trace(go.Bar(x=["가격 추세 (강)", "재고 (약)", "달력", "잡음 변수"], y=w, marker_color=[PAL[0], PAL[0], GREY, GREY], showlegend=False), 1, 1)
+    t = np.arange(tr, n)
+    f.add_trace(go.Scatter(x=t, y=qs[0.9], line=dict(width=0), showlegend=False, hoverinfo="skip"), 1, 2)
+    f.add_trace(go.Scatter(x=t, y=qs[0.1], fill="tonexty", fillcolor="rgba(32,128,141,0.18)", line=dict(width=0), name="10–90%"), 1, 2)
+    f.add_trace(go.Scatter(x=t, y=qs[0.5], line=dict(color=PAL[0], width=1.5), name="중앙값"), 1, 2)
+    f.add_trace(go.Scatter(x=t, y=y[tr:], mode="markers", marker=dict(size=3, color=GREY), name="실제"), 1, 2)
+    cov = float(np.mean((y[tr:] >= qs[0.1]) & (y[tr:] <= qs[0.9])))
+    _lay(f, 360, title=f"TFT: 어떤 변수를 쓸지 고르고(변수 선택) 분위로 예측 — 10–90% 실제 포함률 {cov:.0%}")
+    c.plotly_chart(f, key="at_tft_fig")
+    c.caption("Temporal Fusion Transformer(Lim 외 2021): 변수 선택 네트워크 → LSTM(국소 순서) → 어텐션(먼 과거) → 분위 손실. 과거 변수·미래에 아는 변수(달력)·정적 변수를 구분해 넣음. "
+              "그림은 구조를 보여주는 개념 예시(가중치는 상관 기반, 분위는 선형 분위회귀).")
+
+
+@st.cache_data(show_spinner=False)
+def _node_demo(n_obs: int, seed: int = 0):
+    import torch
+    from torchdiffeq import odeint
+    torch.manual_seed(seed); rng = np.random.default_rng(seed)
+    A_true = torch.tensor([[-0.1, 2.0], [-2.0, -0.1]])
+    z0 = torch.tensor([[2.0, 0.0]])
+    t_all = torch.linspace(0, 6, 300)
+    with torch.no_grad():
+        true = odeint(lambda t, z: z @ A_true.T, z0, t_all)[:, 0]
+    idx = np.sort(rng.choice(300, n_obs, replace=False)); idx[0] = 0
+    t_obs = t_all[idx]; y_obs = true[idx] + 0.08 * torch.randn(n_obs, 2)
+    f = torch.nn.Sequential(torch.nn.Linear(2, 32), torch.nn.Tanh(), torch.nn.Linear(32, 2))
+    opt = torch.optim.Adam(f.parameters(), 1e-2)
+    for _ in range(150):
+        pred = odeint(lambda t, z: f(z), y_obs[:1], t_obs, method="rk4", options=dict(step_size=0.1))[:, 0]
+        loss = ((pred - y_obs) ** 2).mean()
+        opt.zero_grad(); loss.backward(); opt.step()
+    with torch.no_grad():
+        fit = odeint(lambda t, z: f(z), y_obs[:1], t_all, method="rk4", options=dict(step_size=0.05))[:, 0]
+    return t_all.numpy(), true.numpy(), t_obs.numpy(), y_obs.numpy(), fit.numpy(), float(loss)
+
+
+def viz_node(c):
+    n = c.slider("관측 개수 (불규칙 간격)", 10, 60, 25, 5, key="at_nd_n")
+    t, true, to, yo, fit, loss = _node_demo(n)
+    fig = make_subplots(rows=1, cols=2, column_widths=[0.55, 0.45], subplot_titles=("시간 축 (첫 번째 상태)", "상태 공간 궤적"))
+    fig.add_trace(go.Scatter(x=t, y=true[:, 0], line=dict(color=GREY, width=1.5), name="실제 연속 궤적"), 1, 1)
+    fig.add_trace(go.Scatter(x=to, y=yo[:, 0], mode="markers", marker=dict(size=6, color=PAL[1]), name="불규칙 관측"), 1, 1)
+    fig.add_trace(go.Scatter(x=t, y=fit[:, 0], line=dict(color=PAL[0], width=2), name="Neural ODE 적분 결과"), 1, 1)
+    fig.add_trace(go.Scatter(x=true[:, 0], y=true[:, 1], line=dict(color=GREY, width=1.5), showlegend=False), 1, 2)
+    fig.add_trace(go.Scatter(x=fit[:, 0], y=fit[:, 1], line=dict(color=PAL[0], width=2), showlegend=False), 1, 2)
+    fig.add_trace(go.Scatter(x=yo[:, 0], y=yo[:, 1], mode="markers", marker=dict(size=5, color=PAL[1]), showlegend=False), 1, 2)
+    _lay(fig, 380, title=f"Neural ODE: 신경망이 '변화 속도' dz/dt를 배우고 ODE 풀이기로 적분 — 관측 사이도 연속으로 (학습 MSE {loss:.3f})")
+    c.plotly_chart(fig, key="at_nd_fig")
+    c.caption("실제 torchdiffeq로 학습(감쇠 진동 합성 자료). 관측 간격이 불규칙해도 그대로 처리 가능한 것이 장점(Chen 외 2018). "
+              "원자재 주간 자료는 간격이 일정하고 신호가 약해 이 장점이 크지 않음 — 백테스트 순위 롱숏 0.34(t 1.3).")
+
+
+def viz_gnn(c):
+    rng = np.random.default_rng(6)
+    names = ["옥수수", "밀", "대두", "대두박", "WTI", "난방유", "가솔린", "천연가스", "금", "은", "백금", "구리"]
+    grp = [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2]
+    F = rng.normal(0, 1, (200, 3))
+    X = np.column_stack([F[:, g] * 0.8 + rng.normal(0, 0.7, 200) for g in grp])
+    k = c.slider("이웃 수 (상관 상위 k개와 연결)", 1, 5, 3, key="at_gn_k")
+    C = np.abs(np.corrcoef(X.T)); np.fill_diagonal(C, 0)
+    M = np.zeros_like(C)
+    for i in range(len(C)):
+        nb = np.argsort(C[i])[-k:]; M[i, nb] = 1
+    M = np.maximum(M, M.T)
+    ang = 2 * np.pi * np.arange(len(names)) / len(names)
+    px_, py_ = np.cos(ang), np.sin(ang)
+    sig = np.zeros(len(names)); sig[0] = 1.0                          # 옥수수에 충격
+    Ah = M + np.eye(len(M)); Dm = 1 / np.sqrt(Ah.sum(1))
+    Ah = Dm[:, None] * Ah * Dm[None, :]
+    s1, s2 = Ah @ sig, Ah @ Ah @ sig
+    f = make_subplots(rows=1, cols=2, column_widths=[0.5, 0.5], subplot_titles=("상관 그래프", "옥수수 충격의 전파 (GCN 1·2단계)"))
+    for i in range(len(M)):
+        for j in range(i + 1, len(M)):
+            if M[i, j]:
+                f.add_trace(go.Scatter(x=[px_[i], px_[j]], y=[py_[i], py_[j]], mode="lines", line=dict(color=GREY, width=1), showlegend=False, hoverinfo="skip"), 1, 1)
+    f.add_trace(go.Scatter(x=px_, y=py_, mode="markers+text", text=names, textposition="top center", marker=dict(size=14, color=[PAL[g] for g in grp]),
+                           showlegend=False), 1, 1)
+    for nm_, v, col in (("1단계", s1, PAL[0]), ("2단계", s2, PAL[1])):
+        f.add_trace(go.Bar(x=names, y=v, name=nm_, marker_color=col), 1, 2)
+    f.update_xaxes(visible=False, row=1, col=1); f.update_yaxes(visible=False, row=1, col=1)
+    _lay(f, 400, title="시공간 GNN: 품목 = 노드, 상관 = 연결 → 이웃 정보를 섞어(메시지 전달) 각 품목 예측에 반영", barmode="group")
+    c.plotly_chart(f, key="at_gn_fig")
+    c.caption("GCN 한 단계 = 정규화 인접 행렬 Â로 이웃 값을 가중 평균 → 같은 섹터로 충격이 번짐, 단계가 늘수록 더 멀리. "
+              "시간 패턴은 GRU가, 품목 간 관계는 GCN이 담당(T-GCN 계열). 이 앱은 학습 직전 3년 상관 상위 4개로 그래프를 매년 갱신.")
+
+
 ATLAS = {
     "PCA (주성분 분석)": dict(group="차원 축소 · 동조성", viz=viz_pca,
         what="여러 변수가 함께 움직이는 공통 방향(주성분)을 찾아, 소수의 축으로 데이터를 요약.",
@@ -1043,6 +1302,54 @@ ATLAS = {
         when="모델 비교, 새 정보(뉴스·기관 리포트)의 추가 가치 검증.",
         pitfall="표본이 짧으면 검정력이 낮음 — 작은 R²는 수백 기간이 필요. 여러 모델을 비교하면 다중검정 주의.",
         where="④ 성과 지표, 기관 리포트 검증"),
+    "Prophet (추세 변곡 + 계절 분해)": dict(group="대안 시계열 · 분해", viz=viz_prophet,
+        what="시계열을 '구간별 선형 추세(변곡점) + 푸리에 계절 + 휴일'로 분해해 각 성분을 연장하는 Meta의 예측 도구.",
+        formula=r"y(t) = g(t) + s(t) + h(t) + \varepsilon_t,\;\; g(t) = (k + a(t)^\top\delta)\,t + (m + a(t)^\top\gamma),\;\; \delta_j \sim \text{Laplace}(0, \tau)",
+        when="뚜렷한 계절·추세가 있는 업무 지표(수요·트래픽), 해석 가능한 분해가 필요할 때.",
+        pitfall="마지막 추세를 그대로 연장 → 추세 반전이 잦은 가격 수익률 예측엔 약함. τ(유연성)에 결과가 크게 좌우.",
+        where="⑤ 포트폴리오 › 대안 시계열 모델 (정식 prophet · 자체 Lasso 구현)"),
+    "Chronos (Amazon 파운데이션)": dict(group="대안 시계열 · 파운데이션", viz=viz_chronos,
+        what="값을 토큰으로 바꿔 언어모델 구조로 사전학습한 시계열 파운데이션 모델 — 학습 없이(zero-shot) 분위 예측.",
+        formula=r"\tilde x_t = x_t \Big/ \tfrac{1}{C}\textstyle\sum_i |x_i|,\;\; z_t = \text{bin}(\tilde x_t) \in \{1..4096\},\;\; p(z_{t+1} \mid z_{\le t}) = \text{T5}(z_{\le t})",
+        when="자료가 짧거나 품목이 많아 개별 모델을 만들기 어려울 때, 빠른 기준선.",
+        pitfall="사전학습 자료(수요·기상 등)와 성격이 다른 금융 수익률에선 우위가 불분명. 큰 모델은 CPU에서 느림.",
+        where="⑤ 포트폴리오 › 대안 시계열 모델 (Chronos-Bolt-small · Chronos-2), ⑥ 최신 시계열 모델"),
+    "TimesFM (Google 파운데이션)": dict(group="대안 시계열 · 파운데이션", viz=viz_timesfm,
+        what="입력을 패치로 잘라 디코더 트랜스포머로 다음 긴 패치를 예측하는 Google의 사전학습 시계열 모델.",
+        formula=r"\text{token}_j = \text{MLP}(x_{(j-1)p+1:jp}),\;\; \hat x_{\text{다음 } P} = \text{Decoder}(\text{token}_{1..J}),\;\; P > p",
+        when="긴 지평 예측, 학습 없이 많은 시계열에 일괄 적용.",
+        pitfall="zero-shot이라 원자재 고유 정보(재고·커브)를 못 씀. 이 앱에서 IC 0.024로 가장 높았지만 유의하지 않음.",
+        where="⑤ 포트폴리오 › 대안 시계열 모델, ⑥ 최신 시계열 모델"),
+    "PatchTST (패치 트랜스포머)": dict(group="대안 시계열 · 딥러닝", viz=viz_patchtst,
+        what="시계열을 패치(구간)로 잘라 토큰으로 쓰고, 변수마다 독립적으로 같은 트랜스포머를 적용.",
+        formula=r"P_j = x_{(j-1)S+1 : (j-1)S+p},\;\; z = \text{Transformer}(W P_j + e_j),\;\; \hat y = \text{Linear}(\text{flatten}(z))",
+        when="긴 입력 창, 변수 많은 장기 예측 벤치마크에서 강함.",
+        pitfall="신호가 약하고 표본이 적은 주간 수익률에선 과적합·설정 민감(정식 vs 경량 예측 상관 0.25).",
+        where="⑤ 포트폴리오 › 대안 시계열 모델 (neuralforecast · 자체 경량)"),
+    "iTransformer (변수 = 토큰)": dict(group="대안 시계열 · 딥러닝", viz=viz_itransformer,
+        what="축을 뒤집어 '변수 하나의 전체 과거'를 토큰으로 → 어텐션이 변수 간 관계를 학습.",
+        formula=r"h_n = \text{MLP}(x_{n,1:L}),\;\; H' = \text{softmax}\big(QK^\top/\sqrt d\big)V \;\;(\text{변수 간}),\;\; \hat y_n = \text{MLP}(h'_n)",
+        when="변수끼리 강하게 얽힌 다변량 예측(교통·전력·여러 품목).",
+        pitfall="변수 간 관계가 시기마다 바뀌면 학습한 어텐션이 낡음. 이 앱에서 정식·경량 결과 부호가 엇갈림.",
+        where="⑤ 포트폴리오 › 대안 시계열 모델"),
+    "TFT (Temporal Fusion Transformer)": dict(group="대안 시계열 · 딥러닝", viz=viz_tft,
+        what="변수 선택 → LSTM → 어텐션 → 분위 출력으로, 여러 종류의 입력을 해석 가능하게 섞는 다중 지평 예측 모델.",
+        formula=r"\xi_t = \textstyle\sum_j v_{j,t}\,\tilde\xi_{j,t},\;\; v_t = \text{softmax}(\text{GRN}(\Xi_t)),\;\; \mathcal L = \textstyle\sum_q \rho_q(y - \hat y_q)",
+        when="과거 변수 · 미래에 아는 변수(달력·정책 일정) · 정적 변수(품목 특성)를 함께 쓸 때, 변수 중요도 해석이 필요할 때.",
+        pitfall="구조가 복잡해 표본이 적으면 과적합. 이 앱에선 달력 변수만 넣어 우위 없음(IC ≈ 0).",
+        where="⑤ 포트폴리오 › 대안 시계열 모델"),
+    "Neural ODE (연속 시간 신경망)": dict(group="대안 시계열 · 딥러닝", viz=viz_node,
+        what="신경망으로 상태의 변화 속도 dz/dt를 표현하고 ODE 풀이기로 적분해 연속 시간 궤적을 얻는 모델.",
+        formula=r"\frac{dz(t)}{dt} = f_\theta(z(t), t),\;\; z(t_1) = z(t_0) + \int_{t_0}^{t_1} f_\theta(z, t)\,dt",
+        when="관측 간격이 불규칙한 자료(의료·센서), 물리적 연속 과정.",
+        pitfall="적분 때문에 학습이 느림(이 앱에서 가장 오래 걸림). 간격이 일정한 주간 자료에선 장점이 작음.",
+        where="⑤ 포트폴리오 › 대안 시계열 모델 (torchdiffeq dopri5 ODE-RNN · 자체 RK4)"),
+    "시공간 GNN (그래프 신경망)": dict(group="대안 시계열 · 딥러닝", viz=viz_gnn,
+        what="품목을 노드, 상관을 연결선으로 두고 이웃 정보를 섞는 그래프 합성곱 + 시간 순환망으로 예측.",
+        formula=r"H^{(l+1)} = \sigma\big(\hat D^{-1/2}\hat A \hat D^{-1/2} H^{(l)} W^{(l)}\big),\;\; \hat A = A + I,\;\; H^{(0)} = \text{GRU}(x_{n,1:L})",
+        when="연결 구조가 뚜렷한 다변량(도로망·공급망·섹터).",
+        pitfall="그래프(상관)가 바뀌면 성능 저하, 그래프 구성 방식에 결과가 좌우(정식 vs 경량 예측 상관 0.09).",
+        where="⑤ 포트폴리오 › 대안 시계열 모델 (torch_geometric GCN + GRU · 자체 경량)"),
 }
 
 
