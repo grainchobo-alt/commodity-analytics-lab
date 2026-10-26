@@ -1,0 +1,16 @@
+﻿모델,학습 IC (2012-07–2016),후보 포함
+PatchTST 방식 (4주 패치 → 트랜스포머),0.05341545352743562,True
+"iTransformer (neuralforecast, 정식)",0.052967525195968646,True
+"iTransformer 방식 (품목 = 토큰, 품목 간 어텐션)",0.04019410227696901,True
+Chronos-Bolt-small (zero-shot 파운데이션),0.034124673385591636,True
+"PatchTST (neuralforecast, 정식)",0.03319148936170213,True
+"Neural ODE (torchdiffeq dopri5 ODE-RNN, 정식)",0.028241881298992154,True
+"Neural ODE 방식 (ODE-RNN, RK4로 은닉 상태 연속 진화)",0.019798432250839878,False
+"TFT 방식 (변수 선택 + LSTM + 어텐션, 달력 변수)",0.017155655095184772,False
+"시공간 GNN (torch_geometric GCN + GRU, 정식)",0.01705113848450915,False
+"TFT (neuralforecast, 정식)",0.000604703247480405,False
+TimesFM-2.5 (zero-shot 파운데이션),-0.00012691302724897105,False
+"Prophet 방식 (추세 변곡 + 연간 계절, 자체 구현)",-0.018312803284807763,False
+"Prophet (Meta prophet 패키지, 정식)",-0.03321388577827548,False
+Chronos-2 (zero-shot 파운데이션),-0.04768943635684957,False
+시공간 GNN 방식 (GRU 시계열 + 상관 그래프 합성곱),-0.07051885031728256,False
