@@ -3,6 +3,18 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.32.0 — 2026-10-26 — 대안 시계열 모델 서브탭 (Prophet·Chronos·TimesFM·PatchTST·iTransformer·TFT·Neural ODE·GNN)
+- ⑤ 포트폴리오 서브탭 재구성: 바스켓 포트폴리오 · 롱숏 전략 (Alpha 추구) Backtest 결과 · 대안 시계열 모델
+- `alt_ts.py`: 19개 품목, 매주 '4주 뒤 수익률' 예측 → 방향·순위 롱숏 매매(5bp, 목표 변동성 10%, 2012-07–2026)
+  - 자체 경량 6종 + 정식 패키지 6종(prophet · neuralforecast PatchTST/iTransformer/TFT · torchdiffeq · torch_geometric) + 파운데이션 3종(Chronos-Bolt-small · Chronos-2 · TimesFM-2.5)
+  - 방향 적중률 49.7–51.9%, 방향 매매로 52주 모멘텀(0.45)을 넘은 모델 없음. 순위 롱숏 최고 TimesFM 0.45(t 1.7)
+- 보완 분석 `alt_ts_plus`: 정식 vs 경량 예측 상관(PatchTST·iTrans·TFT·GNN 0.07–0.25), 학습 IC > 0.02 모델 6개를 롱숏 혼합 후보로 구간 이동 선택(0.97 vs 기존 0.88, t 0.67), 신경망 8개 × 시드 3개 흔들림(TFT 정식 순위 −0.50~+0.18, 일관된 것은 PatchTST 정식뿐)
+- ⑦ 모델 도감 31 → 39개 (대안 시계열 8종, 실제 prophet·torchdiffeq 학습·캐시 예측 부채꼴 포함)
+- `docs/alt_ts_explainer.html`: 모델별 탭 초보자 해설서 (요약: 공통점·차이·왜 언어모델 구조를 쓰나)
+- requirements: prophet 1.5.0 · neuralforecast 3.3.0 · torchdiffeq 0.2.5 · torch_geometric 2.8.1
+- tests/test_alt_ts.py: 미래 교란 → 과거 예측·손익 불변 (Prophet·신경망·neuralforecast)
+- ⑧ Q&A: 대안 모델 성과, 정식 vs 경량, 혼합 후보 Sharpe가 높은 이유, '선택된 조합', 시드 흔들림
+
 ## v1.31.0 — 2026-10-23 — 구매 '더 쌀 확률' 보완 실험 (가치·추세·칼만·레짐 신호)
 - `procurement.fc_features/fc_walkforward`에 추가 설명변수(extra) 인자 (기본 None → 기존 동작 동일)
 - ⑥ 실험 `defer_plus`: 19품목 × 변수 묶음 5개(기본·+가치·+추세·+레짐·+전체), 품목별 미루는 기간·계절 특성 고정

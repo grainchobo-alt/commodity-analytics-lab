@@ -2008,6 +2008,9 @@ AUC는 Mann-Whitney U 통계량을 표준화한 값과 같아서 'AUC > 0.5'를 
 **정식 패키지와 자체 경량 구현이 왜 다르게 나오나?** → 같은 이름의 모델도 구조 크기·정규화·학습 횟수·초기값이 다르면 예측이 거의 딴판(PatchTST·iTransformer·TFT·GNN 예측 상관 0.07–0.25).
 Prophet(0.84)·Neural ODE(0.57)만 비슷. 즉 '어떤 신경망이 좋다'가 아니라 '그 설정이 그 기간에 맞았다'에 가까움 → 시드만 바꿔 다시 학습한 흔들림 표로 운의 폭을 함께 봄.
 
+**시드만 바꾸면 결과가 얼마나 흔들리나?** → 신경망 8개 × 시드 3개. TFT 정식판은 순위 롱숏이 −0.50 ~ +0.18로 부호까지 뒤집힘(한 번 돌린 Sharpe는 운). 세 시드 모두 양수이고 시드 평균 예측(앙상블)이 더 나은 것은 PatchTST 정식판 하나(방향 0.29–0.38 → 평균 예측 0.47, 순위 0.21–0.51 → 0.53, IC 평균 0.032).
+다만 시험 기간 전체로 본 사후 결과이고 t ≈ 2 수준이라 관찰 후보로만 둠. 신경망을 쓸 때는 시드 여러 개의 평균 예측이 기본 처방.
+
 **IC 0.02를 넘은 모델을 롱숏 혼합에 넣으면?** → 후보 고르기는 2012-07–2016 IC로만(시험 기간으로 고르면 사후 선택). 6개 모델이 기준 통과 → 'MinVar 50 + 모멘텀 25 + 모델 25'를 기존 혼합 후보 전부와 함께 구간 이동 선택.
 2017–20: 학습 1위(PatchTST 경량 혼합)가 시험 11/20위로 미끄러짐, 2021–26: 가치 혼합 선택. 이어붙인 표본 외 0.97 vs 기존 0.88(차이 t 0.67) — 모델 혼합이 가치 혼합을 대신할 근거는 없음.
 
@@ -4180,9 +4183,11 @@ def _alt_ts_extra(EX):
         st.caption("② 시드 흔들림: 신경망 재학습 중 — 끝나면 표시됩니다.")
     if ic is not None and mc is not None:
         st.markdown("##### ③ 롱숏 혼합 후보 — 학습 구간 IC > 0.02 모델을 'MinVar 50 + 모멘텀 25 + 모델 25'로")
-        k1, k2 = st.columns([1, 1.6])
-        k1.dataframe(ic.set_index("모델").style.format({"학습 IC (2012-07–2016)": "{:+.3f}"}), height=min(36 * (len(ic) + 1) + 4, 420))
-        k2.dataframe(mc.set_index("후보").style.format(fmt(mc), na_rep="–"))
+        icc = "학습 IC (2012-07–2016)"
+        ic_ = ic.assign(**{"후보 포함": ic["후보 포함"].map({True: "✓ (IC > 0.02)", False: "–"})}).set_index("모델")
+        st.dataframe(ic_.style.format({icc: "{:+.3f}"}), height=min(36 * (len(ic_) + 1) + 4, 470), use_container_width=True)
+        mc_ = mc.assign(**{icc: mc[icc].map(lambda v: "– (기준)" if pd.isna(v) else f"{v:+.3f}")}).set_index("후보")
+        st.dataframe(mc_.style.format({c: f for c, f in fmt(mc_).items() if c != icc}, na_rep="–"), use_container_width=True)
         if wk is not None:
             st.dataframe(wk.drop(columns=["요약"]).set_index("시험 구간").style.format(fmt(wk), na_rep="–"))
             sm = wk["요약"].dropna()
