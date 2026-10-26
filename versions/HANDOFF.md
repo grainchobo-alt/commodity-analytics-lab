@@ -62,6 +62,7 @@
 - (v1.11.0 반영) 다변량 레짐 화면 완료 — 후속: 국면별 '더 쌀 확률' AUC 조건부 분석, 레짐을 ★ 구매 카드의 맥락 배지로.
 - 사용자 규칙: 방법론 질문에 답하면 ⑧ '자주 묻는 방법론 질문'에 계속 추가 (메모리 methodology-faq-update).
 **▶ 다음 세션 시작점 (2026-10-26 갱신)**
+- **0. 먼저 할 일 (2026-10-26 중단 지점)**: v1.32.0까지 커밋·태그 완료, **push 안 함** (원격은 032174b·v1.31.0). 전체 테스트를 사용자 요청으로 미룸 → 내일 `tests/test_*.py` 단위 테스트 + `tests/test_app.py` 전체(약 50분, 이번에 ⑤ 대안 시계열 서브탭·모델 도감 39개 확인 추가) 실행 → 통과하면 push 승인 요청 (v1.32.0 태그 포함). 미추적 `docs/hmm_explainer.html`·`kalman_explainer.html`은 커밋 여부를 사용자에게 물을 것.
 - I. **대안 시계열 후속** (v1.32.0): PatchTST 정식판만 시드 3개 모두 양수(시드 평균 예측 방향 0.47 · 순위 0.53, IC 0.032) → 관찰 후보. 다음 확인: 2017 이전으로만 설정을 고르고 이후 시험, 롱숏 혼합 25% 후보로 구간 이동 선택에 포함. TFT에 재고·커브·COT 변수 투입 실험. 결과 재계산 = `python experiments.py alt_ts alt_ts_plus` (예측 캐시 data/alt_ts_*preds.pkl, 정식 TFT 시드당 약 1시간).
 - 해설서: `docs/alt_ts_explainer.html` (게시: https://claude.ai/artifact/5mPfkGGKrAijJyg34Ccvck, 비공개).
 - 마지막 전체 앱 테스트 결과는 `data/last_test.txt` 한 줄 (통과/실패·커밋·소요). 큰 작업 단위가 끝나면 push 승인을 먼저 요청할 것.
