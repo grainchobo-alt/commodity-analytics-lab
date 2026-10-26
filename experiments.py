@@ -728,3 +728,59 @@ def defer_plus(progress=None, split: str = "2017-01-01") -> pd.DataFrame:
 
 EXPERIMENTS["defer_plus"] = dict(title="구매 '더 쌀 확률' 보완 — 가치·추세·칼만·레짐 신호 추가 시 AUC", file="defer_plus_compare.csv",
                                  fn=defer_plus, eta="약 5~10분", cols=["id", "변수묶음", "기간"])
+
+
+# ============================================================================
+# 대안 시계열 모델 (Prophet 방식 · Chronos · TimesFM · PatchTST · iTransformer · TFT · Neural ODE · GNN) — 롱숏 19개 품목
+# ============================================================================
+def alt_ts(progress=None, split: str = "2017-01-01") -> pd.DataFrame:
+    import pickle
+    import analytics as A
+    import alt_ts as AT
+    t0 = time.time()
+    pk = DATA / "alt_ts_preds.pkl"                                   # 모델 예측 캐시 (신경망 재학습 약 1시간 → 한 번만)
+    cache = pickle.loads(pk.read_bytes()) if pk.exists() else {}
+    def keep(pr):
+        pk.write_bytes(pickle.dumps({k: v for k, v in pr.items() if k != AT.BASE and not k.startswith("모델 합의")}))
+    P, preds = AT.all_preds(A.load_levels(roll_adjusted=True), progress=progress or print, cache=cache, on_done=keep)
+    keep(preds)
+    res = AT.run_alt(P, preds, split=split)
+    res["returns"].to_csv(DATA / "alt_ts_weekly_compare.csv", encoding="utf-8-sig")
+    _save("alt_ts", res["table"], t0, dict(품목=P.shape[1], 평가="2012-07–", 분할=split, 비용="편도 5bp", 목표변동성="10%"))
+    return res["table"]
+
+
+EXPERIMENTS["alt_ts"] = dict(title="대안 시계열 모델 — Prophet·Chronos·TimesFM·PatchTST·iTransformer·TFT·Neural ODE·GNN (19개 품목)",
+                             file="alt_ts_compare.csv", fn=alt_ts, eta="약 1~2시간 (예측 캐시 후 1분)", cols=["모델", "방향 Sharpe", "순위 롱숏 Sharpe"])
+
+
+# 보완: ① 정식 vs 경량 짝 비교 ② 신경망 시드 흔들림 ③ 학습 IC > 0.02 모델을 롱숏 혼합 25% 후보로 (구간 이동 선택) — alt_ts 다음에 실행
+def alt_ts_plus(progress=None) -> pd.DataFrame:
+    import pickle
+    import analytics as A
+    import alt_ts as AT
+    t0 = time.time()
+    L = A.load_levels(roll_adjusted=True)
+    pk, sk = DATA / "alt_ts_preds.pkl", DATA / "alt_ts_seed_preds.pkl"
+    P, preds = AT.all_preds(L, cache=pickle.loads(pk.read_bytes()), progress=progress or print)   # 캐시만 읽음 (빠짐 없으면 재계산 없음)
+    T = pd.read_csv(DATA / EXPERIMENTS["alt_ts"]["file"], encoding="utf-8-sig")
+    AT.pair_table(P, preds, T).to_csv(DATA / "alt_ts_pairs_compare.csv", index=False, encoding="utf-8-sig")
+    mx = AT.mix_candidates(L, P, preds)
+    mx["ic"].to_csv(DATA / "alt_ts_mix_ic_compare.csv", index=False, encoding="utf-8-sig")
+    mx["cands"].to_csv(DATA / "alt_ts_mix_compare.csv", index=False, encoding="utf-8-sig")
+    w = mx["walk"].copy(); w["요약"] = ""
+    w.loc[w.index[0], "요약"] = " · ".join(f"{k} {v:.2f}" if isinstance(v, float) else f"{k} {v}" for k, v in mx["summary"].items())
+    w.to_csv(DATA / "alt_ts_mix_walk_compare.csv", index=False, encoding="utf-8-sig")
+    seeds = pickle.loads(sk.read_bytes()) if sk.exists() else {}
+    allp = {**preds, **seeds}
+    def keep(pr):
+        sk.write_bytes(pickle.dumps({k: v for k, v in pr.items() if " · 시드 " in k}))
+    AT.seed_preds(P, allp, progress=progress or print, on_done=keep)
+    keep(allp)
+    st_ = AT.seed_table(P, allp)
+    _save("alt_ts_plus", st_, t0, dict(시드=[0, *AT.SEEDS], IC기준=0.02, 혼합시험=["2017–2020", "2021–2026"], 후보수=mx["n_cands"]))
+    return st_
+
+
+EXPERIMENTS["alt_ts_plus"] = dict(title="대안 시계열 보완 — 정식 vs 경량 · 시드 흔들림 · 롱숏 혼합 후보", file="alt_ts_seeds_compare.csv",
+                                  fn=alt_ts_plus, eta="약 1~2시간 (시드 재학습)", cols=["모델", "시드 수"])

@@ -64,6 +64,8 @@ assert any("강세장 덕 vs 전략 덕" in e.label for e in at.expander)       
 at.selectbox(key="ls_ct_per").set_value("전체 2007–").run(); check(at, "롱숏: 기간별 품목 기여도 (전체)")
 at.selectbox(key="ls_ab_pick").set_value("따라잡기 혼합 (50/25/25)").run(); check(at, "롱숏: 2년 롤링 알파")
 at.radio(key="ls_ra_win").set_value("3년").run(); check(at, "롱숏: 3년 롤링 알파")
+assert any("대안 시계열 모델 — Prophet" in m.value for m in at.markdown)                   # ⑤ 포트폴리오 › 대안 시계열 모델 서브탭
+at.radio(key="ls_alt_mode").set_value("순위 롱숏").run(); check(at, "롱숏: 대안 시계열 순위 롱숏")
 assert any("롱숏 전략 2년 롤링 알파" in x.value for x in list(at.warning) + list(at.info) + list(at.caption))   # 리스크 탭 전략 우위 경고
 assert any(str(i).startswith("⑩ 혼합 후보") for d in at.dataframe for i in getattr(d.value, "index", []))   # ⑩ 혼합 후보 행
 assert any("MinVar 강건성" in e.label for e in at.expander)                               # ⑦ 강건성 점검

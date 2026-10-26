@@ -4097,13 +4097,95 @@ def tab_ls():
                    "혼합 비율 = 두 전략(각 변동성 10%)에 주는 비중, 섞은 뒤 다시 10%로 배율.")
 
 
+def _alt_ts_section():
+    import experiments as EX
+    st.markdown("##### 대안 시계열 모델 — Prophet · Chronos · TimesFM · PatchTST · iTransformer · TFT · Neural ODE · 시공간 GNN")
+    st.caption("같은 19개 품목 · 매주 금요일 각 모델이 '4주 뒤 수익률'을 예측 → 두 방식으로 매매: 방향 = 예측 부호 ÷ 품목 변동성(품목마다 롱 또는 숏), "
+               "순위 롱숏 = 예측 ÷ 변동성 상위 1/3 롱 · 하위 1/3 숏(4주 보유, 달러 중립). 모두 편도 5bp · 사전 목표 변동성 10% · 평가 2012-07–2026. "
+               "파운데이션 모델(Chronos·TimesFM)은 학습 없이 직전 512영업일만 보고 예측(zero-shot), 신경망 5종은 19개 품목 자료로 매년 1월 재학습(그해 자료는 안 씀), "
+               "Prophet은 직전 3년 추세 변곡 + 연간 계절을 매주 다시 적합. "
+               "정식 패키지 = prophet(Meta) · neuralforecast(Nixtla: PatchTST · iTransformer · TFT) · torchdiffeq(적응 스텝 ODE-RNN) · torch_geometric(GCN + GRU), "
+               "자체 경량 구현 = 같은 구조를 줄여 직접 짠 판(비교용). 결과는 미리 계산(`python experiments.py alt_ts`).")
+    if "alt_ts" not in EX.EXPERIMENTS:                              # 서버가 예전 experiments 모듈을 들고 있으면 다시 읽음
+        import importlib
+        EX = importlib.reload(EX)
+    T, meta = EX.load("alt_ts")
+    fw = EX.DATA / "alt_ts_weekly_compare.csv"
+    if T is None or not fw.exists():
+        st.info("결과가 없습니다 — `python experiments.py alt_ts` 실행 필요 (신경망 학습 포함 약 1~2시간, CPU).")
+        return
+    T = T.set_index("모델")
+    T.insert(0, "구분", ["기준" if i.startswith(("기준", "모델 합의")) else "파운데이션 (zero-shot)" if "zero-shot" in i else
+                       "정식 패키지" if "정식" in i else "자체 경량 구현" for i in T.index])
+    T = T.iloc[np.argsort([["정식 패키지", "자체 경량 구현", "파운데이션 (zero-shot)", "기준"].index(g) for g in T["구분"]], kind="stable")]
+    num = {c: ("{:.1%}" if c == "방향 적중률" else "{:+.3f}" if c.startswith("IC") else "{:+.2f}") for c in T.columns if c != "구분"}
+    st.dataframe(T.style.format(num, na_rep="–"),
+                 height=min(36 * (len(T) + 1) + 4, 470))
+    D = pd.read_csv(fw, index_col=0, parse_dates=True, encoding="utf-8-sig")
+    md = st.radio("매매 방식", ["방향", "순위 롱숏"], horizontal=True, key="ls_alt_mode")
+    f = go.Figure()
+    for j, c in enumerate([c for c in D.columns if c.endswith(f"| {md}")]):
+        nm = c.rsplit(" | ", 1)[0]
+        base = nm.startswith("기준")
+        f.add_trace(go.Scatter(x=D.index, y=D[c].cumsum(), name=nm, line=dict(color=("#e8e6e1" if DARK else "#0b0b0b") if base else PAL[j % 8], width=2.4 if base or nm.startswith("모델 합의") else 1.2,
+                                                                        dash="dash" if base else None)))
+    st.plotly_chart(fig_layout(f, 380, title=f"누적 수익 (%, {md}, 목표 변동성 10%) — 굵은 점선 = 52주 모멘텀", hovermode="x",
+                               legend=dict(orientation="h", y=-0.3, font=dict(size=10))), key="ls_alt_cum")
+    m = T.drop(index=[i for i in T.index if i.startswith(("기준", "모델 합의"))])
+    b_ = T.loc[[i for i in T.index if i.startswith("기준")][0]]
+    best = m[f"{md} Sharpe"].idxmax()
+    st.caption(f"{md} 기준 가장 나은 모델: {best} ({m.loc[best, f'{md} Sharpe']:+.2f}) vs 52주 모멘텀 {b_[f'{md} Sharpe']:+.2f}. "
+               f"모델 평균 방향 적중률 {m['방향 적중률'].mean():.1%} · 평균 IC {m['IC (주별 순위 상관)'].mean():+.3f} (0이면 순위 예측력 없음). "
+               "Sharpe 95% 구간은 14년 기준 약 ±0.53이라 |Sharpe| 0.5 미만은 우연과 구별하기 어려움. "
+               f"계산 시각 {meta.get('run_at', '?')}.")
+    _alt_ts_extra(EX)
+
+
+def _alt_ts_extra(EX):
+    """보완: ① 정식 vs 경량 짝 ② 시드 흔들림 ③ 롱숏 혼합 후보 (experiments.alt_ts_plus 결과)."""
+    rd = lambda n: pd.read_csv(EX.DATA / n, encoding="utf-8-sig") if (EX.DATA / n).exists() else None
+    pr, sd = rd("alt_ts_pairs_compare.csv"), rd("alt_ts_seeds_compare.csv")
+    ic, mc, wk = rd("alt_ts_mix_ic_compare.csv"), rd("alt_ts_mix_compare.csv"), rd("alt_ts_mix_walk_compare.csv")
+    if pr is None:
+        st.info("보완 분석(정식 vs 경량 · 시드 흔들림 · 롱숏 혼합 후보) 결과가 없습니다 — `python experiments.py alt_ts_plus` 실행 필요.")
+        return
+    fmt = lambda df: {c: ("{:.1%}" if ("적중률" in c or "일치율" in c) else "{:+.3f}" if ("IC" in c or "상관" in c) else "{:+.2f}")
+                      for c in df.columns if pd.api.types.is_float_dtype(df[c])}
+    st.markdown("##### ① 정식 패키지 vs 자체 경량 구현 — 구현을 바꾸면 결과가 달라지나")
+    st.dataframe(pr.set_index("모델").style.format(fmt(pr), na_rep="–"))
+    st.caption("같은 이름의 모델을 정식 패키지(prophet · neuralforecast · torchdiffeq · torch_geometric)와 직접 줄여 짠 판으로 각각 돌린 결과. "
+               "예측 상관이 낮거나 Sharpe 부호가 엇갈리면 '그 모델의 성과'가 아니라 구현·초기값·하이퍼파라미터에 따라 바뀌는 결과라는 뜻.")
+    if sd is not None:
+        st.markdown("##### ② 시드 흔들림 — 같은 신경망을 초기값(시드)만 바꿔 3번 학습")
+        st.dataframe(sd.set_index("모델").style.format(fmt(sd), na_rep="–"))
+        st.caption("시드 = 신경망 초기 가중치·표본 순서를 정하는 난수. 최소~최대 폭이 넓으면 한 번 돌린 Sharpe는 운의 몫이 큼. "
+                   "'시드 평균 예측' = 세 번 학습한 예측을 평균해 매매(앙상블) — 흔들림을 줄이는 표준 처방. Neural ODE 2종은 학습이 느려 제외.")
+    else:
+        st.caption("② 시드 흔들림: 신경망 재학습 중 — 끝나면 표시됩니다.")
+    if ic is not None and mc is not None:
+        st.markdown("##### ③ 롱숏 혼합 후보 — 학습 구간 IC > 0.02 모델을 'MinVar 50 + 모멘텀 25 + 모델 25'로")
+        k1, k2 = st.columns([1, 1.6])
+        k1.dataframe(ic.set_index("모델").style.format({"학습 IC (2012-07–2016)": "{:+.3f}"}), height=min(36 * (len(ic) + 1) + 4, 420))
+        k2.dataframe(mc.set_index("후보").style.format(fmt(mc), na_rep="–"))
+        if wk is not None:
+            st.dataframe(wk.drop(columns=["요약"]).set_index("시험 구간").style.format(fmt(wk), na_rep="–"))
+            sm = wk["요약"].dropna()
+            if len(sm) and str(sm.iloc[0]).strip():
+                st.caption("이어붙인 표본 외: " + str(sm.iloc[0]))
+        st.caption("미래 정보 차단: 후보에 넣을 모델은 2012-07–2016 IC로만 고름(시험 기간 IC로 고르면 사후 선택). 모델 매매는 순위 롱숏(달러 중립)판. "
+                   "구간 이동 선택 = 기존 혼합 후보(가치·따라잡기·칼만 등) 전부 + 새 후보 중 학습 Sharpe 1위를 골라 다음 구간에 적용 — "
+                   "롱숏 탭과 같은 방식이지만 모델 예측이 2012년부터라 시험 구간은 2017–20 · 2021–26 두 개.")
+
+
 
 def page_portfolio():
-    a, b = st.tabs(["바스켓 포트폴리오 (Newton 최적 비중)", "롱숏 전략 (상관 · 레짐 · 추세)"])
+    a, b, c = st.tabs(["바스켓 포트폴리오", "롱숏 전략 (Alpha 추구) Backtest 결과", "대안 시계열 모델"])
     with a:
         tab_portfolio()
     with b:
         tab_ls()
+    with c:
+        _alt_ts_section()
 
 
 @st.cache_data(show_spinner=False)
