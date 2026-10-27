@@ -2,7 +2,7 @@
 
 > 새 세션은 이 문서를 먼저 읽고 시작한다. 세션을 마칠 때는 **현재 상태 · 남은 과제 · 최근 결정**을 갱신하고 `CHANGELOG.md`에 버전을 추가한다.
 
-- **최종 갱신**: 2026-10-27 · **현재 버전**: v1.33.0 (git 태그)
+- **최종 갱신**: 2026-10-27 · **현재 버전**: v1.34.0 (git 태그)
 - **사용자**: 곡물·에너지·금속·운임을 다루는 **중간 트레이더**(직접 사용 X, 매입 후 재판매). 실무 의사결정 = **"언제, 얼마나 살까"** (숏 아님).
 - **저장소**: https://github.com/grainchobo-alt/commodity-analytics-lab (private, `main`) · 협업자 `seokhwan33`(write, 초대 발송)
 - **작업 폴더**: `C:\Users\user\Desktop\Commodity` (구 폴더 `Desktop\261013`에는 다른 프로젝트 공존 — 삭제 금지)
@@ -24,7 +24,7 @@
 | ② 레짐 (원자재 + 거시 다변량: HMM · MS 회귀 · Kalman TVP · TAR · STAR, v1.11.0) | `tab_regime`·`_rv_hmm`·`_rv_reg` (+ 공용 `model_detail`) | `regime_mv.py`, `analytics.py`, `regime.py` |
 | ③ 변동성·공분산 (GARCH / DCC·BEKK / GARCH-MIDAS 분해만) | `page_vol` → `tab_vol`, `tab_mvgarch`, `tab_midas(vol_only=True)` | `analytics.py`, `mvgarch.py`, `midas.py` |
 | ④ 수익률 예측 (단일 품목: 대표 7 + 고급 20모델, 위약 기준선 + 모델 선택 메타 전략 / 패널 / MIDAS 회귀) | `page_predict` → `tab_ml` + `ml_meta`, `tab_panel`, `tab_midas(False)` | `analytics.py`, `metasel.py`, `models_dense.py`, `models_ml.py`, `panel.py` |
-| ⑤ 포트폴리오 | `tab_portfolio` | `portfolio.py` |
+| ⑤ 포트폴리오 (Portfolio Customization · 롱숏 · 대안 시계열 · 멀티모달 — 뒤 3개는 2026-10-26 기준 결과 고정, `FROZEN_END`) | `tab_custom`(`_sleeves`·`_combine`) · `tab_portfolio` · `tab_ls` · `_alt_ts_section` · `_multimodal_section` | `portfolio.py`, `ls_strategies.py`, `ls_extra.py`, `alt_ts.py`, `multimodal.py` |
 | ⑥ 실험 결과 (재실행 버튼, 구매 타이밍 = 단계별·프리셋 비교 한 섹션, 철강 원료·구리 상대가치 포함) | `tab_experiments` | `experiments.py` → `data/*_compare.csv`, `experiments_meta.json` |
 | ⑦ 모델 도감 (31개) | `page_atlas` | `model_atlas.py` |
 | ⑧ 데이터·방법론 | `tab_data` | — |
@@ -93,6 +93,7 @@
 7. `Desktop\261013` 폴더의 옛 원자재 파일 정리 (삭제는 사용자 확인 후에만).
 
 ## 7. 최근 결정 로그
+- 2026-10-27 (v1.34.0): 사용자 요청 — 롱숏·대안 시계열·멀티모달 서브탭은 계산이 길어 데이터 업데이트 때 재계산하지 않음(2026-10-26 고정, 제목에 기간). 바스켓 포트폴리오 → Portfolio Customization(전략·모델·데이터 갈래 조합, 기존 Newton은 모드로 유지).
 - 2026-10-27 (v1.33.0): 멀티모달(텍스트 FinBERT·리포트·COT·기상·금융) 2007–2026 → 가치 혼합(0.89)을 넘지 못함, 가치 + 멀티모달 20%가 0.80. COT가 갈래 중 가장 나음. '최근 IC 부호 따라가기'는 약한 신호에서 손해(금융 −0.75) → 고정 부호판 병기. 매크로는 대안 모델 방향 예측에 도움 안 됨.
 - 2026-10-26 (v1.32.0): 사용자 요청 — 대안 시계열 8종(Prophet·Chronos·PatchTST·iTransformer·Neural ODE·GNN·TimesFM·TFT)을 롱숏과 같은 19개 품목으로 백테스트, 정식 패키지 설치 승인(prophet·neuralforecast·torchdiffeq·torch_geometric). 결과 52주 모멘텀을 못 넘음, 정식 vs 경량 결과가 거의 무관 → 구매·롱숏 로직에는 넣지 않고 ⑤ 서브탭·모델 도감·해설서로만. MOMENT·TiRex는 미시험(패키지·속도).
 - 2026-10-21 (v1.20.0): 국면 전환 오버레이(평소 MinVar 70 + 모멘텀 30, 스트레스·상관 급등 때 전환)는 개선 없음 — 이미 저변동·추세 혼합이라 지킬 낙폭이 적고 HMM 신호는 급락 뒤 켜짐. 롱숏 탭은 주간 고정(사이드바 빈도 무관), 바스켓 포트폴리오는 사이드바 빈도 + 리밸런싱 주기 선택.

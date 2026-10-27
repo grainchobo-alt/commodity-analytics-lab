@@ -114,7 +114,7 @@ st.sidebar.divider()
 _yf_end = pd.to_datetime(cat.loc[cat.id.str.startswith("yf:"), "end"]).max()
 st.sidebar.caption(f"데이터 기준일: **{_yf_end:%Y-%m-%d}** (선물 시세 최신일)")
 if st.sidebar.button("🔄 데이터 업데이트", key="data_update", use_container_width=True,
-                     help="최신 시세를 증분 수집 → 정제 → 롤 보정 후 화면을 다시 계산. 인터넷 연결 필요. ⑥ 실험 결과(AUC 등 근거표)는 갱신되지 않음"):
+                     help="최신 시세를 증분 수집 → 정제 → 롤 보정 후 화면을 다시 계산. 인터넷 연결 필요. ⑥ 실험 결과(AUC 등 근거표)와 ⑤ 포트폴리오의 롱숏·대안 시계열·멀티모달 서브탭(결과 고정)은 갱신되지 않음"):
     _update_data()
 if "_upd_msg" in st.session_state:
     st.sidebar.success(st.session_state.pop("_upd_msg"))
@@ -2089,24 +2089,24 @@ PCA = 특성 전체의 퍼짐을 가장 많이 담는 두 방향(군집과 무�
 | 동일가중 | 1/N | ✗ | ✗ | 롱숏 기준 바스켓 |
 | 역변동성 | 부호(또는 1) ÷ 품목 변동성 | ✗ | 부호만 | ④ 시계열 모멘텀 |
 | 최소분산 (MinVar) | 포트폴리오 분산 최소 (Ledoit-Wolf 공분산, 품목 상한) | ✓ | ✗ | ⑥ · ⑧ |
-| 평균-분산 | w'μ − (λ/2)·w'Σw 최대 | ✓ | ✓ | 바스켓 포트폴리오(**Newton-Raphson**), ⑧(SLSQP·Σ⁻¹μ) |
+| 평균-분산 | w'μ − (λ/2)·w'Σw 최대 | ✓ | ✓ | Portfolio Customization 품목 단위(**Newton-Raphson**), ⑧(SLSQP·Σ⁻¹μ) |
 
 **롱숏 탭 ①–⑤는 최적화가 아님** → 정해진 규칙(동일가중·헤지비율·켬/끔·부호÷변동성·상위/하위 1/3).
 
 **'목표 변동성 10%'는 상한이 아니라 목표** → 직전 26주 실현 변동성으로 배율을 정해 포트폴리오 **전체**를 연 10%로 키우거나 줄임(최대 4배, 사후 배율 아님). 같은 위험에서 비교하려는 장치.
-롱숏 탭의 ④ 모멘텀·⑥·⑦·⑧에 적용, 바스켓 포트폴리오 탭에는 별도 '목표 변동성' 입력칸.
+롱숏 탭의 ④ 모멘텀·⑥·⑦·⑧에 적용, Portfolio Customization의 품목 단위 평균-분산(Newton) 화면에는 별도 '목표 변동성' 입력칸.
 
 **'추세 방향 × (10% ÷ 품목 변동성) ÷ 품목 수'의 10%** → 품목 하나만 들면 연 변동성 10%가 되는 크기(위험 균등). 이후 전체를 다시 10%로 맞추므로 숫자 자체는 상쇄되고 **1/σ 상대 비율만** 의미.
 품목이 많으면 품목당 몫은 작아지고 서로 상쇄돼 전체 변동성이 낮아지지만(배율 전 약 3.9%), 전체 배율로 10%를 맞춤.
 
 **MinVar '상한 15%·10%'** → 변동성이 아니라 **품목당 최대 비중**(집중 제한). 전체 10% 목표와 별개.
 
-**모멘텀 기간** → 롱숏 탭의 '모멘텀'은 **52주** 수익률 부호 (13주판은 비교용, Sharpe ≈ 0으로 탈락). ⑧ 평균-분산의 μ도 52주 부호. 바스켓 포트폴리오 탭은 '모멘텀 기간' 선택(기본 12-1개월).
+**모멘텀 기간** → 롱숏 탭의 '모멘텀'은 **52주** 수익률 부호 (13주판은 비교용, Sharpe ≈ 0으로 탈락). ⑧ 평균-분산의 μ도 52주 부호. Portfolio Customization의 품목 단위 평균-분산(Newton) 화면은 '모멘텀 기간' 선택(기본 12-1개월).
 
 **목표 변동성의 작동 로직** → ① 방법별로 '상대 비중'을 먼저 정함(역변동성·MinVar·혼합) → ② 그 비중으로 운용했을 때의 직전 26주 주간 손익 표준편차(연율) σ̂ₜ를 계산
 → ③ 배율 kₜ = 10% ÷ σ̂ₜ (최대 4배)를 모든 품목 비중에 똑같이 곱해 다음 주에 적용. σ̂ₜ가 15%면 전 품목을 2/3로, 5%면 2배로 — **특정 품목만 줄이는 게 아니라 전체 크기만 조절**, 품목 간 비율은 그대로.
 과거 26주를 보므로 급변 시 반응이 늦고, 실현 변동성은 평균적으로 10.7–11.2% 수준. 10%는 분산이 아니라 **변동성(표준편차)**.
-바스켓 포트폴리오 탭(Newton)은 기본 꺼짐(목표 0) — 켜면 예측 공분산(Ledoit-Wolf 또는 MIDAS)으로 계산한 예측 변동성 기준, 최대 배율 기본 2배.
+Portfolio Customization의 품목 단위 평균-분산(Newton) 화면(Newton)은 기본 꺼짐(목표 0) — 켜면 예측 공분산(Ledoit-Wolf 또는 MIDAS)으로 계산한 예측 변동성 기준, 최대 배율 기본 2배.
 
 **MinVar의 '최소'와 목표 변동성 10%는 다른 개념인가?** → 다름. MinVar는 '원금을 다 투자(Σw = 1)·공매도 없음·품목 상한' 조건에서 분산이 가장 작은 **구성 비율**을 정함 — 결과 변동성은 데이터가 결정(이 19개 품목에선 약 10.7%, 10%와 비슷한 건 우연).
 목표 변동성은 그 구성을 **몇 배로 들고 갈지(크기)**만 정함 → 비율이 그대로라 '최소분산 구성'의 성질은 유지. 롱숏 탭에서 10%를 붙인 이유는 ① 여러 전략을 같은 위험에서 비교 ② 혼합 비율(30/70 등)이 '위험 배분'이 되게 하려는 것.
@@ -2115,22 +2115,22 @@ PCA = 특성 전체의 퍼짐을 가장 많이 담는 두 방향(군집과 무�
 **평균-분산(Newton)은 왜 목표 변동성이 0인가?** → '0 = 사용 안 함'. 평균-분산은 위험회피계수 λ와 제약(롱온리 Σw = 1, 롱숏 Σ|w| ≤ L)이 이미 위험 크기를 정하므로, 목표 변동성까지 켜면 같은 일을 두 번 함 → 기본 꺼짐, 필요할 때만 켬.
 
 **포지션 크기(배율)를 정하는 위험 측정 두 가지** → ① 롱숏 탭: 그 전략이 **실제로 낸 과거 26주 주간 손익**의 표준편차(연율) — 단순·실제 결과 기준이나 비중이 바뀌어도 반응이 늦음.
-② 바스켓 탭(켰을 때): **현시점 T의 비중 w × 품목 공분산 추정치 Σ̂** → √(w′Σ̂w). Ledoit-Wolf는 T까지의 과거 창(기본 104기간) 공분산을 안정화한 '현시점 추정치'(시계열 예측 모형 아님)를 다음 기간 변동성으로 그대로 씀, MIDAS는 최근 일간 변동성에 더 큰 비중을 둔 모형 예측.
+② Newton 화면(켰을 때): **현시점 T의 비중 w × 품목 공분산 추정치 Σ̂** → √(w′Σ̂w). Ledoit-Wolf는 T까지의 과거 창(기본 104기간) 공분산을 안정화한 '현시점 추정치'(시계열 예측 모형 아님)를 다음 기간 변동성으로 그대로 씀, MIDAS는 최근 일간 변동성에 더 큰 비중을 둔 모형 예측.
 두 방식 모두 비율은 1단계(각 방법) 그대로, 크기만 배율로 조정. 배율이 개별 품목 비중을 정하는 것은 아님 — 개별 비중은 역변동성(품목별 26주 변동성)·MinVar(104주 공분산) 등 1단계에서.
 
-**총노출 한도 L과 최대 배율의 차이** → L(바스켓 탭, 롱숏일 때): **1단계 최적화 안**에서 롱 + 숏(절댓값) 합 ≤ 원금 × L. 최대 배율: **크기 조정 단계**에서 목표 변동성 ÷ 위험이 커져도 이 배수 이상 키우지 않음(롱숏 탭 4배, 바스켓 2배) — 변동성이 1/5로 떨어져도 5배가 아니라 상한까지만.
-바스켓 탭 최종 총노출 ≤ L × 최대 배율. '배율'과 '실제 노출'도 다름: 모멘텀은 배율 평균 2.9배지만 배율 전 비중 합이 원금의 약 40%라 실제 총노출 평균 1.26배(최대 2.33배), MinVar는 배율 평균 1.07배(최대 노출 1.84배).
+**총노출 한도 L과 최대 배율의 차이** → L(Newton 화면, 롱숏일 때): **1단계 최적화 안**에서 롱 + 숏(절댓값) 합 ≤ 원금 × L. 최대 배율: **크기 조정 단계**에서 목표 변동성 ÷ 위험이 커져도 이 배수 이상 키우지 않음(롱숏 탭 4배, 바스켓 2배) — 변동성이 1/5로 떨어져도 5배가 아니라 상한까지만.
+Newton 화면 최종 총노출 ≤ L × 최대 배율. '배율'과 '실제 노출'도 다름: 모멘텀은 배율 평균 2.9배지만 배율 전 비중 합이 원금의 약 40%라 실제 총노출 평균 1.26배(최대 2.33배), MinVar는 배율 평균 1.07배(최대 노출 1.84배).
 
 **레버리지 이자 비용을 넣어야 하나?** → 선물은 증거금만 넣고 명목 노출을 가지므로 빌린 돈·이자가 없고, 선물 수익률 자체가 무위험 이자를 뺀 **초과수익**(Sharpe도 이 기준). 오히려 빠진 건 원금을 단기 국채에 넣어 받는 **이자 수입**(2007년 이후 미 3개월 평균 연 1.47%) — 총수익이면 모든 전략에 약 +1.5%p, 순위 불변.
 '유동성 비용 배수'는 이자가 아니라 거래할 때의 호가 차이·체결 미끄러짐 비용. ETF·현물을 빌려 사는 방식이라면 차입액 × 금리를 비용으로 넣어야 함.
 
-**IC (모멘텀)란?** → Information Coefficient = 신호와 다음 기간 실제 수익률의 상관계수(0 = 쓸모없음, 실무 0.02–0.10이면 양호). 바스켓 탭은 Grinold 공식 **기대 초과수익 μ = IC × 품목 변동성 × 신호 점수**(모멘텀 ÷ 변동성, ±2 제한).
+**IC (모멘텀)란?** → Information Coefficient = 신호와 다음 기간 실제 수익률의 상관계수(0 = 쓸모없음, 실무 0.02–0.10이면 양호). Newton 화면은 Grinold 공식 **기대 초과수익 μ = IC × 품목 변동성 × 신호 점수**(모멘텀 ÷ 변동성, ±2 제한).
 예: 옥수수 변동성 25%, 점수 +1.5, IC 0.05 → μ = 연 +1.9%. IC를 키우면 신호 강한 품목에 더 몰고 비용을 감수해 더 자주 거래, 줄이면 분산·비용 절약 우선. IC ÷ λ 비율이 '신호 대 위험' 균형을 정하므로 λ와 많이 겹치나, IC는 거래비용과의 균형도 정해 완전히 같지는 않음.
 
 **26주·104주 창은 왜? (52주가 아닌 이유)** → 26주 ≈ 6개월, 104주 ≈ 2년. 변동성은 몰려서 오고 빨리 변하므로 **반응성**을 위해 짧게(CTA 관례 3–6개월), 공분산은 19개 품목이면 추정할 모수가 190개(분산 19 + 상관 171)라 **안정성**을 위해 길게(표본 ≥ 품목 수 × 5).
 검증(롱숏 탭 '크기 조정 방식 · 창 길이 비교'): 모멘텀 품목 변동성 창 13주 0.40 · 26주 0.49 · 52주 0.52, MinVar 공분산 창 52주 0.55 · 104주 0.73 · 156주 0.82 — 결과를 보고 고르면 과적합이라 기본값 유지.
 
-**변동성을 볼 때 다른 품목과의 상관도 보나?** → 방법마다 다름. 역변동성(모멘텀)은 **자기 변동성만**(상관 무시). MinVar·평균-분산은 **공분산 전체**(상관 포함). 크기 조정은 포트폴리오 전체 손익(롱숏 탭) 또는 w′Σ̂w(바스켓 탭)를 보므로 상관이 자동 반영.
+**변동성을 볼 때 다른 품목과의 상관도 보나?** → 방법마다 다름. 역변동성(모멘텀)은 **자기 변동성만**(상관 무시). MinVar·평균-분산은 **공분산 전체**(상관 포함). 크기 조정은 포트폴리오 전체 손익(롱숏 탭) 또는 w′Σ̂w(Newton 화면)를 보므로 상관이 자동 반영.
 
 **Ledoit-Wolf 공분산이란?** → 품목 수에 비해 표본이 짧으면 표본 공분산은 잡음이 커서 상관이 극단적으로 나오고, 최적화가 그 잡음을 '기회'로 착각해 극단적 비중을 만듦.
 Ledoit-Wolf(2004)는 **Σ̂ = δ·F + (1−δ)·S** — S = 표본 공분산, F = 단순한 목표 행렬(모든 분산 = 평균 분산, 상관 0), δ = 수축 강도를 '실제 공분산과의 기대 오차가 최소'가 되도록 자료에서 공식으로 계산.
@@ -2138,7 +2138,7 @@ Ledoit-Wolf(2004)는 **Σ̂ = δ·F + (1−δ)·S** — S = 표본 공분산, F 
 
 **롱숏 탭의 크기 조정을 현시점 LW 공분산으로 바꾸면?** → 더 나빠짐. MinVar: 과거 실현 26주 0.73 vs LW 104주 0.60, 모멘텀: 0.49 vs 0.41. 긴 창 공분산은 급변에 늦게 반응해 목표 10%에서 더 많이 벗어남(평균 이탈 1.6 → 2.3%p).
 
-**바스켓 탭 옵션 중 목표 변동성을 켜면 필요 없는 것은?** → 크기와 겹치는 것: 총노출 한도 L(부분 중복), IC(λ와 대부분 중복). 계속 필요한 것: 유동성 비용·수수료(거래비용), 종목 최대 비중(쏠림), 공분산 창·변동성 예측(Σ), 모멘텀 기간(μ), 거래 규칙(회전율), 최대 배율(배율 상한), 리스크 버짓 τ(4번째 전략 전용).
+**Newton 화면 옵션 중 목표 변동성을 켜면 필요 없는 것은?** → 크기와 겹치는 것: 총노출 한도 L(부분 중복), IC(λ와 대부분 중복). 계속 필요한 것: 유동성 비용·수수료(거래비용), 종목 최대 비중(쏠림), 공분산 창·변동성 예측(Σ), 모멘텀 기간(μ), 거래 규칙(회전율), 최대 배율(배율 상한), 리스크 버짓 τ(4번째 전략 전용).
 
 **혼합 'MinVar 30% + 모멘텀 70%'** → MinVar 최적화 포트폴리오(10%)와 52주 모멘텀 포트폴리오(10%)의 **주간 수익률을 0.3 : 0.7로 섞은 뒤** 다시 10%로 배율 — 두 전략에 위험을 30:70으로 배분.
 
@@ -2147,7 +2147,14 @@ Ledoit-Wolf(2004)는 **Σ̂ = δ·F + (1−δ)·S** — S = 표본 공분산, F 
 **국면 전환 오버레이(평소 70/30 → 스트레스·상관 급등 때 전환)가 개선이 아닌 이유** → 0.72 → 0.74 차이는 연 +0.39%p·t 0.53으로 잡음 수준, 같은 빈도 무작위 전환 위약 95% 0.80 미만, 최대낙폭 악화.
 ②·③이 좋아 보였던 건 변동성 큰 동일가중 바스켓(낙폭 −64%)에 적용했을 때 — 이미 저변동·추세 혼합인 70/30에는 지킬 낙폭이 적고 HMM 신호는 급락 뒤 켜짐.
 
-**데이터 빈도** → 바스켓 포트폴리오 = 사이드바 빈도 + 리밸런싱 주기 선택, 롱숏 탭 = 주간 고정.
+**데이터 빈도** → Portfolio Customization 품목 단위 평균-분산 = 사이드바 빈도 + 리밸런싱 주기 선택, 롱숏 탭 = 주간 고정.
+
+**롱숏·대안 시계열·멀티모달 서브탭은 데이터 업데이트를 해도 왜 숫자가 그대로인가?** → 계산이 길어(롱숏 1–2분, 대안 시계열 1–2시간, 멀티모달 수십 분) 2026-10-26까지 자료로 한 번 계산해 저장(`data/frozen/`·`data/*_compare.csv`)한 값을 씀.
+서브탭 제목 괄호 = 분석 기간. 기준일을 옮기려면 `app.py`의 FROZEN_END를 바꾸고 `data/frozen/`을 지운 뒤 `python experiments.py alt_ts`·`multimodal`을 다시 실행.
+
+**Portfolio Customization '전략 조합'은 어떻게 계산하나?** → 재료 = 각 탭 전략의 주간 수익률(각각 목표 변동성 10%, 편도 5bp). 비중 × 수익률을 더한 뒤 직전 26주 실현 변동성으로 다시 10%에 맞춤(최대 4배).
+비중: 직접 입력·동일 = 고정, 역변동성(52주)·최소분산(104주 Ledoit-Wolf, 롱온리)·과거 Sharpe 비례(156주, 음수 0) = 4주마다 **그 전 주까지 자료로만** 다시 계산.
+고른 전략이 모두 있는 구간만 쓰므로 대안 시계열을 넣으면 2012-07부터. 여러 조합을 시험해 최고를 고르면 사후 선택 과대평가 — 차이 t값과 하위기간 Sharpe로 확인.
 
 **칼만 필터를 쓰는 롱숏 전략은?** → ⑨에 2가지: K1 칼만 추세(로그가격을 '수준 + 기울기' 상태공간 모형으로 보고 필터 기울기 부호로 롱숏 — 52주 모멘텀의 적응형 판, 잡음 비율은 사전 고정),
 K2 칼만 동적 헤지 페어(회귀계수 β가 매주 변하는 페어의 예측오차 z로 평균회귀, 관측 잡음은 처음 52주로만 추정). 결과: K1 0.22(2017 이후 음수), MinVar 혼합에 넣으면 0.59–0.64로 기존 70/30(0.69)보다 나쁨, K2 0.14(기존 페어 −0.15보다 나음).
@@ -3815,41 +3822,67 @@ def page_predict():
         tab_midas(vol_only=False)
 
 
+# 롱숏·대안 시계열·멀티모달 결과는 고정 — 데이터 업데이트(캐시 비움)해도 다시 계산하지 않음 (계산이 길어서).
+# 기준일을 바꾸려면 FROZEN_END를 고치고 data/frozen/을 지운 뒤 대안 시계열·멀티모달은 experiments.py로 다시 실행.
+FROZEN_END = "2026-10-26"
+FROZEN_LBL = "2026.10.26"
+PERIOD_LS, PERIOD_ALT, PERIOD_MM = f"2007.01~{FROZEN_LBL}", f"2012.07~{FROZEN_LBL}", f"2007.01~{FROZEN_LBL}"
+
+
+def _frozen(key: str, fn):
+    """디스크 고정 캐시: data/frozen/{key}.pkl 이 있으면 읽고, 없으면 FROZEN_END까지 자료로 한 번 계산해 저장."""
+    from pathlib import Path
+    p = Path(__file__).parent / "data" / "frozen" / f"{key}_{FROZEN_END}.pkl"
+    if p.exists():
+        return pd.read_pickle(p)
+    out = fn()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    pd.to_pickle(out, p)
+    return out
+
+
+def _levels_frozen(roll: bool) -> pd.DataFrame:
+    return _levels(None, roll).loc[:FROZEN_END]
+
+
 @st.cache_data(show_spinner=False)
 def _ls_run(cost_bp: float, with_hmm: bool, roll: bool):
     import ls_strategies as LS
-    return LS.run_all(_levels(None, roll), cost_bp, with_hmm=with_hmm)
+    return _frozen(f"ls_run_{cost_bp:g}_{with_hmm}_{roll}", lambda: LS.run_all(_levels_frozen(roll), cost_bp, with_hmm=with_hmm))
 
 
 @st.cache_data(show_spinner=False)
 def _alloc_run(cost_bp: float, roll: bool):
     import ls_strategies as LS
-    return LS.run_alloc(_levels(None, roll), cost_bp)
+    return _frozen(f"alloc_{cost_bp:g}_{roll}", lambda: LS.run_alloc(_levels_frozen(roll), cost_bp))
 
 
 @st.cache_data(show_spinner=False)
 def _alloc_robust(cost_bp: float, roll: bool):
     import ls_strategies as LS
-    return LS.run_alloc_robust(_levels(None, roll), cost_bp)
+    return _frozen(f"alloc_robust_{cost_bp:g}_{roll}", lambda: LS.run_alloc_robust(_levels_frozen(roll), cost_bp))
 
 
 @st.cache_data(show_spinner=False)
 def _sizing_run(cost_bp: float, roll: bool):
     import ls_strategies as LS
-    L = _levels(None, roll)
-    return LS.run_sizing(L, cost_bp)[0], LS.run_windows(L, cost_bp)
+
+    def run():
+        L = _levels_frozen(roll)
+        return LS.run_sizing(L, cost_bp)[0], LS.run_windows(L, cost_bp)
+    return _frozen(f"sizing_{cost_bp:g}_{roll}", run)
 
 
 @st.cache_data(show_spinner=False)
 def _lx_run(cost_bp: float, roll: bool):
     import ls_extra as LX
-    return LX.run_extra(_levels(None, roll), cost_bp)
+    return _frozen(f"lx_{cost_bp:g}_{roll}", lambda: LX.run_extra(_levels_frozen(roll), cost_bp))
 
 
 @st.cache_data(show_spinner=False)
 def _lx_contrib(roll: bool):
     import ls_extra as LX
-    return LX.item_contrib(_levels(None, roll))
+    return _frozen(f"lx_contrib_{roll}", lambda: LX.item_contrib(_levels_frozen(roll)))
 
 
 def tab_ls():
@@ -3857,6 +3890,7 @@ def tab_ls():
     import ls_extra as LX
     import procurement as PR
     st.subheader("롱숏 전략 — 상관 · 레짐 · 추세 (헤지펀드 원자재 전략 묶음)")
+    st.caption(f"📌 결과 고정: {PERIOD_LS} 자료 기준으로 한 번 계산해 저장한 값입니다. 데이터 업데이트를 해도 다시 계산하지 않습니다 (계산 시간이 길어서).")
     st.caption("주간 금요일 종가로 결정 → 다음 주 수익률로 손익 (그 시점까지의 정보만 사용) · 비용 = 비중 변화량 × 편도 비용. "
                "① 페어 평균회귀 = 관계가 강한 두 품목의 가격차가 평소보다 벌어지면 되돌림에 베팅 · ② 상관 급등 = 품목들이 한 방향으로 묶이기 시작하면(흡수비율↑) 동반 하락 대비 · "
                "③ 국면 진입 = 다변량 HMM 스트레스 국면 확률 > 0.5 이면 위험 회피 · ④ 시계열 모멘텀 = 품목별 52주 추세 방향 (CTA의 기본 전략) · ⑤ 횡단면 모멘텀 = 강한 품목 롱 · 약한 품목 숏 · "
@@ -4125,6 +4159,7 @@ def _alt_ts_section():
                "Prophet은 직전 3년 추세 변곡 + 연간 계절을 매주 다시 적합. "
                "정식 패키지 = prophet(Meta) · neuralforecast(Nixtla: PatchTST · iTransformer · TFT) · torchdiffeq(적응 스텝 ODE-RNN) · torch_geometric(GCN + GRU), "
                "자체 경량 구현 = 같은 구조를 줄여 직접 짠 판(비교용). 결과는 미리 계산(`python experiments.py alt_ts`).")
+    st.caption(f"📌 결과 고정: {PERIOD_ALT} 자료 기준. 데이터 업데이트를 해도 다시 계산하지 않습니다 (신경망 학습 포함 1~2시간).")
     if "alt_ts" not in EX.EXPERIMENTS:                              # 서버가 예전 experiments 모듈을 들고 있으면 다시 읽음
         import importlib
         EX = importlib.reload(EX)
@@ -4223,11 +4258,13 @@ def _multimodal_section():
         import importlib
         EX = importlib.reload(EX)
     st.markdown("##### 멀티모달 — 뉴스·USDA 원문(FinBERT 감성) · 리포트 수치 · 기상 · 매크로·금융을 수치 전략에 섞으면")
-    st.caption("갈래 6개: ① 텍스트 = USDA WASDE 서술 문단(밀·곡물·유지작물·설탕·축산·면화)과 GDELT 뉴스 헤드라인을 FinBERT(금융 문장 감성 모델)로 채점, "
-               "② 리포트 수치 = WASDE 기말재고·재고율·생산 수정폭, EIA STEO 3개월 가격 전망 수정폭, USDA NASS 주간 작황 우량 비율, "
-               "③ 기상 = NOAA 엘니뇨 ONI·남방진동 SOI·지구 기온 편차 + Open-Meteo 주산지 22곳 4주 강수(z)·기온 편차·냉난방 수요, "
-               "④ 매크로 = VIX·신용 스프레드·달러 4주 변화, ⑤ 금융(FRED 추가) = 실질금리·기대인플레·금리차·환율 4종·금융여건·스트레스·실업수당·연준 자산·원유/금 변동성, "
-               "⑥ 월간 거시(FRED) = CPI·실업률·산업생산·M2·소비자심리·PPI·고용 전년비(발표 지연 45일, 최신 수정치라 미래 정보 일부 섞일 수 있음). "
+    st.caption(f"📌 결과 고정: {PERIOD_MM} 자료 기준 (`python experiments.py multimodal`로 미리 계산). 데이터 업데이트를 해도 다시 계산하지 않습니다.")
+    st.caption("갈래 7개: ① 텍스트 = USDA WASDE 서술 문단(밀·곡물·유지작물·설탕·축산·면화) · EIA STEO 서술(원유·연료·가스) · 연준 베이지북(에너지·금속·농업 문장) · GDELT 뉴스 헤드라인을 FinBERT(금융 문장 감성 모델)로 채점, "
+               "② 리포트 수치 = WASDE 기말재고·재고율·생산 수정폭, EIA 주간 재고(원유·휘발유·난방유·천연가스, 5년 평년 대비), EIA STEO 3개월 가격 전망 수정폭, LME 구리 재고·금/은 ETF 보유량, USDA NASS 주간 작황 우량 비율, "
+               "③ 포지션 = CFTC COT 19개 품목(투기·상업 순포지션, 쏠림, 4주 변화), "
+               "④ 기상 = NOAA 엘니뇨 ONI·남방진동 SOI·지구 기온 편차 + Open-Meteo 주산지 22곳 4주 강수(z)·기온 편차·냉난방 수요, "
+               "⑤ 매크로 = VIX·신용 스프레드·달러 4주 변화, ⑥ 금융(FRED 추가) = 실질금리·기대인플레·금리차·환율 4종·금융여건·스트레스·실업수당·연준 자산·원유/금 변동성, "
+               "⑦ 월간 거시(FRED) = CPI·실업률·산업생산·M2·소비자심리·PPI·고용 전년비(발표 지연 45일, 최신 수정치라 미래 정보 일부 섞일 수 있음). "
                "공통 값(기상 지수·매크로·금융·거시)은 '품목별 과거 민감도(β) × 현재 값'으로 바꿈. "
                "모든 값은 발표 이후에만 사용. 신호 방향(+/−)은 두 방식: ① 매주 갱신 = 그 시점까지 104주 순위 IC 평균 부호, ② 고정 = 특성이 생긴 뒤 처음 3년 IC로 한 번 정하고 고정(사후 부호 선택 없음). "
                "매매는 순위 롱숏(상위 1/3 롱 · 하위 1/3 숏, 4주 보유), 편도 5bp, 목표 변동성 10%. 평가 2007–(롱숏 탭과 같음, 최근 5년 2021-11~ 따로), 자료는 1990년부터(GDELT 뉴스는 2017년~).")
@@ -4268,10 +4305,155 @@ def _multimodal_section():
                    "|t| ≥ 2가 아니면 우연과 구별 어려움. 매매에서는 이 부호를 그때까지 자료로만 정해 곱함.")
 
 
-def page_portfolio():
-    a, b, c, d = st.tabs(["바스켓 포트폴리오", "롱숏 전략 (Alpha 추구) Backtest 결과", "대안 시계열 모델", "멀티모달 (뉴스·리포트·기상)"])
-    with a:
+@st.cache_data(show_spinner=False)
+def _sleeves(roll: bool) -> tuple[pd.DataFrame, dict]:
+    """Portfolio Customization 재료: 전략별 주간 수익률(%, 각 목표 변동성 10%) — 모두 고정 결과(롱숏·대안 시계열·멀티모달)에서 읽음."""
+    import experiments as EX
+    S, G = {}, {}
+
+    def add(g, nm, r):
+        S[nm] = r; G[nm] = g
+    DX = _lx_run(5.0, roll)["returns"]
+    for c in DX:
+        if c.startswith("기준") or c[:2] in ("K1", "K2", "S1", "S2", "V1", "W1", "L1", "B1", "C1", "C2") or c == "혼합 · MinVar 70 + 모멘텀 30 (기존)":
+            add("수치 전략", c, DX[c])
+    D = _ls_run(5.0, True, roll)["returns"]
+    for c in D:
+        if c.startswith(("①", "②", "③", "④ 시계열 모멘텀 13", "⑤")):
+            add("수치 전략", c, D[c])
+    AL = _alloc_run(5.0, roll)["returns"]
+    for c in AL:
+        add("수치 전략", f"비중 방식 · {c}", AL[c])
+    rd = lambda n: pd.read_csv(EX.DATA / n, index_col=0, parse_dates=True, encoding="utf-8-sig") if (EX.DATA / n).exists() else pd.DataFrame()  # noqa: E731
+    for c, r in rd("alt_ts_weekly_compare.csv").items():
+        if not c.startswith("기준"):
+            add("대안 시계열", c.replace(" | ", " → "), r)
+    for c, r in rd("multimodal_weekly_compare.csv").items():
+        if c.startswith(("갈래 단독", "멀티모달 단독")):
+            add("멀티모달", c, r)
+    return pd.DataFrame(S).sort_index(), G
+
+
+def _combine(X: pd.DataFrame, method: str, w_user: pd.Series, reb: int = 4) -> tuple[pd.Series, pd.DataFrame]:
+    """전략 비중: 직접·동일은 고정, 나머지는 4주마다 그 전 주까지 자료로만 다시 계산(미래 정보 없음) → 합친 뒤 사전 목표 변동성 10%."""
+    from scipy.optimize import minimize
+    from sklearn.covariance import LedoitWolf
+    k = X.shape[1]
+    W = pd.DataFrame(np.nan, index=X.index, columns=X.columns)
+    if method == "직접 입력":
+        W.loc[:, :] = (w_user / w_user.sum()).reindex(X.columns).values
+    elif method == "동일 비중":
+        W.loc[:, :] = 1 / k
+    else:
+        win = {"역변동성 (직전 52주)": 52, "최소분산 (직전 104주 공분산)": 104, "과거 Sharpe 비례 (직전 156주, 음수 = 0)": 156}[method]
+        for t in range(min(win, 52), len(X), reb):
+            past = X.iloc[max(0, t - win):t]
+            if method.startswith("역변동성"):
+                w = 1 / past.std().replace(0, np.nan)
+            elif method.startswith("최소분산"):
+                C = LedoitWolf().fit(past.values).covariance_ if k > 1 else np.atleast_2d(past.var().values)
+                res = minimize(lambda x: x @ C @ x, np.full(k, 1 / k), bounds=[(0, 1)] * k,
+                               constraints=[{"type": "eq", "fun": lambda x: x.sum() - 1}], method="SLSQP")
+                w = pd.Series(res.x if res.success else np.full(k, 1 / k), X.columns)
+            else:
+                w = (past.mean() / past.std().replace(0, np.nan)).clip(lower=0)
+                w = w if w.sum() > 0 else pd.Series(1.0, X.columns)
+            W.iloc[t] = (w / w.sum()).values
+        W = W.ffill()
+    m = (W * X).sum(1, min_count=1).dropna()
+    pv = m.rolling(26, min_periods=13).std().shift(1) * np.sqrt(52)
+    return m * (10.0 / pv).clip(upper=4.0).fillna(1.0), W.loc[m.index]
+
+
+def tab_custom():
+    import ls_strategies as LS
+    st.subheader("Portfolio Customization — 전략·모델·데이터 갈래를 골라 나만의 포트폴리오 만들기")
+    mode = st.radio("구성 방식", ["전략 조합 (모멘텀 · 가치 · 대안 시계열 · 멀티모달 …)", "품목 단위 평균-분산 최적화 (Newton, 기존 바스켓 포트폴리오)"],
+                    horizontal=True, key="cu_mode")
+    if mode.startswith("품목"):
         tab_portfolio()
+        return
+    st.caption(f"재료 = 롱숏 탭 · 대안 시계열 탭 · 멀티모달 탭의 전략별 주간 수익률(편도 5bp 비용 차감, 각각 목표 변동성 10%). 결과가 고정된 탭에서 읽으므로 기간은 최대 {PERIOD_LS}, "
+               "고른 전략이 모두 있는 구간만 사용(대안 시계열을 넣으면 2012-07~). 합친 뒤 직전 26주 실현 변동성으로 다시 10%에 맞춤(최대 4배, 롱숏 탭 혼합과 같은 방식).")
+    with st.spinner("전략 재료 읽는 중… (처음 한 번만 1–2분, 이후 저장된 결과 사용)"):
+        X0, G = _sleeves(ROLL)
+    groups = {"수치 전략": "수치 전략 (롱숏 탭: MinVar · 모멘텀 · 가치 · 칼만 · COT …)", "대안 시계열": "대안 시계열 (모델 예측 → 방향 / 순위 롱숏)",
+              "멀티모달": "멀티모달 (텍스트·리포트·포지션·기상·매크로 갈래)"}
+    defaults = {"수치 전략": ["기준 · MinVar 롱 (⑥)", "기준 · 52주 모멘텀 (④)", "V1 가치 (5년 평균 대비 싼 품목 롱)"], "대안 시계열": [], "멀티모달": []}
+    sel = []
+    for g, lab in groups.items():
+        opts = [c for c in X0.columns if G[c] == g]
+        sel += st.multiselect(lab, opts, [d for d in defaults[g] if d in opts], key=f"cu_sel_{g}")
+    if not sel:
+        st.info("전략을 하나 이상 고르세요.")
+        return
+    c1, c2 = st.columns([1, 2])
+    method = c1.selectbox("비중 결정", ["직접 입력", "동일 비중", "역변동성 (직전 52주)", "최소분산 (직전 104주 공분산)", "과거 Sharpe 비례 (직전 156주, 음수 = 0)"],
+                          key="cu_method", help="직접·동일 = 기간 내내 고정 비중. 나머지 = 4주마다 그 시점 이전 자료로만 다시 계산 (미래 정보 없음)")
+    w_user = pd.Series(1.0, sel)
+    if method == "직접 입력":
+        dflt = {"기준 · MinVar 롱 (⑥)": 50.0, "기준 · 52주 모멘텀 (④)": 25.0, "V1 가치 (5년 평균 대비 싼 품목 롱)": 25.0}
+        ed = c2.data_editor(pd.DataFrame({"전략": sel, "비중 (%)": [dflt.get(s_, 100.0 / len(sel)) for s_ in sel]}), hide_index=True, disabled=["전략"],
+                            key="cu_w_" + str(abs(hash(tuple(sel)))), use_container_width=True)
+        w_user = pd.Series(ed["비중 (%)"].clip(lower=0).values, ed["전략"].values)
+        if w_user.sum() <= 0:
+            st.warning("비중 합이 0입니다.")
+            return
+        c2.caption(f"합계 {w_user.sum():.0f}% → 합 100%로 맞춰 사용")
+    X = X0[sel].dropna()
+    if len(X) < 104:
+        st.warning(f"고른 전략이 함께 있는 기간이 {len(X)}주뿐이라 평가하기 어렵습니다.")
+        return
+    combo, W = _combine(X, method, w_user)
+    base = X0["혼합 · MinVar 70 + 모멘텀 30 (기존)"].reindex(combo.index).fillna(0)
+    series = {"★ 내 포트폴리오": combo, "기준 · MinVar 70 + 모멘텀 30 (롱숏 탭 기존)": base, **{s_: X[s_].reindex(combo.index) for s_ in sel}}
+    rows = []
+    for nm, r in series.items():
+        r = r.fillna(0)
+        d = r - base
+        rows.append({"전략": nm, **LS.metrics(r), "Sharpe ~2016": LS.metrics(r[r.index < "2017-01-01"])["Sharpe"],
+                     "Sharpe 2017~2021-10": LS.metrics(r[(r.index >= "2017-01-01") & (r.index < "2021-11-01")])["Sharpe"],
+                     "Sharpe 최근 5년": LS.metrics(r[r.index >= "2021-11-01"])["Sharpe"], "t값": LS.metrics(r)["Sharpe"] * np.sqrt(len(r) / 52),
+                     "기존 대비 연 수익 차 (%p)": float(d.mean() * 52), "차이 t값": float(d.mean() / d.std() * np.sqrt(len(d))) if d.std() > 0 else np.nan})
+    T = pd.DataFrame(rows).drop_duplicates("전략").set_index("전략")
+    f_ = {c: "{:+.2f}" for c in T.columns}
+    f_.update({"연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}"})
+    st.dataframe(T.style.format(f_, na_rep="–"), use_container_width=True, height=min(36 * (len(T) + 1) + 4, 470))
+    mc, bc = T.loc["★ 내 포트폴리오"], T.loc["기준 · MinVar 70 + 모멘텀 30 (롱숏 탭 기존)"]
+    st.info(f"평가 {combo.index.min():%Y-%m} ~ {combo.index.max():%Y-%m} ({len(combo) / 52:.1f}년) · 내 포트폴리오 Sharpe {mc['Sharpe']:+.2f} vs 기존 70/30 {bc['Sharpe']:+.2f} "
+            f"(연 {mc['기존 대비 연 수익 차 (%p)']:+.2f}%p, 차이 t {mc['차이 t값']:+.2f}). Sharpe 95% 구간은 약 ±{1.96 / np.sqrt(len(combo) / 52):.2f}라 그보다 작은 차이는 우연과 구별 어려움. "
+            "여러 조합을 시험해 보고 가장 좋은 것을 고르면 과대평가(사후 선택) — 고르기 전에 이유를 정해 두는 것이 안전.")
+    f = go.Figure()
+    for j, (nm, r) in enumerate(series.items()):
+        star, bse = nm.startswith("★"), nm.startswith("기준 · MinVar 70")
+        f.add_trace(go.Scatter(x=r.index, y=r.fillna(0).cumsum(), name=nm,
+                               line=dict(width=2.6 if star else 2.0 if bse else 1.1, dash="dash" if bse else None,
+                                         color=PAL[2] if star else ("#e8e6e1" if DARK else "#0b0b0b") if bse else PAL[(j + 1) % 8])))
+    st.plotly_chart(shade(fig_layout(f, 400, title="누적 수익 (%, 로그 합)", hovermode="x", legend=dict(orientation="h", y=-0.3, font=dict(size=10))), combo.index),
+                    key="cu_cum")
+    k1, k2 = st.columns(2)
+    if len(sel) > 1:
+        Cm = X.corr()
+        Cm.index = Cm.columns = [s_[:28] for s_ in Cm.columns]
+        k1.plotly_chart(heat(Cm, "고른 전략끼리 주간 수익률 상관 (낮을수록 섞는 효과 큼)", -1, 1, fmt=".2f", h=160 + 32 * len(Cm), nodiag=True), key="cu_corr")
+    if method not in ("직접 입력", "동일 비중"):
+        Wm = W.resample("QE").last() * 100
+        fw = go.Figure([go.Scatter(x=Wm.index, y=Wm[c], name=c[:28], stackgroup="w", line=dict(width=0.5, color=PAL[j % 8])) for j, c in enumerate(Wm.columns)])
+        k2.plotly_chart(fig_layout(fw, 160 + 32 * max(len(sel), 3), title="비중 추이 (%, 분기말)", hovermode="x"), key="cu_w_fig")
+    else:
+        wv = (w_user / w_user.sum() * 100) if method == "직접 입력" else pd.Series(100 / len(sel), sel)
+        fw = go.Figure(go.Bar(x=wv.values, y=[s_[:28] for s_ in wv.index], orientation="h", marker_color=PAL[2], text=[f"{v:.0f}%" for v in wv.values],
+                              textposition="outside"))
+        k2.plotly_chart(fig_layout(fw, 160 + 32 * max(len(sel), 3), title="비중 (%, 고정)", hovermode="y"), key="cu_w_fig")
+    st.caption("읽는 법: 각 재료는 이미 목표 변동성 10%로 맞춘 전략이라, 비중은 '위험을 얼마씩 나눠 주나'에 가까움. 기본값(MinVar 50 + 모멘텀 25 + 가치 25)이 롱숏 탭의 0.89 근처면 정상. "
+               "대안 시계열·멀티모달 갈래는 단독 성과가 약하거나 기간이 짧아(2012-07~) 섞을 때 효과가 작음 — 상관이 낮으면 Sharpe가 약해도 혼합 낙폭을 줄일 수는 있음.")
+
+
+def page_portfolio():
+    a, b, c, d = st.tabs(["Portfolio Customization", f"롱숏 전략 (Alpha) Backtest 결과 ({PERIOD_LS})", f"대안 시계열 모델 ({PERIOD_ALT})",
+                          f"멀티모달 (뉴스·리포트·기상) ({PERIOD_MM})"])
+    with a:
+        tab_custom()
     with b:
         tab_ls()
     with c:
