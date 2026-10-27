@@ -2707,6 +2707,14 @@ def tab_procure():
                        "시험 p값 = 'AUC가 0.5(동전)보다 큰가'의 한쪽 Mann-Whitney 근사 검정 (h주 목표가 겹치므로 표본을 1/h로 줄여 보수적으로 계산) — 0.05 미만이면 우연으로 보기 어려움.")
         else:
             st.info("⑥ 실험 결과 '미루기 권고'를 재실행하면 표시됩니다.")
+    bl1_, bl2_ = st.columns([4, 1])
+    bl1_.caption("📋 **검증 백로그** — 지금 기준은 그대로 유지. 다른 탭의 방법론(가치·추세·칼만·레짐·상관·멀티모달·④ 예측 모델·대안 시계열)을 '더 쌀 확률'에 넣어 "
+                 "같은 학습(2008–16)/시험(2017–) 틀로 검증했으나 시험 AUC 개선이 +0.01 안팎(t < 2)이라 채택하지 않음. 시험한 아이디어 전체·결과·판단은 아래 두 펼치기와 엑셀 백로그.")
+    from pathlib import Path
+    _bl = Path(__file__).parent / "docs" / "구매판단_검증_백로그.xlsx"
+    if _bl.exists():
+        bl2_.download_button("백로그 엑셀", _bl.read_bytes(), file_name=_bl.name, key="proc_backlog",
+                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
     with st.expander("보완 실험 — 롱숏 연구의 가치·추세·칼만·레짐 신호를 '더 쌀 확률'에 넣으면 AUC가 오르나"):
         dp_, _m = EX.load("defer_plus")
         if dp_ is None:

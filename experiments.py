@@ -965,3 +965,79 @@ def defer_plus2(progress=None, split: str = "2017-01-01") -> pd.DataFrame:
 
 EXPERIMENTS["defer_plus2"] = dict(title="구매 '더 쌀 확률' 보완 2 — 상관·멀티모달·예측 모델 신호 추가 시 AUC", file="defer_plus2_compare.csv",
                                   fn=defer_plus2, eta="약 10~20분", cols=["id", "변수묶음", "기간"])
+
+
+# 구매 판단 검증 백로그 — 시험해 보고 채택/미채택한 아이디어 기록 (엑셀, docs/)
+BACKLOG = [  # (날짜, 버전, 검증, 바꿔 본 것, 결과, 판단, 근거)
+    ("2026-10-15", "v1.1.0", "구매 점수 구성 고도화 (단계별)", "가격 위치·단기 반등·상대가치·계절성·MIDAS 위험·창 길이 단계별 추가",
+     "추천 프리셋(상대가치 40 · 가격 위치 27 · 반등 18 · 계절 15) 균등 매수 대비 +13bp (2008~16 +14 / 2017~ +12, t 2.35)", "채택 (현재 기준)", "procurement_steps_compare.csv"),
+    ("2026-10-15", "v1.1.0", "펀더멘털(WASDE 재고율·COT) 점수 포함", "재고/사용비율·펀드 포지션을 점수 구성요소로",
+     "발표 당일 반응은 강하나(t≈−7) 이후 예측력은 과거 20년에서 재현 안 됨", "미채택 — 맥락 표시만", "reports.py · ★ 펀더멘털 맥락"),
+    ("2026-10-19", "v1.5.0", "파운데이션 모델·메타 라벨링", "Chronos·TimesFM 방향 예측, 메타 라벨링으로 매수 신호 거르기",
+     "방향 예측력 ≈ 0, 메타 라벨링 효과 작음", "미채택", "forecast_lab.py"),
+    ("2026-10-20", "v1.9.0", "미루기 권고 (하락 확률)", "h주(1~4) 안에 더 쌀 확률(로지스틱) — 품목별 8개 조합 중 학습 AUC 최대",
+     "곡물 AUC ≈ 0.48~0.51(예측력 없음) → 학습 AUC 0.55 이상 품목만 활성화 (다중 선택 보정)", "채택 (근거 있는 품목만)", "procurement_defer_compare.csv"),
+    ("2026-10-21", "v1.11.0", "다변량 레짐(HMM·MS·TAR·STAR) 방향 예측", "원자재 + 거시 패널 국면으로 다음 기간 방향",
+     "96칸 중 4칸만 위약 통과(우연 수준) — 국면 '설명'에는 유용", "미채택 — 맥락 표시만", "② 레짐 탭"),
+    ("2026-10-21", "v1.14.0", "캐리(기간구조) 신호", "백워데이션·콘탱고로 구매 시점 조정", "에너지 음수·중국 약한 양수 — 견고하지 않음",
+     "미채택 (52주 추세는 배지로만)", "LS.run_carry"),
+    ("2026-10-26", "v1.31.0", "보완 실험 1: 롱숏 연구 신호", "'더 쌀 확률'에 가치·추세(칼만)·레짐 신호 추가",
+     "시험 AUC 0.544 → 최대 0.555, 품목별 학습 1위 묶음 선택 0.556 (11/19 개선, t 2.07) — 크기 작음", "미적용 (후속 확인: 미루기 절감 bp)", "defer_plus_compare.csv"),
+    ("2026-10-27", "v1.33.0", "멀티모달 신호 (텍스트 FinBERT·리포트·COT·기상·금융)", "갈래 신호를 순위 롱숏·혼합 전략으로",
+     "가치 혼합(0.89)을 넘지 못함, COT 갈래가 가장 나음(혼합 0.75)", "미채택 (구매 로직)", "multimodal_compare.csv"),
+    ("2026-10-27", "v1.35.0", "④ 예측 모델 × 설명변수 그리드", "표준 6종·패널 8종·MIDAS·대안 시계열 × 자기·19개 원자재·거시·멀티모달·위약",
+     "최고 순위 롱숏 Lasso + COT 0.38 vs 위약 0.32, 위약 대비 t > 2는 순위 0/117 · 방향 2/114", "미채택 (구매 로직)", "predict_grid_compare.csv"),
+    ("2026-10-27", "v1.35.0", "보완 실험 2: 다른 탭 방법론", "'더 쌀 확률'에 상관·멀티모달 7갈래(뉴스 제외)·COT·리포트·④ 그리드 표본 외 예측 추가",
+     "시험 AUC 기본 0.544 → 레짐 0.551 · 상관 0.550(t 1.86) · 예측 모델 0.548 · 멀티모달 0.548 · 전체 0.544, 학습 1위 선택 0.552(9/19, t 1.26)", "미적용 — 기준 유지",
+     "defer_plus2_compare.csv"),
+    ("2026-10-27", "v1.35.0", "GDELT 뉴스 감성", "뉴스 헤드라인 FinBERT 감성을 텍스트 갈래에", "요청 제한(429)으로 하루에 옥수수 일부만 수집 — 시간상 불리",
+     "중단 · 분석 제외", "data/mm/gdelt_titles.parquet"),
+]
+
+
+def _plus_summary(df: pd.DataFrame) -> pd.DataFrame:
+    tr = df[df.기간 == "학습"].pivot_table(index="품목", columns="변수묶음", values="AUC")
+    te = df[df.기간 == "시험"].pivot_table(index="품목", columns="변수묶음", values="AUC")
+    base = "기본 (현재)"
+    rows = []
+    for c in [base] + [c for c in te.columns if c != base]:
+        d = te[c] - te[base]
+        rows.append({"변수 묶음": c, "학습 AUC 평균": tr[c].mean(), "시험 AUC 평균": te[c].mean(), "기본 대비 시험 차": d.mean(),
+                     "개선 품목 수": int((d > 0).sum()), "품목 수": len(d), "차이 t값": d.mean() / d.std() * np.sqrt(len(d)) if d.std() > 0 else np.nan})
+    pick = tr.idxmax(1)
+    sel = pd.Series([te.loc[i, pick[i]] for i in te.index], index=te.index)
+    d = sel - te[base]
+    rows.append({"변수 묶음": "품목마다 학습 AUC 1위 묶음 선택", "학습 AUC 평균": tr.max(1).mean(), "시험 AUC 평균": sel.mean(), "기본 대비 시험 차": d.mean(),
+                 "개선 품목 수": int((d > 0).sum()), "품목 수": len(d), "차이 t값": d.mean() / d.std() * np.sqrt(len(d))})
+    return pd.DataFrame(rows)
+
+
+def procure_backlog(path=None):
+    """구매 판단 검증 백로그 엑셀: 요약(시험한 아이디어·결과·판단) + 보완 실험 1·2 요약·품목별 + 예측 그리드 요약."""
+    path = path or (ROOT / "docs" / "구매판단_검증_백로그.xlsx")
+    sheets = {"백로그": pd.DataFrame(BACKLOG, columns=["날짜", "버전", "검증", "바꿔 본 것", "결과", "판단", "근거 (파일·화면)"])}
+    for nm, fn in (("보완1", "defer_plus_compare.csv"), ("보완2", "defer_plus2_compare.csv")):
+        if (DATA / fn).exists():
+            df = pd.read_csv(DATA / fn, encoding="utf-8-sig")
+            sheets[f"{nm}_요약"] = _plus_summary(df)
+            sheets[f"{nm}_품목별_시험AUC"] = df[df.기간 == "시험"].pivot_table(index="품목", columns="변수묶음", values="AUC").reset_index()
+    if (DATA / "predict_grid_compare.csv").exists():
+        T = pd.read_csv(DATA / "predict_grid_compare.csv", encoding="utf-8-sig")
+        keep = [c for c in ["모델군", "모델", "설명변수", "예측 시작", "순위 롱숏 Sharpe", "순위 롱숏 위약 대비 차이 t", "방향 Sharpe", "방향 위약 대비 차이 t",
+                            "순위 롱숏 2007–2016", "순위 롱숏 2017~", "방향 2007–2016", "방향 2017~", "IC (주별 순위 상관)"] if c in T]
+        sheets["예측그리드"] = T[keep].sort_values("방향 Sharpe", ascending=False)
+    sheets["읽는 법"] = pd.DataFrame({"항목": ["AUC", "학습/시험", "차이 t값", "위약", "판단 기준"],
+                                    "설명": ["'더 쌀 확률' 예측의 순위 정확도 (0.5 = 동전, 품목 하나 표준오차 약 0.03)",
+                                           "학습 2008–2016으로 모델·묶음을 고르고 시험 2017– 성과로 확인",
+                                           "품목별 (묶음 시험 AUC − 기본 시험 AUC)의 평균 / 표준오차 — |t| ≥ 2여야 우연과 구별",
+                                           "같은 설명변수의 시간 순서만 섞은 판 — 실제 판이 위약보다 확실히 높아야 진짜 정보",
+                                           "개선이 t ≥ 2이고 하위 기간 모두 양수일 때만 구매 기준 변경 검토"]})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(path, engine="openpyxl") as xw:
+        for nm, d in sheets.items():
+            d.to_excel(xw, sheet_name=nm[:31], index=False)
+            ws = xw.sheets[nm[:31]]
+            for j, c in enumerate(d.columns, 1):
+                w = max([len(str(c))] + [len(str(v)) for v in d[c].astype(str).head(60)])
+                ws.column_dimensions[ws.cell(1, j).column_letter].width = min(max(10, w * 1.3), 70)
+    return path
