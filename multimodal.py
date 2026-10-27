@@ -1018,3 +1018,41 @@ def backtest(L: pd.DataFrame, cost_bp: float = 5.0, use_news: bool = False, prog
         ic_rows.append({"갈래": fam, "특성": nm, "적용 품목 수": B["cover"][(fam, nm)], "평가 기간 IC 평균": float(e.mean()) if len(e) else np.nan,
                         "IC t값": float(e.mean() / e.std() * np.sqrt(len(e) / 4)) if len(e) > 8 and e.std() > 0 else np.nan, "주 수": len(e)})
     return dict(table=pd.DataFrame(rows), returns=D, ic=pd.DataFrame(ic_rows), build=B)
+
+
+def add_alt(res: dict, W: pd.DataFrame, lab: str = "순위 롱숏") -> dict:
+    """④ 예측 그리드의 대안 시계열 × 멀티모달 전략(+ 같은 모델의 멀티모달 없는 판)을 이 탭 표·주간 수익에 추가 — 단독 + MinVar 50 · 모멘텀 25 · 그 전략 25 혼합."""
+    D = res["returns"].copy()
+    mvb, tsm = D["기준 · MinVar 롱"], D["기준 · 52주 모멘텀"]
+    base = D["혼합 · MinVar 70 + 모멘텀 30 (기존)"]
+
+    def mix(parts):
+        m = sum(w * s.reindex(D.index).fillna(0) for w, s in parts)
+        pv = m.rolling(26, min_periods=13).std().shift(1) * np.sqrt(ANN)
+        return m * (10.0 / pv).clip(upper=4.0).fillna(1.0)
+    ALT_MM = ("매크로 + 공통 멀티모달 (기상·금융 지수)", "품목별 멀티모달 7갈래")             # 대안 시계열 그리드의 멀티모달 입력 이름 (표준·패널·MIDAS 묶음과 구분)
+    cols = [c for c in W.columns if c.endswith(" | " + lab)]
+    split_ = lambda c: c.replace(" | " + lab, "").split(" · ", 1)                    # noqa: E731
+    mm_models = {split_(c)[0] for c in cols if split_(c)[1] in ALT_MM}
+    new = {}
+    for c in cols:
+        m_, s_ = split_(c)
+        if m_ not in mm_models or s_ not in ALT_MM + ("설명변수 없음",):
+            continue
+        r = W[c].reindex(D.index)
+        nm = f"대안 시계열 × {'멀티모달' if '멀티모달' in s_ else '없음 (비교)'} · {m_} · {s_}"
+        new[nm] = r.fillna(0.0)
+        if "멀티모달" in s_:
+            new[f"혼합 · MinVar 50 + 모멘텀 25 + {m_}·{s_} 25"] = mix([(0.5, mvb), (0.25, tsm), (0.25, r.fillna(0.0))])
+    rows = []
+    for k, r in new.items():
+        r = r.loc[EVAL:]
+        m = LS.metrics(r); d = r - base.reindex(r.index)
+        rows.append({"전략": k, **m, "Sharpe 2007–2016": LS.metrics(r[:"2016-12-31"])["Sharpe"], "Sharpe 2017–2021-10": LS.metrics(r["2017-01-01":RECENT])["Sharpe"],
+                     "Sharpe 최근 5년 (2021-11~)": LS.metrics(r[RECENT:])["Sharpe"], "t값": m["Sharpe"] * np.sqrt(len(r) / ANN),
+                     "기존 70/30과 상관": float(r.corr(base.reindex(r.index))), "기존 대비 연 수익 차 (%p)": float(d.mean() * ANN),
+                     "차이 t값": float(d.mean() / d.std() * np.sqrt(len(d))) if d.std() > 0 else np.nan})
+    if rows:
+        res["table"] = pd.concat([res["table"], pd.DataFrame(rows)], ignore_index=True)
+        res["returns"] = pd.concat([D, pd.DataFrame(new).loc[EVAL:]], axis=1)
+    return res

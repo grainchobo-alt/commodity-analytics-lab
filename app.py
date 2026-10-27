@@ -4613,11 +4613,16 @@ def _multimodal_section():
     f_ = {c: "{:+.2f}" for c in T.columns if pd.api.types.is_float_dtype(T[c])}
     f_.update({"연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}", "기존 70/30과 상관": "{:+.2f}"})
     st.dataframe(T.style.format(f_, na_rep="–"), height=min(36 * (len(T) + 1) + 4, 560), use_container_width=True)
+    if any(i.startswith("대안 시계열 ×") for i in T.index):
+        st.caption("'대안 시계열 × …' 행 = ④ 예측 › 전략 백테스트에서 대안 시계열 모델(경량 TFT·iTransformer·GNN, Prophet 방식, neuralforecast TFT 등)에 멀티모달을 입력으로 넣어 "
+                   "4주 뒤 수익률을 예측하고 순위 롱숏으로 매매한 결과(매년 재학습, 2007–). '없음 (비교)' = 같은 모델의 설명변수 없는 판. "
+                   "'혼합 · MinVar 50 + 모멘텀 25 + 모델·멀티모달 25' = 그 전략을 다른 혼합과 같은 방식으로 25% 섞은 것. 대안 모델 그리드가 끝날 때마다 행이 늘어남.")
     D = pd.read_csv(fw, index_col=0, parse_dates=True, encoding="utf-8-sig")
-    grp = st.radio("그래프", ["혼합 전략", "갈래 단독 (부호 매주 갱신)", "갈래 단독 (부호 고정)"], horizontal=True, key="mm_grp")
+    grp = st.radio("그래프", ["혼합 전략", "갈래 단독 (부호 매주 갱신)", "갈래 단독 (부호 고정)", "대안 시계열 × 멀티모달"], horizontal=True, key="mm_grp")
     pick = {"혼합 전략": lambda c: c.startswith("혼합"),
             "갈래 단독 (부호 매주 갱신)": lambda c: c.startswith("갈래 단독 ·") or c == "멀티모달 단독 (모든 갈래 평균)" or c.startswith("기준"),
-            "갈래 단독 (부호 고정)": lambda c: c.startswith("갈래 단독 (고정 부호)") or c == "멀티모달 단독 (고정 부호)" or c.startswith("기준")}[grp]
+            "갈래 단독 (부호 고정)": lambda c: c.startswith("갈래 단독 (고정 부호)") or c == "멀티모달 단독 (고정 부호)" or c.startswith("기준"),
+            "대안 시계열 × 멀티모달": lambda c: c.startswith("대안 시계열 × 멀티모달") or "(기존)" in c}[grp]
     cols = [c for c in D.columns if pick(c)]
     f = go.Figure()
     for j, c in enumerate(cols):

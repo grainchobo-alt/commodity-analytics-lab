@@ -850,6 +850,8 @@ def multimodal(progress=None) -> pd.DataFrame:
     import multimodal as MMd
     t0 = time.time()
     res = MMd.backtest(A.load_levels(roll_adjusted=True), progress=progress or print)
+    if (DATA / "predict_grid_weekly_compare.csv").exists():                 # 대안 시계열 × 멀티모달 (④ 예측 그리드 결과)
+        res = MMd.add_alt(res, pd.read_csv(DATA / "predict_grid_weekly_compare.csv", index_col=0, parse_dates=True, encoding="utf-8-sig"))
     res["returns"].to_csv(DATA / "multimodal_weekly_compare.csv", encoding="utf-8-sig")
     res["ic"].to_csv(DATA / "multimodal_ic_compare.csv", index=False, encoding="utf-8-sig")
     src = {"WASDE 서술": (MMd.MM / "wasde_text.parquet").exists(), "GDELT 뉴스": False,
