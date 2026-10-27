@@ -397,12 +397,13 @@ def alt_jobs(L: pd.DataFrame, P: pd.DataFrame) -> list:
     J.append(("TFT 방식 (경량)", "품목별 멀티모달 7갈래", lambda: AT.nn_pred(P, "tft", first_year=y0, item_exog=comp)))
     for nm in ("Chronos-Bolt-small", "TimesFM-2.5", "Chronos-2"):
         J.append((f"{nm} (zero-shot)", "설명변수 없음", lambda nm=nm: fm_pred(nm, L, P, start=GRID_START)))
-    J.append(("PatchTST (neuralforecast)", "설명변수 없음", lambda: AT.nf_pred(P, "PatchTST", first_year=y0)))
+    # neuralforecast 정식판은 2년마다 재학습 (매년이면 모델당 수 시간 — 경량판·표준 모델은 매년)
+    J.append(("PatchTST (neuralforecast)", "설명변수 없음", lambda: AT.nf_pred(P, "PatchTST", first_year=y0, refit_years=2)))
     for nm in ("iTransformer", "TFT"):
-        J.append((f"{nm} (neuralforecast)", "설명변수 없음", lambda nm=nm: AT.nf_pred(P, nm, first_year=y0)))
-        J.append((f"{nm} (neuralforecast)", "매크로 3종", lambda nm=nm: AT.nf_pred(P, nm, first_year=y0, macro=mac)))
-        J.append((f"{nm} (neuralforecast)", "매크로 + 공통 멀티모달 (기상·금융 지수)", lambda nm=nm: AT.nf_pred(P, nm, first_year=y0, macro=cx)))
-    J.append(("TFT (neuralforecast)", "품목별 멀티모달 7갈래", lambda: AT.nf_pred(P, "TFT", first_year=y0, exog_panel=comp)))
+        J.append((f"{nm} (neuralforecast)", "설명변수 없음", lambda nm=nm: AT.nf_pred(P, nm, first_year=y0, refit_years=2)))
+        J.append((f"{nm} (neuralforecast)", "매크로 3종", lambda nm=nm: AT.nf_pred(P, nm, first_year=y0, macro=mac, refit_years=2)))
+        J.append((f"{nm} (neuralforecast)", "매크로 + 공통 멀티모달 (기상·금융 지수)", lambda nm=nm: AT.nf_pred(P, nm, first_year=y0, macro=cx, refit_years=2)))
+    J.append(("TFT (neuralforecast)", "품목별 멀티모달 7갈래", lambda: AT.nf_pred(P, "TFT", first_year=y0, exog_panel=comp, refit_years=2)))
     return J
 
 

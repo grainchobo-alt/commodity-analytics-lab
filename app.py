@@ -4037,7 +4037,8 @@ def _predict_grid_section():
         f.update_layout(height=120 + 30 * len(S2), margin=dict(l=10, r=10, t=10, b=10), yaxis=dict(autorange="reversed"))
         st.plotly_chart(f, key="pg_heat_alt")
         st.caption("빈칸 = 그 조합은 돌리지 않음 (PatchTST·Neural ODE·zero-shot은 외부 변수를 받지 않는 구조, 품목별 7갈래는 TFT·Prophet만). "
-                   "시드 1개 — 같은 모델도 시드에 따라 Sharpe가 ±0.3 정도 흔들림 (⑤ 대안 시계열 탭).")
+                   "경량판은 매년, neuralforecast 정식판(PatchTST·iTransformer·TFT)은 계산 시간 때문에 2년마다 재학습(2년 묶음의 첫 결정일까지 자료로 학습해 그 2년을 예측). "
+                   "zero-shot은 학습 없음. 시드 1개 — 같은 모델도 시드에 따라 Sharpe가 ±0.3 정도 흔들림 (⑤ 대안 시계열 탭).")
     else:
         st.caption("대안 시계열 모델 결과는 계산 중 — 끝나면 이 자리에 표시됩니다 (`EX.predict_grid_alt()`).")
     for g_, ttl_, note_ in (("패널", "여러 품목 탭 패널 모델 — 모델 × 특성 묶음",

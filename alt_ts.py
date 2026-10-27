@@ -358,9 +358,10 @@ NF_MODELS = {"PatchTST": "PatchTST (neuralforecast, 정식)", "iTransformer": "i
 
 
 def nf_pred(P: pd.DataFrame, name: str, first_year: int = 2012, input_size: int = 52, max_steps: int = 300, seed: int = 1,
-            macro: pd.DataFrame | None = None, exog_panel: dict | None = None) -> pd.DataFrame:
+            macro: pd.DataFrame | None = None, exog_panel: dict | None = None, refit_years: int = 1) -> pd.DataFrame:
     """매년: 그해 첫 결정일까지 자료로 학습(refit=False 교차검증) → 그해 매주 금요일 '그때까지 자료'로 4주 앞 로그가격 예측 → 예측 − 현재.
-    exog_panel = {이름: 주간 × 품목 표} 품목마다 값이 다른 과거 변수 (TFT만, 이미 과거 자료로만 표준화)."""
+    exog_panel = {이름: 주간 × 품목 표} 품목마다 값이 다른 과거 변수 (TFT만, 이미 과거 자료로만 표준화).
+    refit_years = 몇 년마다 다시 학습할지 (2면 2년 묶음의 첫 결정일까지로 학습해 그 2년을 예측 — 계산 절반)."""
     import logging
     from neuralforecast import NeuralForecast
     from neuralforecast.models import PatchTST, iTransformer, TFT
@@ -395,10 +396,11 @@ def nf_pred(P: pd.DataFrame, name: str, first_year: int = 2012, input_size: int 
     kw = dict(h=H_W, input_size=input_size, max_steps=max_steps, loss=MSE(), random_seed=seed, enable_progress_bar=False,
               enable_model_summary=False, logger=False, accelerator="cpu")
     out = pd.DataFrame(np.nan, index=P.index, columns=P.columns)
-    for yr in sorted(set(P.index.year)):
-        if yr < first_year:
+    for yr in range(first_year, int(P.index.year.max()) + 1, refit_years):
+        blk = (P.index.year >= yr) & (P.index.year < yr + refit_years)
+        if not blk.any():
             continue
-        wk = P.index[P.index.year == yr]
+        wk = P.index[blk]
         end = P.index[min(P.index.get_loc(wk[-1]) + H_W, len(P) - 1)]
         n_win = int(((P.index >= wk[0]) & (P.index <= P.index[P.index.get_loc(end) - H_W])).sum())
         if n_win < 1:
@@ -417,7 +419,7 @@ def nf_pred(P: pd.DataFrame, name: str, first_year: int = 2012, input_size: int 
         cur.columns = ["cutoff", "unique_id", "y0"]
         cv = cv.merge(cur, on=["cutoff", "unique_id"])
         pv = (cv.assign(p=cv[col] - cv.y0).pivot(index="cutoff", columns="unique_id", values="p"))
-        pv = pv[pv.index.year == yr]
+        pv = pv[(pv.index.year >= yr) & (pv.index.year < yr + refit_years)]
         out.loc[pv.index, pv.columns] = pv.values
     return out
 
