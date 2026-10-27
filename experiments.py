@@ -784,3 +784,70 @@ def alt_ts_plus(progress=None) -> pd.DataFrame:
 
 EXPERIMENTS["alt_ts_plus"] = dict(title="대안 시계열 보완 — 정식 vs 경량 · 시드 흔들림 · 롱숏 혼합 후보", file="alt_ts_seeds_compare.csv",
                                   fn=alt_ts_plus, eta="약 1~2시간 (시드 재학습)", cols=["모델", "시드 수"])
+
+
+# 매크로 설명변수 추가: HMM 스트레스 거시 3종(VIX·신용 스프레드·달러 4주)을 대안 모델에 넣으면 나아지나 — 같은 시드끼리 비교
+def alt_ts_macro(progress=None) -> pd.DataFrame:
+    import pickle
+    import analytics as A
+    import alt_ts as AT
+    import forecast_lab as FL
+    t0 = time.time()
+    say = progress or print
+    L = A.load_levels(roll_adjusted=True); P = AT.weekly_px(L)
+    base = pickle.loads((DATA / "alt_ts_preds.pkl").read_bytes())
+    seeds = pickle.loads((DATA / "alt_ts_seed_preds.pkl").read_bytes())
+    mk = DATA / "alt_ts_macro_preds.pkl"
+    mac = pickle.loads(mk.read_bytes()) if mk.exists() else {}
+    keep = lambda c: mk.write_bytes(pickle.dumps(c))                 # noqa: E731
+    qrows = []
+
+    def write():
+        T = AT.macro_table(P, base, seeds, mac)
+        _save("alt_ts_macro", T, t0, dict(매크로=list(AT.MACRO3.values()), 지연="1주(일간 5영업일)", 표준화="확장 창 2년+"))
+        if qrows:
+            pd.DataFrame(qrows).to_csv(DATA / "alt_ts_macro_q_compare.csv", index=False, encoding="utf-8-sig")
+        return T
+    fm = {"Chronos-2 (zero-shot 파운데이션)": ("fm", "Chronos-2", (0,))}
+    AT.macro_preds(L, P, mac, say, keep)                              # 신경망 (캐시 있으면 건너뜀, 정식 TFT 약 1시간)
+    write()
+    # Chronos-2: 매크로 없음(기존 캐시) vs 과거 공변량 3종 — 공변량판이 느려 4주마다 결정, 없음판도 같은 날짜만
+    series = {i: np.log(L[i].dropna()) for i in P.columns}
+    dates = {i: FL.fridays(s.index, start=AT.EVAL, end_pad=0) for i, s in series.items()}
+    r0 = AT.subsample(dict(q=FL.fm_forecast("Chronos-2", "ls19", series, dates, 20), series=series, dates=dates), 4)
+    say("Chronos-2 매크로 공변량")
+    r1 = AT.chronos2_macro(L, P, AT.macro_daily(L), "macro", every=4)
+    for tag, r in (("없음", r0), ("매크로 3종 추가", r1)):
+        for per, v in AT.quantile_eval(r).items():
+            qrows.append({"모델": "Chronos-2 (zero-shot, 4주마다 결정)", "매크로": tag, "기간": per, **v})
+    lbl = "Chronos-2 (zero-shot 파운데이션)"
+    base = {**base, lbl: AT.chronos_point(r0, P, hold=4)}
+    mac[f"{lbl} · 매크로 · 시드 0"] = AT.chronos_point(r1, P, hold=4)
+    jobs0 = AT.MACRO_JOBS
+    AT.MACRO_JOBS = {**jobs0, **fm}
+    T = write()
+    AT.MACRO_JOBS = jobs0
+    return T
+
+
+EXPERIMENTS["alt_ts_macro"] = dict(title="대안 시계열 + 매크로 3종 (VIX·신용 스프레드·달러) — 없음 vs 추가", file="alt_ts_macro_compare.csv",
+                                   fn=alt_ts_macro, eta="약 2시간 (정식 TFT 약 1시간)", cols=["모델", "매크로", "시드 수"])
+
+
+# 멀티모달 (텍스트 FinBERT · 리포트 수치 · 기상 · 매크로) — 최근 5년, 기존 수치 전략과 혼합
+def multimodal(progress=None) -> pd.DataFrame:
+    import analytics as A
+    import multimodal as MMd
+    t0 = time.time()
+    res = MMd.backtest(A.load_levels(roll_adjusted=True), progress=progress or print)
+    res["returns"].to_csv(DATA / "multimodal_weekly_compare.csv", encoding="utf-8-sig")
+    res["ic"].to_csv(DATA / "multimodal_ic_compare.csv", index=False, encoding="utf-8-sig")
+    src = {"WASDE 서술": (MMd.MM / "wasde_text.parquet").exists(), "GDELT 뉴스": (MMd.MM / "gdelt_scored.parquet").exists(),
+           "기상": (MMd.MM / "weather.parquet").exists()}
+    _save("multimodal", res["table"], t0, dict(기간=f"{MMd.EVAL}–", 방향학습="과거 104주 IC 부호", 자료=src, 비용="편도 5bp", 목표변동성="10%"))
+    return res["table"]
+
+
+EXPERIMENTS["multimodal"] = dict(title="멀티모달 — 뉴스·WASDE 원문(FinBERT) · 리포트 수치 · 기상 · 매크로 → 기존 전략과 혼합 (최근 5년)",
+                                 file="multimodal_compare.csv", fn=multimodal, eta="약 5분 (자료 수집·FinBERT 채점은 multimodal.py에서 미리)",
+                                 cols=["전략", "Sharpe"])

@@ -26,3 +26,5 @@ prophet==1.5.0
 neuralforecast==3.3.0
 torchdiffeq==0.2.5
 torch_geometric==2.8.1
+# 멀티모달: WASDE·EIA STEO PDF 서술문 읽기 (FinBERT 가중치 ProsusAI/finbert는 첫 실행 시 Hugging Face에서)
+pypdf==6.21.2

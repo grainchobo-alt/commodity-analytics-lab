@@ -123,7 +123,8 @@ def _windows(R: pd.DataFrame):
 
 
 def nn_pred(P: pd.DataFrame, kind: str = "patch", lookback: int = 52, epochs: int = 8, seed: int = 0,
-            first_year: int = 2012, d: int = 32, stride: int = 2) -> pd.DataFrame:
+            first_year: int = 2012, d: int = 32, stride: int = 2, macro: pd.DataFrame | None = None) -> pd.DataFrame:
+    """macro = 주간 매크로 표(이미 1주 늦추고 과거 자료로만 표준화, macro_weekly). 품목별 모델은 입력 변수로, 품목 간 모델은 추가 토큰/노드 입력으로."""
     import torch
     import torch.nn as nn
     torch.manual_seed(seed); np.random.seed(seed)
@@ -134,6 +135,9 @@ def nn_pred(P: pd.DataFrame, kind: str = "patch", lookback: int = 52, epochs: in
     idx = P.index
     woy = 2 * np.pi * idx.dayofyear.values / 365.25
     cal = np.column_stack([np.sin(woy), np.cos(woy)])               # TFT의 '미리 아는 변수' (달력)
+    mz = (macro.reindex(idx).ffill().fillna(0.0).values if macro is not None else np.zeros((T, 0)))
+    K = mz.shape[1]
+    F = 3 + K
 
     class PatchTST(nn.Module):
         def __init__(self):
@@ -153,8 +157,8 @@ def nn_pred(P: pd.DataFrame, kind: str = "patch", lookback: int = 52, epochs: in
             self.enc = nn.TransformerEncoder(nn.TransformerEncoderLayer(d, 4, 64, 0.1, batch_first=True), 2)
             self.head = nn.Linear(d, 1)
 
-        def forward(self, x, A=None):                               # x: (B, N, lookback) → (B, N)
-            return self.head(self.enc(self.emb(x))).squeeze(-1)
+        def forward(self, x, A=None):                               # x: (B, N(+K 매크로 토큰), lookback) → (B, N)
+            return self.head(self.enc(self.emb(x))).squeeze(-1)[:, :N]
 
     class GRN(nn.Module):                                           # TFT의 게이트 잔차 블록
         def __init__(self, i, o):
@@ -167,7 +171,7 @@ def nn_pred(P: pd.DataFrame, kind: str = "patch", lookback: int = 52, epochs: in
             return self.ln(self.skip(x) + self.l2(h) * torch.sigmoid(self.g(h)))
 
     class TFT(nn.Module):
-        def __init__(self, nv=3):
+        def __init__(self, nv=F):
             super().__init__()
             self.var_emb = nn.ModuleList([nn.Linear(1, d) for _ in range(nv)])
             self.vsn = GRN(nv, nv)
@@ -202,14 +206,14 @@ def nn_pred(P: pd.DataFrame, kind: str = "patch", lookback: int = 52, epochs: in
     class STGNN(nn.Module):
         def __init__(self):
             super().__init__()
-            self.gru = nn.GRU(1, d, batch_first=True)
+            self.gru = nn.GRU(1 + K, d, batch_first=True)
             self.self1, self.nb1 = nn.Linear(d, d), nn.Linear(d, d)
             self.self2, self.nb2 = nn.Linear(d, d), nn.Linear(d, d)
             self.head = nn.Linear(d, 1)
 
-        def forward(self, x, A):                                    # x: (B, N, lookback), A: (N, N) 행 정규화 인접 행렬
+        def forward(self, x, A):                                    # x: (B, N(+K), lookback), A: (N, N) 행 정규화 인접 행렬
             B_ = x.shape[0]
-            h = self.gru(x.reshape(B_ * N, lookback, 1))[1][-1].view(B_, N, d)
+            h = self.gru(_node_seq(x))[1][-1].view(B_, N, d)
             h = (self.self1(h) + A @ self.nb1(h)).relu()
             h = (self.self2(h) + A @ self.nb2(h)).relu()
             return self.head(h).squeeze(-1)
@@ -235,7 +239,7 @@ def nn_pred(P: pd.DataFrame, kind: str = "patch", lookback: int = 52, epochs: in
         def __init__(self):
             super().__init__()
             from torch_geometric.nn import GCNConv
-            self.gru = nn.GRU(1, d, batch_first=True)
+            self.gru = nn.GRU(1 + K, d, batch_first=True)
             self.g1, self.g2 = GCNConv(d, d), GCNConv(d, d)
             self.head = nn.Linear(d, 1)
 
@@ -243,10 +247,18 @@ def nn_pred(P: pd.DataFrame, kind: str = "patch", lookback: int = 52, epochs: in
             from torch_geometric.utils import dense_to_sparse
             ei, ew = dense_to_sparse(A)
             B_ = x.shape[0]
-            h = self.gru(x.reshape(B_ * N, x.shape[-1], 1))[1][-1].view(B_, N, d)
+            h = self.gru(_node_seq(x))[1][-1].view(B_, N, d)
             h = self.g1(h, ei, ew).relu() + h
             h = self.g2(h, ei, ew).relu() + h
             return self.head(h).squeeze(-1)
+
+    def _node_seq(x):                                               # (B, N+K, L) → 품목마다 [자기 수익률, 매크로 K개] 시퀀스 (B·N, L, 1+K)
+        B_, L_ = x.shape[0], x.shape[-1]
+        own = x[:, :N, :, None]
+        if K:
+            mac = x[:, N:, :].transpose(1, 2)[:, None].expand(B_, N, L_, K)
+            own = torch.cat([own, mac], -1)
+        return own.reshape(B_ * N, L_, 1 + K)
 
     def adjacency(t_end):                                         # 학습 끝 직전 156주 |상관| 상위 4개 이웃 (그 해 고정)
         C = np.nan_to_num(np.abs(np.corrcoef(r[max(0, t_end - 155):t_end + 1].T))); np.fill_diagonal(C, 0)
@@ -255,13 +267,15 @@ def nn_pred(P: pd.DataFrame, kind: str = "patch", lookback: int = 52, epochs: in
             nb = np.argsort(C[i])[-4:]; M[i, nb] = C[i, nb]
         return torch.tensor(M / M.sum(1, keepdims=True).clip(1e-9), dtype=torch.float32)
 
-    def feats(t):                                                   # 품목별 입력 (N, lookback, 3) = 수익률 + 달력 2개
+    def feats(t):                                                   # 품목별 입력 (N, lookback, 3+K) = 수익률 + 달력 2개 + 매크로 K개
         x = r[t - lookback + 1:t + 1].T[:, :, None]
         c = np.broadcast_to(cal[t - lookback + 1:t + 1][None], (N, lookback, 2))
-        return np.concatenate([x, c], -1)
+        m = np.broadcast_to(mz[t - lookback + 1:t + 1][None], (N, lookback, K))
+        return np.concatenate([x, c, m], -1)
 
-    def cross(t):
-        return r[t - lookback + 1:t + 1].T                         # (N, lookback), t 시점까지 (t 포함)
+    def cross(t):                                                   # (N+K, lookback), t 시점까지 (t 포함) — 매크로는 뒤에 붙는 토큰
+        w = r[t - lookback + 1:t + 1].T
+        return np.vstack([w, mz[t - lookback + 1:t + 1].T]) if K else w
 
     make = {"patch": PatchTST, "itrans": ITrans, "tft": TFT, "node": ODERNN, "gnn": STGNN, "node_x": ODERNNExact, "gnn_x": GCNGRU}[kind]
     ep = max(4, epochs // 2) if kind in ("node", "node_x") else epochs         # ODE-RNN은 순차 계산이라 에폭 절반
@@ -282,7 +296,7 @@ def nn_pred(P: pd.DataFrame, kind: str = "patch", lookback: int = 52, epochs: in
             Y_ = torch.tensor(np.nan_to_num(fwd[tr_t]), dtype=torch.float32)
             run = lambda xb: model(xb, A)                           # noqa: E731
         else:
-            Xs = np.stack([feats(t) for t in tr_t]).reshape(-1, lookback, 3)
+            Xs = np.stack([feats(t) for t in tr_t]).reshape(-1, lookback, F)
             Ys = fwd[tr_t].reshape(-1); ok = np.isfinite(Ys)
             X_, Y_ = torch.tensor(Xs[ok], dtype=torch.float32), torch.tensor(Ys[ok], dtype=torch.float32)
             run = model
@@ -299,7 +313,7 @@ def nn_pred(P: pd.DataFrame, kind: str = "patch", lookback: int = 52, epochs: in
             if kind in CROSS:
                 pr = run(torch.tensor(np.stack([cross(t) for t in te]), dtype=torch.float32))
             else:
-                pr = model(torch.tensor(np.stack([feats(t) for t in te]).reshape(-1, lookback, 3), dtype=torch.float32)).view(len(te), N)
+                pr = model(torch.tensor(np.stack([feats(t) for t in te]).reshape(-1, lookback, F), dtype=torch.float32)).view(len(te), N)
             out.iloc[te] = pr.numpy()
     return out
 
@@ -336,7 +350,8 @@ def prophet_exact(P: pd.DataFrame, win: int = 156, start: str = EVAL, n_jobs: in
 NF_MODELS = {"PatchTST": "PatchTST (neuralforecast, 정식)", "iTransformer": "iTransformer (neuralforecast, 정식)", "TFT": "TFT (neuralforecast, 정식)"}
 
 
-def nf_pred(P: pd.DataFrame, name: str, first_year: int = 2012, input_size: int = 52, max_steps: int = 300, seed: int = 1) -> pd.DataFrame:
+def nf_pred(P: pd.DataFrame, name: str, first_year: int = 2012, input_size: int = 52, max_steps: int = 300, seed: int = 1,
+            macro: pd.DataFrame | None = None) -> pd.DataFrame:
     """매년: 그해 첫 결정일까지 자료로 학습(refit=False 교차검증) → 그해 매주 금요일 '그때까지 자료'로 4주 앞 로그가격 예측 → 예측 − 현재."""
     import logging
     from neuralforecast import NeuralForecast
@@ -350,6 +365,17 @@ def nf_pred(P: pd.DataFrame, name: str, first_year: int = 2012, input_size: int 
     long = long.merge(cal, on="ds")
     first = long.groupby("unique_id").ds.min()
     long = long[long.unique_id.isin(first[first <= pd.Timestamp(f"{first_year - 5}-12-31")].index)]   # 첫 시험 연도 전 5년 이상 자료가 있는 품목만 (19개 모두 해당)
+    mac = []
+    if macro is not None:                                           # 이미 1주 늦춘 매크로: TFT = 과거 변수, iTransformer = 추가 시계열(토큰)
+        M = macro.reindex(lp.index).ffill().fillna(0.0)
+        mac = list(M.columns)
+        if name == "TFT":
+            long = long.merge(M.reset_index(names="ds"), on="ds", how="left").fillna({c: 0.0 for c in mac})
+        elif name == "iTransformer":
+            ex = M.reset_index(names="ds").melt(id_vars="ds", var_name="unique_id", value_name="y").merge(cal, on="ds")
+            long = pd.concat([long, ex], ignore_index=True).sort_values(["unique_id", "ds"])
+        else:
+            raise ValueError("PatchTST(neuralforecast)는 외부 변수를 받지 않음")
     kw = dict(h=H_W, input_size=input_size, max_steps=max_steps, loss=MSE(), random_seed=seed, enable_progress_bar=False,
               enable_model_summary=False, logger=False, accelerator="cpu")
     out = pd.DataFrame(np.nan, index=P.index, columns=P.columns)
@@ -366,7 +392,7 @@ def nf_pred(P: pd.DataFrame, name: str, first_year: int = 2012, input_size: int 
         elif name == "iTransformer":
             m = iTransformer(n_series=long.unique_id.nunique(), hidden_size=64, n_heads=4, e_layers=2, d_ff=128, **kw)
         else:
-            m = TFT(hidden_size=32, n_head=4, futr_exog_list=["s1", "c1"], scaler_type="robust", **kw)
+            m = TFT(hidden_size=32, n_head=4, futr_exog_list=["s1", "c1"], hist_exog_list=mac or None, scaler_type="robust", **kw)
         nf = NeuralForecast(models=[m], freq="W-FRI")
         cv = nf.cross_validation(df=long[long.ds <= end], n_windows=n_win, step_size=1, refit=False)
         col = [c for c in cv.columns if c.startswith(name)][0]
@@ -541,3 +567,151 @@ def mix_candidates(L: pd.DataFrame, P: pd.DataFrame, preds: dict, ic_min: float 
                      "기존 대비 연 수익 차 (%p)": float(d.mean() * ANN), "차이 t값": float(d.mean() / d.std() * np.sqrt(len(d))) if d.std() > 0 else np.nan})
     ic_df = pd.DataFrame([{"모델": k, "학습 IC (2012-07–2016)": v, "후보 포함": v > ic_min} for k, v in sorted(ic_tr.items(), key=lambda kv: -kv[1])])
     return dict(ic=ic_df, cands=pd.DataFrame(rows), walk=ws["table"], summary=ws["summary"], n_cands=len(cands))
+
+
+# ============================================================================
+# 매크로 설명변수 추가 실험 — HMM 스트레스 모형에 쓰던 거시 중 스트레스 3종
+# ============================================================================
+MACRO3 = {"vix": "VIX (로그)", "credit": "신용 스프레드 (BAA−10년)", "dxy4": "달러 인덱스 4주 변화"}
+
+
+def macro_weekly(L: pd.DataFrame, lag: int = 1, min_obs: int = 104) -> pd.DataFrame:
+    """주간(W-FRI) 매크로 3종 → 그 시점까지 자료로만 표준화(확장 창, 최소 2년) → lag주 늦춤 (발표 지연·미래 정보 차단)."""
+    w = lambda i: L[i].dropna().resample("W-FRI").last()             # noqa: E731
+    X = pd.DataFrame({"vix": np.log(w("fred:VIXCLS")), "credit": w("fred:BAA10Y"),
+                      "dxy4": 100 * np.log(w("yf:DX-Y.NYB")).diff(4)})
+    mu = X.expanding(min_obs).mean(); sd = X.expanding(min_obs).std()
+    return ((X - mu) / sd).shift(lag)
+
+
+def macro_daily(L: pd.DataFrame, lag: int = 5) -> pd.DataFrame:
+    """Chronos-2 과거 공변량용 일간 매크로 (원래 단위, 모델이 스스로 정규화) — 5영업일 늦춤."""
+    d = pd.DataFrame({"vix": np.log(L["fred:VIXCLS"]), "credit": L["fred:BAA10Y"], "dxy": np.log(L["yf:DX-Y.NYB"])}).ffill()
+    return d.shift(lag)
+
+
+def chronos2_macro(L: pd.DataFrame, P: pd.DataFrame, macro_d: pd.DataFrame | None, key: str, h: int = 20, ctx_len: int = 512,
+                   every: int = 4) -> dict:
+    """Chronos-2: 품목별 결정일마다 직전 512영업일 로그가격 (+ 같은 기간 매크로 3종을 past_covariates) → 20영업일 분위 (n, h, 9).
+    공변량을 넣으면 품목당 약 15분(주간 결정일 기준)이라 결정일을 every주마다로 줄임. 캐시 data/fm/Chronos-2-{key}_ls19.npz."""
+    import forecast_lab as FL
+    fn = FL.CACHE / f"Chronos-2-{key}_ls19.npz"
+    series = {i: np.log(L[i].dropna()) for i in P.columns}
+    dates = {i: FL.fridays(s.index, start=EVAL, end_pad=0)[::every] for i, s in series.items()}
+    sig = {i: (len(series[i]), str(series[i].index[-1]), len(dates[i]), macro_d is not None, every) for i in series}
+    if fn.exists():
+        z = np.load(fn, allow_pickle=True)
+        if z["sig"].item() == sig:
+            return dict(q=z["out"].item(), series=series, dates=dates)
+    import torch
+    from chronos import BaseChronosPipeline
+    torch.set_num_threads(4)
+    pipe = BaseChronosPipeline.from_pretrained("amazon/chronos-2", device_map="cpu", torch_dtype=torch.float32)
+    out = {}
+    for j, (i, s) in enumerate(series.items()):
+        pos = s.index.get_indexer(dates[i])
+        M = macro_d.reindex(s.index).ffill().bfill() if macro_d is not None else None
+        items = []
+        for p in pos:
+            a = max(0, p - ctx_len + 1)
+            if M is None:
+                items.append(torch.tensor(s.values[a:p + 1], dtype=torch.float32))
+            else:
+                items.append({"target": s.values[a:p + 1].astype(np.float32),
+                              "past_covariates": {c: M[c].values[a:p + 1].astype(np.float32) for c in M.columns}})
+        res = []
+        for k in range(0, len(items), 64):
+            q, _ = pipe.predict_quantiles(items[k:k + 64], prediction_length=h, quantile_levels=FL.QS)
+            res.append(np.stack([np.asarray(x).reshape(-1, h, len(FL.QS))[0] for x in q]))
+        out[i] = np.concatenate(res)
+        print(f"Chronos-2 {key} {i} ({j + 1}/{len(series)})", flush=True)
+    np.savez(fn, out=np.array(out, dtype=object), sig=np.array(sig, dtype=object))
+    return dict(q=out, series=series, dates=dates)
+
+
+def subsample(res: dict, every: int) -> dict:
+    """주간 결정일 결과를 every주마다로 (매크로판과 같은 날짜끼리 비교)."""
+    return dict(q={i: q[::every] for i, q in res["q"].items()}, series=res["series"], dates={i: d[::every] for i, d in res["dates"].items()})
+
+
+def chronos_point(res: dict, P: pd.DataFrame, hold: int = 1) -> pd.DataFrame:
+    """분위 결과 → 주간 '20영업일 뒤 중앙값 − 현재 로그가격' 표 (fm_pred와 같은 변환). hold주 동안 같은 예측 유지."""
+    out = pd.DataFrame(np.nan, index=P.index, columns=P.columns)
+    for i in P.columns:
+        q = res["q"].get(i)
+        if q is None or not len(q):
+            continue
+        lab = res["dates"][i].to_period("W-FRI").to_timestamp(how="end").normalize()
+        v = pd.Series(q[:, -1, 4] - res["series"][i].reindex(res["dates"][i]).values, index=lab)
+        out[i] = v[~v.index.duplicated(keep="last")].reindex(out.index)
+    return out.ffill(limit=hold - 1) if hold > 1 else out
+
+
+def quantile_eval(res: dict, h: int = 20, split: str = "2017-01-01") -> dict:
+    """분위 품질: 10–90% 실제 포함률(목표 80%) · 평균 폭 · 폭과 실제 |20일 수익률|의 순위 상관(변동성 예측력) · 분위 손실."""
+    from scipy.stats import spearmanr
+    from forecast_lab import QS
+    W, A_, cov, pin, D = [], [], [], [], []
+    for i, q in res["q"].items():
+        s = res["series"][i]; d = res["dates"][i]
+        pos = s.index.get_indexer(d)
+        for j, p in enumerate(pos):
+            if p + h >= len(s):
+                continue
+            y = s.values[p + h] - s.values[p]
+            qq = q[j, -1] - s.values[p]
+            W.append(qq[8] - qq[0]); A_.append(abs(y)); cov.append(qq[0] <= y <= qq[8]); D.append(d[j])
+            pin.append(np.mean([max(a * (y - v), (a - 1) * (y - v)) for a, v in zip(QS, qq)]))
+    df = pd.DataFrame({"w": W, "a": A_, "cov": cov, "pin": pin}, index=pd.DatetimeIndex(D)).dropna()
+    rows = {}
+    for nm, sub in (("전체", df), (f"~{split[:4]}", df[df.index < split]), (f"{split[:4]}~", df[df.index >= split])):
+        rows[nm] = {"10–90% 포함률": float(sub["cov"].mean()), "평균 폭 (로그, 20일)": float(sub["w"].mean()),
+                    "폭↔실제 |수익률| 순위상관": float(spearmanr(sub["w"], sub["a"]).statistic), "분위 손실 (×100)": float(sub["pin"].mean() * 100)}
+    return rows
+
+
+MACRO_JOBS = {   # 이름: (종류, 인자, 시드들) — 매크로 없는 짝은 기존 캐시(alt_ts_preds·alt_ts_seed_preds)에서
+    NN_KINDS["tft"]: ("nn", "tft", (0, 1, 2)), NN_KINDS["itrans"]: ("nn", "itrans", (0, 1, 2)), NN_KINDS["gnn"]: ("nn", "gnn", (0, 1, 2)),
+    EXACT_NN["gnn_x"]: ("nn", "gnn_x", (0, 1, 2)), NF_MODELS["TFT"]: ("nf", "TFT", (1,)), NF_MODELS["iTransformer"]: ("nf", "iTransformer", (1,)),
+}
+
+
+def macro_preds(L: pd.DataFrame, P: pd.DataFrame, cache: dict, progress=None, on_done=None) -> dict:
+    M = macro_weekly(L)
+    for lbl, (src, k, seeds) in MACRO_JOBS.items():
+        for s in seeds:
+            key = f"{lbl} · 매크로 · 시드 {s}"
+            if key in cache:
+                continue
+            if progress: progress(key)
+            try:
+                cache[key] = nf_pred(P, k, seed=s, macro=M) if src == "nf" else nn_pred(P, k, seed=s, macro=M)
+                if on_done: on_done(cache)
+            except Exception as e:
+                print("실패", key, e)
+    return cache
+
+
+def macro_table(P: pd.DataFrame, base: dict, seeds: dict, mac: dict, cost_bp: float = 5.0) -> pd.DataFrame:
+    """모델별 매크로 없음 vs 추가: 시드별 Sharpe 평균·범위, 시드 평균 예측 Sharpe, IC. 없음 쪽 시드는 같은 번호끼리."""
+    D0 = pd.Timestamp(EVAL) + pd.DateOffset(weeks=26)
+    sh = lambda p, md: LS.metrics(signal_book(p, P, md, cost_bp).loc[D0:])["Sharpe"]          # noqa: E731
+    ic = lambda p: eval_pred(p.loc[D0:], P)["IC (주별 순위 상관)"]                             # noqa: E731
+    rows = []
+    for lbl, (src, k, sd) in MACRO_JOBS.items():
+        nf = src == "nf"
+        no = {s: (base.get(lbl) if s == (1 if nf else 0) else seeds.get(f"{lbl} · 시드 {s - (1 if nf else 0)}")) for s in sd}
+        mk = {s: mac.get(f"{lbl} · 매크로 · 시드 {s}") for s in sd}
+        for tag, runs in (("없음", no), ("매크로 3종 추가", mk)):
+            runs = [v for v in runs.values() if v is not None]
+            if not runs:
+                continue
+            avg = sum(v.reindex(index=P.index, columns=P.columns) for v in runs) / len(runs)
+            row = {"모델": lbl, "매크로": tag, "시드 수": len(runs)}
+            for md, nm in (("dir", "방향"), ("xs", "순위 롱숏")):
+                v = [sh(p, md) for p in runs]
+                row.update({f"{nm} Sharpe 평균": float(np.mean(v)), f"{nm} 최소": float(np.min(v)), f"{nm} 최대": float(np.max(v)),
+                            f"{nm} 시드 평균 예측": sh(avg, md)})
+            row["IC 평균"] = float(np.mean([ic(p) for p in runs]))
+            rows.append(row)
+    return pd.DataFrame(rows)

@@ -23,6 +23,15 @@ for k in ("itrans", "gnn", "patch", "gnn_x"):
 for k in ("PatchTST", "TFT"):
     a, b = AT.nf_pred(P, k, first_year=C.year, max_steps=5), AT.nf_pred(P2, k, first_year=C.year, max_steps=5)
     assert a.loc[:C].notna().values.any() and np.allclose(a.loc[:C].values, b.loc[:C].values, equal_nan=True, atol=1e-5), k
+# 2c) 매크로 입력판: 미래 가격 + 미래 매크로를 함께 교란해도 과거 예측 불변
+Mc = pd.DataFrame(rng.normal(0, 1, (500, 3)), index=idx, columns=["vix", "credit", "dxy4"])
+Mc2 = Mc.copy(); Mc2.loc[Mc2.index > C] += 3.0
+for k in ("tft", "itrans", "gnn"):
+    a, b = AT.nn_pred(P, k, epochs=1, first_year=C.year, macro=Mc), AT.nn_pred(P2, k, epochs=1, first_year=C.year, macro=Mc2)
+    assert a.loc[:C].notna().values.any() and np.allclose(a.loc[:C].values, b.loc[:C].values, equal_nan=True, atol=1e-5), "macro " + k
+for k in ("TFT", "iTransformer"):
+    a, b = AT.nf_pred(P, k, first_year=C.year, max_steps=5, macro=Mc), AT.nf_pred(P2, k, first_year=C.year, max_steps=5, macro=Mc2)
+    assert a.loc[:C].notna().values.any() and np.allclose(a.loc[:C].values, b.loc[:C].values, equal_nan=True, atol=1e-5), "macro nf " + k
 # 3) 매매 손익: 미래 교란 → C까지 손익 불변
 pr = np.log(P) - np.log(P).shift(52)
 for md in ("dir", "xs"):

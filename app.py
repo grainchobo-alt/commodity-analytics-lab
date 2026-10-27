@@ -4196,17 +4196,88 @@ def _alt_ts_extra(EX):
         st.caption("미래 정보 차단: 후보에 넣을 모델은 2012-07–2016 IC로만 고름(시험 기간 IC로 고르면 사후 선택). 모델 매매는 순위 롱숏(달러 중립)판. "
                    "구간 이동 선택 = 기존 혼합 후보(가치·따라잡기·칼만 등) 전부 + 새 후보 중 학습 Sharpe 1위를 골라 다음 구간에 적용 — "
                    "롱숏 탭과 같은 방식이지만 모델 예측이 2012년부터라 시험 구간은 2017–20 · 2021–26 두 개.")
+    mt, mq = rd("alt_ts_macro_compare.csv"), rd("alt_ts_macro_q_compare.csv")
+    if mt is None:
+        return
+    st.markdown("##### ④ 매크로 3종 추가 — VIX · 신용 스프레드(BAA−10년) · 달러 인덱스 4주 변화")
+    mt_ = mt.copy()
+    mt_["모델"] = [m + "  ·  " + g for m, g in zip(mt_["모델"], mt_["매크로"])]
+    st.dataframe(mt_.drop(columns=["매크로"]).set_index("모델").style.format(fmt(mt_.drop(columns=["모델", "매크로"])), na_rep="–"),
+                 height=min(36 * (len(mt_) + 1) + 4, 520), use_container_width=True)
+    st.caption("HMM 스트레스 모형에 쓰던 거시 중 3종을 그 시점까지 자료로만 표준화하고 1주 늦춰(발표 지연·미래 정보 차단) 입력. "
+               "TFT = 과거 변수, iTransformer = 추가 토큰(19 + 3), GNN = 노드 입력에 붙임, Chronos-2 = 과거 공변량(4주마다 결정, 없음판도 같은 날짜). "
+               "같은 시드끼리 비교 — 차이가 시드 흔들림(±0.3 안팎)보다 작으면 우연과 구별 안 됨. PatchTST 정식판은 외부 변수를 받지 않아 제외.")
+    if mq is not None:
+        st.markdown("**Chronos-2 분위(예측 범위) 품질 — 매크로가 변동성을 더 잘 맞히나**")
+        st.dataframe(mq.set_index(["매크로", "기간"]).drop(columns=["모델"]).style.format(
+            {"10–90% 포함률": "{:.1%}", "평균 폭 (로그, 20일)": "{:.3f}", "폭↔실제 |수익률| 순위상관": "{:+.3f}", "분위 손실 (×100)": "{:.3f}"}), use_container_width=True)
+        st.caption("포함률 목표 80%. 순위상관이 클수록 '범위가 넓다고 한 때 실제로 크게 움직였다' = 변동성 예측력. 분위 손실은 작을수록 좋음.")
+    else:
+        st.caption("Chronos-2 분위 품질 비교는 계산 중 — 끝나면 이 자리에 표시됩니다.")
 
+
+
+def _multimodal_section():
+    import experiments as EX
+    if "multimodal" not in EX.EXPERIMENTS:
+        import importlib
+        EX = importlib.reload(EX)
+    st.markdown("##### 멀티모달 — 뉴스·USDA 원문(FinBERT 감성) · 리포트 수치 · 기상 · 매크로·금융을 수치 전략에 섞으면")
+    st.caption("갈래 6개: ① 텍스트 = USDA WASDE 서술 문단(밀·곡물·유지작물·설탕·축산·면화)과 GDELT 뉴스 헤드라인을 FinBERT(금융 문장 감성 모델)로 채점, "
+               "② 리포트 수치 = WASDE 기말재고·재고율·생산 수정폭, EIA STEO 3개월 가격 전망 수정폭, USDA NASS 주간 작황 우량 비율, "
+               "③ 기상 = NOAA 엘니뇨 ONI·남방진동 SOI·지구 기온 편차 + Open-Meteo 주산지 22곳 4주 강수(z)·기온 편차·냉난방 수요, "
+               "④ 매크로 = VIX·신용 스프레드·달러 4주 변화, ⑤ 금융(FRED 추가) = 실질금리·기대인플레·금리차·환율 4종·금융여건·스트레스·실업수당·연준 자산·원유/금 변동성, "
+               "⑥ 월간 거시(FRED) = CPI·실업률·산업생산·M2·소비자심리·PPI·고용 전년비(발표 지연 45일, 최신 수정치라 미래 정보 일부 섞일 수 있음). "
+               "공통 값(기상 지수·매크로·금융·거시)은 '품목별 과거 민감도(β) × 현재 값'으로 바꿈. "
+               "모든 값은 발표 이후에만 사용. 신호 방향(+/−)은 두 방식: ① 매주 갱신 = 그 시점까지 104주 순위 IC 평균 부호, ② 고정 = 특성이 생긴 뒤 처음 3년 IC로 한 번 정하고 고정(사후 부호 선택 없음). "
+               "매매는 순위 롱숏(상위 1/3 롱 · 하위 1/3 숏, 4주 보유), 편도 5bp, 목표 변동성 10%. 평가 2007–(롱숏 탭과 같음, 최근 5년 2021-11~ 따로), 자료는 1990년부터(GDELT 뉴스는 2017년~).")
+    T, meta = EX.load("multimodal")
+    fw = EX.DATA / "multimodal_weekly_compare.csv"
+    if T is None or not fw.exists():
+        st.info("결과가 없습니다 — 자료 수집(multimodal.py: 기상·WASDE 원문·GDELT) 후 `python experiments.py multimodal` 실행 필요.")
+        return
+    src = meta.get("settings", {}).get("자료", {})
+    if src:
+        st.caption("자료 상태: " + " · ".join(f"{k} {'✓' if v else '✕ (없음 — 이 갈래에서 빠짐)'}" for k, v in src.items()) + " · Reddit: 과거 자료를 API가 주지 않아 백테스트 미사용 (collect_reddit.py로 앞으로 수집)")
+    T = T.set_index("전략")
+    f_ = {c: "{:+.2f}" for c in T.columns if pd.api.types.is_float_dtype(T[c])}
+    f_.update({"연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}", "기존 70/30과 상관": "{:+.2f}"})
+    st.dataframe(T.style.format(f_, na_rep="–"), height=min(36 * (len(T) + 1) + 4, 560), use_container_width=True)
+    D = pd.read_csv(fw, index_col=0, parse_dates=True, encoding="utf-8-sig")
+    grp = st.radio("그래프", ["혼합 전략", "갈래 단독 (부호 매주 갱신)", "갈래 단독 (부호 고정)"], horizontal=True, key="mm_grp")
+    pick = {"혼합 전략": lambda c: c.startswith("혼합"),
+            "갈래 단독 (부호 매주 갱신)": lambda c: c.startswith("갈래 단독 ·") or c == "멀티모달 단독 (모든 갈래 평균)" or c.startswith("기준"),
+            "갈래 단독 (부호 고정)": lambda c: c.startswith("갈래 단독 (고정 부호)") or c == "멀티모달 단독 (고정 부호)" or c.startswith("기준")}[grp]
+    cols = [c for c in D.columns if pick(c)]
+    f = go.Figure()
+    for j, c in enumerate(cols):
+        base = "(기존)" in c
+        f.add_trace(go.Scatter(x=D.index, y=D[c].cumsum(), name=c, line=dict(color=("#e8e6e1" if DARK else "#0b0b0b") if base else PAL[j % 8],
+                                                                         width=2.4 if base or "멀티모달" in c else 1.3, dash="dash" if base else None)))
+    st.plotly_chart(fig_layout(f, 400, title="누적 수익 (%, 목표 변동성 10%) — 굵은 점선 = 기존 MinVar 70 + 모멘텀 30", hovermode="x",
+                               legend=dict(orientation="h", y=-0.3, font=dict(size=10))), key="mm_cum")
+    b0, m25 = T.loc["혼합 · MinVar 70 + 모멘텀 30 (기존)"], T.loc["혼합 · MinVar 50 + 모멘텀 25 + 멀티모달 25"]
+    st.caption(f"멀티모달 25% 혼합 {m25['Sharpe']:+.2f} vs 기존 70/30 {b0['Sharpe']:+.2f} (연 {m25['기존 대비 연 수익 차 (%p)']:+.2f}%p, 차이 t {m25['차이 t값']:+.2f}). "
+               f"Sharpe 95% 구간은 2007– 전체 약 ±0.45, 최근 5년만이면 약 ±0.9라 그보다 작은 차이는 우연과 구별하기 어려움. 계산 시각 {meta.get('run_at', '?')}.")
+    ic = EX.DATA / "multimodal_ic_compare.csv"
+    if ic.exists():
+        I = pd.read_csv(ic, encoding="utf-8-sig")
+        st.markdown("**특성별 예측력 (평가 기간 주별 순위 IC — 방향 맞춤 전 원래 부호)**")
+        st.dataframe(I.set_index(["갈래", "특성"]).style.format({"평가 기간 IC 평균": "{:+.3f}", "IC t값": "{:+.2f}"}, na_rep="–"), use_container_width=True)
+        st.caption("IC = 그 주 신호 순위와 이후 4주 실제 수익률 순위의 상관(+면 신호 높은 품목이 더 오름). 4주 겹침을 감안해 t값은 표본 수를 1/4로 계산. "
+                   "|t| ≥ 2가 아니면 우연과 구별 어려움. 매매에서는 이 부호를 그때까지 자료로만 정해 곱함.")
 
 
 def page_portfolio():
-    a, b, c = st.tabs(["바스켓 포트폴리오", "롱숏 전략 (Alpha 추구) Backtest 결과", "대안 시계열 모델"])
+    a, b, c, d = st.tabs(["바스켓 포트폴리오", "롱숏 전략 (Alpha 추구) Backtest 결과", "대안 시계열 모델", "멀티모달 (뉴스·리포트·기상)"])
     with a:
         tab_portfolio()
     with b:
         tab_ls()
     with c:
         _alt_ts_section()
+    with d:
+        _multimodal_section()
 
 
 @st.cache_data(show_spinner=False)

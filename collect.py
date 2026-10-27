@@ -71,10 +71,21 @@ FRED = {"DCOILWTICO": "WTI spot (EIA)", "DCOILBRENTEU": "Brent spot (EIA)", "DHH
 # 회귀/FAVAR 설명변수 및 위기 식별용 거시 변수
 FRED_MACRO = {"VIXCLS": ("VIX", "idx"), "DGS10": ("US 10Y yield", "%"), "DGS2": ("US 2Y yield", "%"),
               "T10YIE": ("10Y breakeven inflation", "%"), "DTWEXBGS": ("Broad USD index", "idx"),
-              "BAA10Y": ("Baa - 10Y credit spread", "%"), "DTB3": ("US 3M T-bill", "%")}
+              "BAA10Y": ("Baa - 10Y credit spread", "%"), "DTB3": ("US 3M T-bill", "%"),
+              # (2026-10-27 추가) 레짐 탭 밖 금융 변수 — 일별·주별
+              "DFII10": ("US 10Y real yield (TIPS)", "%"), "T5YIFR": ("5y5y forward inflation", "%"),
+              "BAMLH0A0HYM2": ("High-yield OAS", "%"), "BAMLC0A0CM": ("Investment-grade OAS", "%"),
+              "OVXCLS": ("Crude oil VIX (OVX)", "idx"), "GVZCLS": ("Gold VIX (GVZ)", "idx"), "DFF": ("Fed funds effective", "%"),
+              "T10Y3M": ("10Y - 3M spread", "%"), "DEXBZUS": ("BRL per USD", "BRL"), "DEXUSEU": ("USD per EUR", "USD"),
+              "DEXJPUS": ("JPY per USD", "JPY"), "DEXUSAL": ("USD per AUD", "USD"),
+              "NFCI": ("Chicago Fed financial conditions (weekly)", "idx"), "STLFSI4": ("St. Louis financial stress (weekly)", "idx"),
+              "ICSA": ("Initial jobless claims (weekly)", "persons"), "WALCL": ("Fed total assets (weekly)", "$mn")}
 FRED_M = {"PCOPPUSDM": "Copper (IMF)", "PWHEAMTUSDM": "Wheat (IMF)", "PMAIZMTUSDM": "Maize (IMF)",
           "PSOYBUSDM": "Soybeans (IMF)", "PSMEAUSDM": "Soybean Meal (IMF)", "PCOALAUUSDM": "Coal Australia (IMF)",
-          "PIORECRUSDM": "Iron Ore (IMF)", "PALUMUSDM": "Aluminum (IMF)", "PALLFNFINDEXM": "Global All Commodities Idx (IMF)"}
+          "PIORECRUSDM": "Iron Ore (IMF)", "PALUMUSDM": "Aluminum (IMF)", "PALLFNFINDEXM": "Global All Commodities Idx (IMF)",
+          # (2026-10-27 추가) 월간 거시 — 최신 수정치라 백테스트엔 발표 지연(45일) 두고 사용
+          "CPIAUCSL": "US CPI", "UNRATE": "US unemployment rate", "INDPRO": "US industrial production", "M2SL": "US M2",
+          "UMCSENT": "UMich consumer sentiment", "PPIACO": "US PPI all commodities", "PAYEMS": "US nonfarm payrolls"}
 COT = {"002602": "Corn", "005602": "Soybeans", "026603": "Soybean Meal", "007601": "Soybean Oil",
        "001602": "Wheat SRW", "001612": "Wheat HRW", "085692": "Copper", "067651": "WTI Crude", "088691": "Gold"}
 
