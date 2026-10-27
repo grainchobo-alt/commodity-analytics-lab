@@ -2,7 +2,7 @@
 
 > 새 세션은 이 문서를 먼저 읽고 시작한다. 세션을 마칠 때는 **현재 상태 · 남은 과제 · 최근 결정**을 갱신하고 `CHANGELOG.md`에 버전을 추가한다.
 
-- **최종 갱신**: 2026-10-26 · **현재 버전**: v1.32.0 (git 태그)
+- **최종 갱신**: 2026-10-27 · **현재 버전**: v1.33.0 (git 태그)
 - **사용자**: 곡물·에너지·금속·운임을 다루는 **중간 트레이더**(직접 사용 X, 매입 후 재판매). 실무 의사결정 = **"언제, 얼마나 살까"** (숏 아님).
 - **저장소**: https://github.com/grainchobo-alt/commodity-analytics-lab (private, `main`) · 협업자 `seokhwan33`(write, 초대 발송)
 - **작업 폴더**: `C:\Users\user\Desktop\Commodity` (구 폴더 `Desktop\261013`에는 다른 프로젝트 공존 — 삭제 금지)
@@ -61,7 +61,12 @@
 ## 6. 남은 과제 · 아이디어 (우선순위 순)
 - (v1.11.0 반영) 다변량 레짐 화면 완료 — 후속: 국면별 '더 쌀 확률' AUC 조건부 분석, 레짐을 ★ 구매 카드의 맥락 배지로.
 - 사용자 규칙: 방법론 질문에 답하면 ⑧ '자주 묻는 방법론 질문'에 계속 추가 (메모리 methodology-faq-update).
-**▶ 다음 세션 시작점 (2026-10-26 갱신)**
+**▶ 다음 세션 시작점 (2026-10-27 갱신)**
+- **0'. 2026-10-27 작업 (v1.33.0)**: 멀티모달 서브탭·매크로 실험 추가. **push 안 함** (원격은 v1.31.0, 로컬은 v1.32.0·v1.33.0 태그). 전체 테스트 아직 → 다음 세션: `tests/test_*.py` + `tests/test_app.py` 실행 후 push 승인 요청.
+- **GDELT 뉴스 수집 진행 중** (`multimodal.gdelt_collect(start='2017-01-01', max_fail=10**9, pace=30)`, 캐시 data/mm/gdelt_titles.parquet — 이어받기 가능). 다 모이면 `python experiments.py multimodal` 재실행.
+- 자료 캐시는 data/mm/ (git 제외): wasde_text·steo_text·beige(FinBERT), cot19, eia_weekly, metals, nass_condition_raw, openmeteo, weather, fred_extra. 키는 .env (NASS·EIA).
+- 사용자 결정: 레짐 탭·칼만에는 새 거시 변수 넣지 않음(품목별 칼만도 안 함). Reddit은 백테스트 미사용. Alpha Vantage·Finnhub·NewsAPI·Google RSS는 쓰지 않기로.
+- 팜유: 세계은행 월간 1960~, DCE 선물 2007-10~, Bursa FCPO 2020~ (검토만, 미반영).
 - **0. 먼저 할 일 (2026-10-26 중단 지점)**: v1.32.0까지 커밋·태그 완료, **push 안 함** (원격은 032174b·v1.31.0). 전체 테스트를 사용자 요청으로 미룸 → 내일 `tests/test_*.py` 단위 테스트 + `tests/test_app.py` 전체(약 50분, 이번에 ⑤ 대안 시계열 서브탭·모델 도감 39개 확인 추가) 실행 → 통과하면 push 승인 요청 (v1.32.0 태그 포함). 미추적 `docs/hmm_explainer.html`·`kalman_explainer.html`은 커밋 여부를 사용자에게 물을 것.
 - I. **대안 시계열 후속** (v1.32.0): PatchTST 정식판만 시드 3개 모두 양수(시드 평균 예측 방향 0.47 · 순위 0.53, IC 0.032) → 관찰 후보. 다음 확인: 2017 이전으로만 설정을 고르고 이후 시험, 롱숏 혼합 25% 후보로 구간 이동 선택에 포함. TFT에 재고·커브·COT 변수 투입 실험. 결과 재계산 = `python experiments.py alt_ts alt_ts_plus` (예측 캐시 data/alt_ts_*preds.pkl, 정식 TFT 시드당 약 1시간).
 - 해설서: `docs/alt_ts_explainer.html` (게시: https://claude.ai/artifact/5mPfkGGKrAijJyg34Ccvck, 비공개).
@@ -88,6 +93,7 @@
 7. `Desktop\261013` 폴더의 옛 원자재 파일 정리 (삭제는 사용자 확인 후에만).
 
 ## 7. 최근 결정 로그
+- 2026-10-27 (v1.33.0): 멀티모달(텍스트 FinBERT·리포트·COT·기상·금융) 2007–2026 → 가치 혼합(0.89)을 넘지 못함, 가치 + 멀티모달 20%가 0.80. COT가 갈래 중 가장 나음. '최근 IC 부호 따라가기'는 약한 신호에서 손해(금융 −0.75) → 고정 부호판 병기. 매크로는 대안 모델 방향 예측에 도움 안 됨.
 - 2026-10-26 (v1.32.0): 사용자 요청 — 대안 시계열 8종(Prophet·Chronos·PatchTST·iTransformer·Neural ODE·GNN·TimesFM·TFT)을 롱숏과 같은 19개 품목으로 백테스트, 정식 패키지 설치 승인(prophet·neuralforecast·torchdiffeq·torch_geometric). 결과 52주 모멘텀을 못 넘음, 정식 vs 경량 결과가 거의 무관 → 구매·롱숏 로직에는 넣지 않고 ⑤ 서브탭·모델 도감·해설서로만. MOMENT·TiRex는 미시험(패키지·속도).
 - 2026-10-21 (v1.20.0): 국면 전환 오버레이(평소 MinVar 70 + 모멘텀 30, 스트레스·상관 급등 때 전환)는 개선 없음 — 이미 저변동·추세 혼합이라 지킬 낙폭이 적고 HMM 신호는 급락 뒤 켜짐. 롱숏 탭은 주간 고정(사이드바 빈도 무관), 바스켓 포트폴리오는 사이드바 빈도 + 리밸런싱 주기 선택.
 - 2026-10-21 (v1.14.0): 캐리 검증 — 미국 곡물·금속은 과거 월물 자료가 없어(Yahoo) 에너지(EIA)·중국(Sina)만. 결과 캐리도 견고하지 않음 → 견고한 신호는 여전히 52주 시계열 모멘텀뿐이라 ★ 카드에 추세 배지로 연결. 포트폴리오 μ는 모멘텀·과거평균만 남김(사용자 판단). 전체 앱 테스트는 사용자 요청으로 push 직전에만.

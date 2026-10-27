@@ -3,6 +3,17 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.33.0 — 2026-10-27 — 대안 시계열 + 매크로 · 멀티모달 서브탭 (텍스트·리포트·포지션·기상·금융)
+- 대안 시계열에 매크로 3종(VIX·신용 스프레드·달러) 투입 — 방향은 개선 없음(TFT 악화), 순위 롱숏은 경량 GNN −0.02 → +0.19, 정식 iTransformer +0.08 → +0.41(시드 1개), Chronos-2 분위 품질은 미미한 개선
+- `multimodal.py` + ⑤ 포트폴리오 서브탭 '멀티모달 (뉴스·리포트·기상)': 갈래 7개
+  - 텍스트(FinBERT): WASDE 서술문 1998~, EIA STEO 서술문 1998~, 연준 베이지북 1990~(에너지·금속·농업 문장), GDELT 뉴스 2017~(수집 중)
+  - 리포트 수치: WASDE 수정폭, EIA STEO 전망 수정, USDA NASS 작황 1990~, EIA 주간 재고(원유·휘발유·증류유·천연가스), LME 구리 재고 2014~, 금·은 ETF 보유량
+  - 포지션: CFTC COT 19개 품목(기존형 1986~), 기상: NOAA ONI·SOI·지구 기온 + Open-Meteo 주산지 22곳(1990~), 매크로·금융(FRED 추가 16개)·월간 거시(FRED 7개)
+  - 신호 방향은 과거 IC로만(매주 갱신 / 처음 3년 고정), 순위 롱숏, 평가 2007– · 최근 5년 따로
+  - 결과: MinVar 40 + 모멘텀 20 + 가치 20 + 멀티모달 20 = 0.80 (기존 70/30 0.69, t 0.85) < 가치 혼합 0.89. 갈래 중 COT 단독 0.44 · COT 25% 혼합 0.75(t 0.92), 금융 갈래는 −0.75
+- 키: `.env`에 NASS_API_KEY · EIA_API_KEY (git 제외), Reddit은 collect_reddit.py로 앞으로 수집만
+- collect.py FRED 수집 확대, requirements: pypdf
+
 ## v1.32.0 — 2026-10-26 — 대안 시계열 모델 서브탭 (Prophet·Chronos·TimesFM·PatchTST·iTransformer·TFT·Neural ODE·GNN)
 - ⑤ 포트폴리오 서브탭 재구성: 바스켓 포트폴리오 · 롱숏 전략 (Alpha 추구) Backtest 결과 · 대안 시계열 모델
 - `alt_ts.py`: 19개 품목, 매주 '4주 뒤 수익률' 예측 → 방향·순위 롱숏 매매(5bp, 목표 변동성 10%, 2012-07–2026)
