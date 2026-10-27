@@ -3,6 +3,18 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.35.0 — 2026-10-27 — ④ 예측: 멀티모달 설명변수 · 대안 시계열 모델 · 모델 × 설명변수 백테스트 그리드
+- `predict_lab.py` 신규: 멀티모달 품목별 주간 특성 54개(2026-10-26 고정, `data/mm/features_*.pkl`), 단일 품목용 대안 시계열 7종, 백테스트 그리드, 자료 목록·엑셀 내보내기
+- ④ 단일 품목: 멀티모달 설명변수 선택(갈래 한꺼번에/개별) + 대안 시계열 모델(Prophet · neuralforecast PatchTST·iTransformer·TFT · Chronos-Bolt · TimesFM · Chronos-2 공변량)
+- ④ 여러 품목: 멀티모달 특성(시점별 순위) + 미리 계산된 대안 모델 예측(19개 품목 주간)을 모델로 선택
+- ④ MIDAS: 멀티모달 설명변수(최대 3개) + 대안 모델(Prophet·Chronos·TimesFM) 다음 달 예측 비교표
+- ④ 새 서브탭 '전략 백테스트 — 모델 × 설명변수 (2007.01~2026.10.26)': 설명변수 묶음 14개(자기·19개 원자재·거시·멀티모달 7갈래·전부·위약) × OLS·Ridge·Lasso·EN·PLS·LightGBM, 방향·순위 롱숏
+  - 결과: 순위 롱숏 최고 Lasso + COT 0.38(52주 모멘텀 0.13, 차이 t 0.87)이지만 Lasso 자기 정보만 0.34 · 위약 0.32 → 멀티모달·거시를 더한 효과는 우연과 구별 안 됨
+  - 대안 시계열 모델(설명변수 없음/매크로/공통·품목별 멀티모달) 2007~ 재학습은 `predict_grid_alt`로 계산 중
+- `alt_ts`: 경량 TFT `item_exog`, neuralforecast TFT `exog_panel`(품목별 설명변수) · `panel.build_panel(mm=)`
+- ⑧ 데이터·방법론: 멀티모달 자료 목록(출처·빈도·시작~끝·발표 시점 처리·파일), `data/excel/멀티모달_원자료.xlsx` 내보내기, FAQ 3개
+- `tests/test_predict_lab.py`: 멀티모달 변환·그리드·Prophet+회귀변수 미래 정보 차단 검사
+
 ## v1.34.0 — 2026-10-27 — Portfolio Customization · 백테스트 서브탭 결과 고정
 - ⑤ '바스켓 포트폴리오' → **Portfolio Customization**: '전략 조합' 모드에서 롱숏 탭 전략(MinVar·모멘텀·가치·칼만·COT 등)·대안 시계열 모델(방향/순위 롱숏)·멀티모달 갈래를 골라 섞음
   - 비중: 직접 입력 · 동일 · 역변동성(52주) · 최소분산(104주 Ledoit-Wolf) · 과거 Sharpe 비례(156주) — 동적 방식은 4주마다 과거 자료로만 재계산, 합친 뒤 목표 변동성 10%

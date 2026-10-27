@@ -123,8 +123,10 @@ def _windows(R: pd.DataFrame):
 
 
 def nn_pred(P: pd.DataFrame, kind: str = "patch", lookback: int = 52, epochs: int = 8, seed: int = 0,
-            first_year: int = 2012, d: int = 32, stride: int = 2, macro: pd.DataFrame | None = None) -> pd.DataFrame:
-    """macro = 주간 매크로 표(이미 1주 늦추고 과거 자료로만 표준화, macro_weekly). 품목별 모델은 입력 변수로, 품목 간 모델은 추가 토큰/노드 입력으로."""
+            first_year: int = 2012, d: int = 32, stride: int = 2, macro: pd.DataFrame | None = None,
+            item_exog: dict | None = None) -> pd.DataFrame:
+    """macro = 주간 매크로 표(이미 1주 늦추고 과거 자료로만 표준화, macro_weekly). 품목별 모델은 입력 변수로, 품목 간 모델은 추가 토큰/노드 입력으로.
+    item_exog = {이름: 주간 × 품목 표} 품목마다 값이 다른 설명변수(이미 과거 자료로만 표준화) — 품목별 입력을 쓰는 TFT만 사용."""
     import torch
     import torch.nn as nn
     torch.manual_seed(seed); np.random.seed(seed)
@@ -137,7 +139,12 @@ def nn_pred(P: pd.DataFrame, kind: str = "patch", lookback: int = 52, epochs: in
     cal = np.column_stack([np.sin(woy), np.cos(woy)])               # TFT의 '미리 아는 변수' (달력)
     mz = (macro.reindex(idx).ffill().fillna(0.0).values if macro is not None else np.zeros((T, 0)))
     K = mz.shape[1]
-    F = 3 + K
+    XI = (np.stack([item_exog[k].reindex(index=idx, columns=P.columns).ffill().fillna(0.0).values for k in item_exog], -1)
+          if item_exog else np.zeros((T, N, 0)))
+    J = XI.shape[2]
+    if J and kind != "tft":
+        raise ValueError("품목별 설명변수(item_exog)는 TFT 방식만 지원")
+    F = 3 + K + J
 
     class PatchTST(nn.Module):
         def __init__(self):
@@ -271,7 +278,7 @@ def nn_pred(P: pd.DataFrame, kind: str = "patch", lookback: int = 52, epochs: in
         x = r[t - lookback + 1:t + 1].T[:, :, None]
         c = np.broadcast_to(cal[t - lookback + 1:t + 1][None], (N, lookback, 2))
         m = np.broadcast_to(mz[t - lookback + 1:t + 1][None], (N, lookback, K))
-        return np.concatenate([x, c, m], -1)
+        return np.concatenate([x, c, m, XI[t - lookback + 1:t + 1].transpose(1, 0, 2)], -1)
 
     def cross(t):                                                   # (N+K, lookback), t 시점까지 (t 포함) — 매크로는 뒤에 붙는 토큰
         w = r[t - lookback + 1:t + 1].T
@@ -351,8 +358,9 @@ NF_MODELS = {"PatchTST": "PatchTST (neuralforecast, 정식)", "iTransformer": "i
 
 
 def nf_pred(P: pd.DataFrame, name: str, first_year: int = 2012, input_size: int = 52, max_steps: int = 300, seed: int = 1,
-            macro: pd.DataFrame | None = None) -> pd.DataFrame:
-    """매년: 그해 첫 결정일까지 자료로 학습(refit=False 교차검증) → 그해 매주 금요일 '그때까지 자료'로 4주 앞 로그가격 예측 → 예측 − 현재."""
+            macro: pd.DataFrame | None = None, exog_panel: dict | None = None) -> pd.DataFrame:
+    """매년: 그해 첫 결정일까지 자료로 학습(refit=False 교차검증) → 그해 매주 금요일 '그때까지 자료'로 4주 앞 로그가격 예측 → 예측 − 현재.
+    exog_panel = {이름: 주간 × 품목 표} 품목마다 값이 다른 과거 변수 (TFT만, 이미 과거 자료로만 표준화)."""
     import logging
     from neuralforecast import NeuralForecast
     from neuralforecast.models import PatchTST, iTransformer, TFT
@@ -376,6 +384,14 @@ def nf_pred(P: pd.DataFrame, name: str, first_year: int = 2012, input_size: int 
             long = pd.concat([long, ex], ignore_index=True).sort_values(["unique_id", "ds"])
         else:
             raise ValueError("PatchTST(neuralforecast)는 외부 변수를 받지 않음")
+    if exog_panel:
+        if name != "TFT":
+            raise ValueError("품목별 변수(exog_panel)는 TFT만 지원")
+        for k, S in exog_panel.items():
+            ex = S.reindex(index=lp.index, columns=P.columns).ffill().fillna(0.0).stack().rename(k).reset_index()
+            ex.columns = ["ds", "unique_id", k]
+            long = long.merge(ex, on=["ds", "unique_id"], how="left").fillna({k: 0.0})
+        mac = mac + list(exog_panel)
     kw = dict(h=H_W, input_size=input_size, max_steps=max_steps, loss=MSE(), random_seed=seed, enable_progress_bar=False,
               enable_model_summary=False, logger=False, accelerator="cpu")
     out = pd.DataFrame(np.nan, index=P.index, columns=P.columns)

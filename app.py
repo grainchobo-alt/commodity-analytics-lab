@@ -52,6 +52,42 @@ def _levels(extra_bytes: bytes | None, roll: bool = True):
 
 
 @st.cache_data(show_spinner=False)
+def _mm_catalog():
+    import predict_lab as PL
+    return PL.mm_catalog()
+
+
+@st.cache_data(show_spinner=False)
+def _mm_F():
+    """멀티모달 특성 {갈래: {특성: 주간 × 19품목}} — 2026-10-26 기준 고정 (predict_lab.mm_features, 처음 한 번 1–3분)."""
+    import predict_lab as PL
+    return PL.mm_features()
+
+
+def _mm_picker(item: str, key: str, cont=st):
+    """④ 탭 공용: 멀티모달 설명변수 선택 (갈래 한꺼번에 + 개별). 19개 품목이 아니면 빈 목록."""
+    import predict_lab as PL
+    try:
+        F = _mm_F()
+    except Exception as ex:
+        cont.caption(f"멀티모달 특성을 읽지 못함: {ex}")
+        return []
+    opts = PL.mm_options(F, item)
+    if not opts:
+        cont.caption(f"🧩 멀티모달 설명변수: {short(item)}은(는) 멀티모달 자료가 있는 19개 품목이 아니라 선택할 수 없음")
+        return []
+    g1, g2 = cont.columns([1, 3])
+    fams = g1.multiselect("🧩 멀티모달 갈래 (한꺼번에)", list(F), key=f"{key}_fams",
+                          help="포트폴리오 › 멀티모달 서브탭과 같은 자료: 텍스트(FinBERT 감성: WASDE·EIA STEO·베이지북·뉴스) · 리포트 수치(WASDE·EIA 재고·STEO·NASS·LME·ETF) · "
+                               "CFTC COT · 기상(엘니뇨·Open-Meteo 주산지) · 매크로·금융·월간 거시(FRED, 품목 민감도 β × 값). 모두 발표 이후 값만.")
+    pick = g2.multiselect(f"멀티모달 설명변수 ({short(item)}에 값이 있는 {len(opts)}개)", opts, [o for o in opts if o.split(" · ")[0] in fams],
+                          key=f"{key}_pick_{item}_{abs(hash(tuple(fams)))}")
+    if pick:
+        cont.caption("멀티모달 값은 품목별 과거 자료로만 표준화하고, 자료가 없는 구간(예: LME 재고 2014 이전, 뉴스 2017 이전, 작황 비시즌)은 0(평균)으로 채움 · 주간 값 → 분석 주기로는 그 시점까지 나온 마지막 값.")
+    return pick
+
+
+@st.cache_data(show_spinner=False)
 def _panel(ids: tuple, freq: str, transform: str, start, end, extra_bytes, roll: bool = True):
     L = _levels(extra_bytes, roll)
     return A.make_panel(L, list(ids), UNITS, freq, transform, start, end)
@@ -1075,6 +1111,7 @@ def tab_ml():
     feats = a2.multiselect("설명변수 (X)", [i for i in ALL_IDS if i != tgt], default=feat_def, format_func=lbl, key="feats")
     _mac = [i for i in feats if GROUP.get(i) in ("Macro", "FX", "FRED daily")]
     a2.caption(f"선택 {len(feats)}개 = 원자재·운임 {len(feats) - len(_mac)} · 거시 {len(_mac)} ({', '.join(short(i) for i in _mac) or '없음'}) — 칩이 많으면 옆으로 밀려 안 보일 수 있음")
+    mm_pick = _mm_picker(tgt, "ml_mm")
     b1, b2, b3, b4, b5 = st.columns(5)
     mode = b1.radio("분석 목적", ["설명 (동시점 베타)", "예측 (미래 수익률)"], key="mode",
                     help="설명: Yₜ ~ Xₜ — 동조성/민감도 측정, R²가 높게 나옴. 예측: Yₜ₊ₕ ~ Xₜ, Xₜ₋₁… — 미래정보 누수 없음, 일간 OOS R²는 보통 0 근처.")
@@ -1090,6 +1127,11 @@ def tab_ml():
                             help="기본: 기준 OLS · 축소 Ridge · 변수 선택 Lasso · 결합 Elastic Net · 요인 PLS · 부스팅 GB·LightGBM. "
                                  "추가로 벌점 회귀 변형(Adaptive Lasso·SCAD·MCP) · 밀집 요인 · 베이즈 · 트리 · 커널 · LSTM 선택 가능 "
                                  "(레짐·시변 모델은 ② 레짐 탭). 모델을 많이 돌릴수록 '그중 최고'는 운만으로도 높아짐 → 성과 표의 '위약 · 모델 N개 중 최댓값'과 비교")
+    import predict_lab as PL
+    alt_m = st.multiselect("🔮 대안 시계열 모델 (예측 모드 전용 · 같은 학습/테스트 분할)", list(PL.ALT_SINGLE), default=[], key="alt_models",
+                           help="Prophet = 추세 변곡 + 연간 계절 + 설명변수 선형 · neuralforecast PatchTST(자기 시계열만) · iTransformer(설명변수를 토큰으로) · TFT(설명변수 = 과거 변수) · "
+                                "Chronos-Bolt·TimesFM = zero-shot(자기 가격만) · Chronos-2 = zero-shot + 설명변수 공변량. 학습 구간으로 한 번 학습/적합하고 테스트 구간 각 시점까지 자료로 예측. "
+                                "CPU라 모델당 수십 초~수 분, 테스트 시점이 400개를 넘으면 일정 간격으로만 예측하고 사이는 직전 값 유지 (일간 자료는 주간 권장).")
     f1, f2, f3, f4 = st.columns([3, 1.3, 1.3, 1])
     avail = [k for k in A.FEATURE_KINDS if not (k == "COT 헤징압력" and tgt not in A.COT_MAP)
              and not (k == "베이시스(캐리)" and tgt not in A.BASIS_MAP)]
@@ -1162,18 +1204,27 @@ def tab_ml():
         if "stat" in st.session_state and len(st.session_state["stat"]):
             st.dataframe(st.session_state["stat"].style.format({c: "{:.4f}" for c in st.session_state["stat"].columns if c != "판정"}))
     if run:
-        if not models or (not feats and not fk and not (md == "predict" and own)):
+        if not (models or alt_m) or (not feats and not fk and not mm_pick and not (md == "predict" and own)):
             st.warning("모델과 설명변수(또는 추가 특성)를 하나 이상 선택하세요."); return
         F = A.make_features(_levels(extra_bytes, ROLL), tgt, UNITS, FQ, R3.index, fk) if fk else None
+        if mm_pick:
+            MMF = PL.mm_item_frame(_mm_F(), tgt, mm_pick, R3.index)
+            F = MMF if F is None else F.join(MMF)
         vsw = {"B": 21, "W-FRI": 13, "ME": 6}[FQ] if vs else None
         D = A.build_design(R3, tgt, feats, md, int(lags), int(hor), own, trf, extra=F, vol_scale=vsw, xlag=xlag)
         D.cost = cost_bp / 100.0     # bp -> % (수익률이 % 단위)
         D.band = float(band_c)
         out, prog = {}, st.progress(0.0, "모델 추정 중")
-        for j, mname in enumerate(models):
-            prog.progress(j / len(models), f"{mname} 추정 중...")
+        allm = list(models) + list(alt_m)
+        for j, mname in enumerate(allm):
+            prog.progress(j / len(allm), f"{mname} 추정 중...")
             try:
-                out[mname] = A.run_model(mname, D, ANN, **hp)
+                if mname in PL.ALT_SINGLE:
+                    if md != "predict":
+                        st.warning(f"{mname}: 대안 시계열 모델은 '예측' 모드에서만 실행됩니다."); continue
+                    out[mname] = PL.run_alt_single(mname, D, ANN, R3[tgt], R3[tgt].rolling(vsw).std() if vsw else None)
+                else:
+                    out[mname] = A.run_model(mname, D, ANN, **hp)
             except Exception as ex:
                 st.error(f"{mname} 실패: {ex}")
         prog.empty()
@@ -1185,7 +1236,7 @@ def tab_ml():
                                        metrics=A._metrics(D.y_tr, ptr, D.y_te, pte, ANN, D.horizon, D))
         wfres = {}
         if wf and md == "predict":
-            wm = [m for m in models if m not in ("LSTM", "분위수 회귀")]
+            wm = [m for m in models if m not in ("LSTM", "분위수 회귀")]          # 대안 시계열 모델은 재학습 비용이 커서 walk-forward 제외
             prog = st.progress(0.0, "Walk-forward 검증 중")
             for j, mname in enumerate(wm):
                 prog.progress(j / max(1, len(wm)), f"Walk-forward: {mname}")
@@ -1194,8 +1245,8 @@ def tab_ml():
                 except Exception as ex:
                     st.error(f"Walk-forward {mname} 실패: {ex}")
             prog.empty()
-            if "LSTM" in models:
-                st.info("LSTM은 재학습 비용이 커서 walk-forward에서 제외했습니다.")
+            if "LSTM" in models or alt_m:
+                st.info("LSTM·대안 시계열 모델은 재학습 비용이 커서 walk-forward에서 제외했습니다.")
         elif wf:
             st.info("Walk-forward는 '예측' 모드에서만 의미가 있습니다.")
         st.session_state["ml"] = (D, out, tgt, md)
@@ -1216,7 +1267,7 @@ def tab_ml():
                                      long_share=ls2 if np.isfinite(ls2) else 0.5, switch=sw2 if np.isfinite(sw2) else 0.5)
         st.session_state["ml_wf_pl"] = wf_pl
         cfg = dict(대상=tgt, 설명변수=list(feats), 목적=md, 시차=int(lags), 예측기간=int(hor), 자기시차=bool(own), 학습비중=float(trf),
-                   모델=list(models), 추가특성=list(fk), 변동성표준화=bool(vs), walk_forward=bool(wf and md == "predict"), 재추정주기=int(wf_step),
+                   모델=list(models) + list(alt_m), 추가특성=list(fk), 멀티모달=list(mm_pick), 변동성표준화=bool(vs), walk_forward=bool(wf and md == "predict"), 재추정주기=int(wf_step),
                    비용bp=float(cost_bp), 무거래c=float(band_c), 비동기보정=int(xlag), 빈도=FQ, 시작=str(start), 끝=str(end), 롤보정=bool(ROLL),
                    앙상블=bool(ens), hp={k: v for k, v in hp.items() if k != "mode"})
         try:
@@ -1572,10 +1623,28 @@ def tab_portfolio():
 # ⑥ 패널 모델 (품목 전체를 함께 학습)
 # ============================================================================
 @st.cache_data(show_spinner=False)
-def _panel_data(basis: str, uni: tuple, freq: str, target: str, extra_bytes, roll: bool, macro: tuple = ()):
+def _panel_data(basis: str, uni: tuple, freq: str, target: str, extra_bytes, roll: bool, macro: tuple = (), mm: tuple = ()):
     import panel as PN
+    import predict_lab as PL
     return PN.build_panel(_levels(extra_bytes, True), _levels(extra_bytes, False), list(uni), UNITS, freq, basis, target,
-                          macro, {m: short(m) for m in macro})
+                          macro, {m: short(m) for m in macro}, mm=PL.mm_panel(_mm_F(), list(mm)) if mm else None)
+
+
+@st.cache_data(show_spinner=False)
+def _alt_panel_preds() -> dict:
+    """여러 품목 탭용 대안 시계열 예측 (19개 품목 · 주간 · 4주 앞, 미리 계산): ⑤ 대안 시계열 탭(2012-07~) + ④ 백테스트 그리드(2007~)."""
+    import experiments as EX
+    out = {}
+    for fn, tag in (("predict_grid_alt_preds.pkl", "2007~"), ("alt_ts_preds.pkl", "2012-07~"), ("alt_ts_macro_preds.pkl", "2012-07~")):
+        p = EX.DATA / fn
+        if not p.exists():
+            continue
+        for k, v in pd.read_pickle(p).items():
+            nm = (f"{k[0]} · {k[1]}" if isinstance(k, tuple) else str(k)).replace(" · 시드 0", "").replace(" · 시드 1", "")
+            if " · 시드 " in nm:
+                continue
+            out.setdefault(f"{nm} ({tag})", v)
+    return out
 
 
 def tab_panel():
@@ -1600,6 +1669,14 @@ def tab_panel():
                            help="거시 변수는 모든 품목에 같은 값이라 '어느 품목이 상대적으로 오를까'를 직접 설명하지 못함 → "
                                 "품목별 과거 1년 민감도(β) × 이번 기간 거시 변화를 특성으로 사용 (예: 달러가 오른 주에 달러 민감도가 큰 품목은 불리)")
     chars = chars + [PN.macro_char_name(m, short(m)) for m in pmac]
+    try:
+        import predict_lab as PL
+        mm_opts = PL.mm_options(_mm_F())
+    except Exception:
+        mm_opts = []
+    pmm = st.multiselect("🧩 멀티모달 특성 추가 (포트폴리오 › 멀티모달 서브탭 자료, 19개 품목에만 값 — 나머지 품목은 중간 순위)", mm_opts, [], key="pn_mm",
+                         help="텍스트 FinBERT 감성 · WASDE·EIA·NASS·LME 리포트 수치 · CFTC COT · 기상 · 매크로·금융(품목 민감도 β × 값). 발표 이후 값만, 매 시점 품목 간 순위로 변환.")
+    chars = chars + ["MM · " + o.split(" · ", 1)[1] for o in pmm]
     d1_, d2_, d3_, d4_ = st.columns(4)
     tgt_l = d1_.selectbox("목표", ["변동성 표준화 + 시점별 평균 제거 (상대 순위)", "변동성 표준화", "원 수익률"], key="pn_tgt")
     target = {"변동성 표준화 + 시점별 평균 제거 (상대 순위)": "vol_cs", "변동성 표준화": "vol", "원 수익률": "raw"}[tgt_l]
@@ -1607,6 +1684,13 @@ def tab_panel():
     min_train = d3_.number_input("최소 학습 기간", 20, 3000, {"B": 504, "W-FRI": 104, "ME": 24}[FQ], key="pn_mt")
     q = d4_.select_slider("롱숏 분위", [0.2, 0.25, 1 / 3, 0.5], 1 / 3, format_func=lambda v: f"상·하위 {v:.0%}", key="pn_q")
     models = st.multiselect("모델", PN.PANEL_MODELS, default=["Pooled OLS", "Ridge", "Elastic Net", "Gradient Boosting"], key="pn_models")
+    ALTP = _alt_panel_preds()
+    alt_ok = FQ == "W-FRI" and basis == "futures"
+    alt_pm = st.multiselect("🔮 대안 시계열 모델 (미리 계산된 19개 품목 주간 4주 앞 예측 — 주간 · 연속월물 기준에서만)", list(ALTP) if alt_ok else [], [], key="pn_alt",
+                            help="Prophet·PatchTST·iTransformer·TFT·Neural ODE·GNN·Chronos·TimesFM을 19개 품목으로 매년 재학습한 예측(④ 백테스트 그리드·⑤ 대안 시계열 탭). "
+                                 "괄호 = 예측 시작. 이 탭의 walk-forward와 달리 위 특성 선택과 무관하고, 4주 앞 예측을 매주 순위 신호로 그대로 평가.")
+    if not alt_ok:
+        st.caption("대안 시계열 모델은 사이드바 빈도 '주간' + 수익 기준 '연속월물'일 때 선택 가능 (미리 계산된 예측이 그 설정이라서).")
     o1_, o2_ = st.columns(2)
     wf_fe = PN.FE_OPTS[o1_.selectbox("예측 고정효과 (선형 모델)", list(PN.FE_OPTS), 0, key="pn_wffe",
                                      help="품목 FE: 품목별 평균 수익(학습구간)을 예측에 더함 — 품목 간 지속적 차이를 반영. "
@@ -1619,12 +1703,12 @@ def tab_panel():
     if len(uni) < 4:
         st.info("4개 이상 품목을 선택하세요."); return
     with st.spinner("패널 데이터 구성 중..."):
-        pan = _panel_data(basis, tuple(uni), FQ, target, extra_bytes, ROLL, tuple(pmac))
+        pan = _panel_data(basis, tuple(uni), FQ, target, extra_bytes, ROLL, tuple(pmac), tuple(pmm))
     X = pan["X"]
     st.caption(f"패널: {X.index.get_level_values('date').nunique():,}기간 × {len(pan['ids'])}종목 = {len(X):,}행 "
                f"(품목별 모델이면 품목당 약 {X.index.get_level_values('date').nunique():,}행)")
     La_, Lr_ = _levels(extra_bytes, True), _levels(extra_bytes, False)
-    if run and models and chars:
+    if run and (models or alt_pm) and chars:
         res = {}
         prog = st.progress(0.0)
         for j, m in enumerate(models):
@@ -1633,6 +1717,15 @@ def tab_panel():
             if wf["pred"].empty:
                 st.warning(f"{m}: 예측 없음 (최소 학습 기간이 너무 김)"); continue
             res[m] = dict(wf=wf, ev=PN.evaluate(pan, wf["pred"], La_, Lr_, q=q))
+        for m in alt_pm:                                                  # 미리 계산된 대안 모델 예측 → 패널 (날짜, 품목) 행에 맞춤 (같은 주 = 같은 값)
+            pv = ALTP[m].copy(); pv.index = pv.index.to_period("W-FRI")
+            ix = pan["X"].index
+            vals = pv.stack().rename("p")
+            key_ = pd.MultiIndex.from_arrays([ix.get_level_values("date").to_period("W-FRI"), ix.get_level_values("id")])
+            pr = pd.Series(vals.reindex(key_).values, index=ix).dropna()
+            if pr.empty:
+                st.warning(f"{m}: 선택한 유니버스와 겹치는 예측 없음"); continue
+            res[m] = dict(wf=dict(pred=pr, importance=None, n_refits=0), ev=PN.evaluate(pan, pr, La_, Lr_, q=q))
         prog.empty()
         st.session_state["pn"] = dict(res=res, basis=basis, uni=uni, freq=FQ, target=target, chars=chars)
     if run_f:
@@ -1779,12 +1872,44 @@ def tab_midas(vol_only: bool = True):
                                    "변화로 변환 (금리·스프레드 = 차분, 나머지 = 로그수익률)")
         rids = list(dict.fromkeys(rc_ + rm_))
         Kr = c3_.number_input("일간 시차 K", 5, 252, 63, key="md_Kr")
-        if st.button("▶ MIDAS 수익 예측 (walk-forward)", type="primary", key="md_rrun") and rids:
+        md_mm = _mm_picker(tid, "md_mm")
+        if len(md_mm) > 3:
+            st.warning("MIDAS는 변수마다 Beta 가중 모수를 따로 추정해 느려지므로 멀티모달 설명변수는 앞의 3개만 사용합니다.")
+            md_mm = md_mm[:3]
+        import predict_lab as PL
+        md_alt = st.multiselect("🔮 대안 시계열 모델 비교 (같은 월말 결정 · 다음 달 수익 예측, 결정일까지 자료만)", list(PL.MIDAS_ALT), [], key="md_alt",
+                                help="Prophet = 결정일마다 직전 3년 주간 로그가격에 추세·연간 계절 적합 · Chronos·TimesFM = 직전 512영업일 로그가격 zero-shot. "
+                                     "설명변수는 쓰지 않음 (자기 가격만) — MIDAS(설명변수 일간 시차)와 같은 표본에서 외표본 R² 비교.")
+        if st.button("▶ MIDAS 수익 예측 (walk-forward)", type="primary", key="md_rrun") and (rids or md_mm):
             with st.spinner("월마다 재추정 중..."):
                 R1 = _panel(tuple(dict.fromkeys([tid] + rids)), "B", "logret", start, end, extra_bytes, ROLL)
-                st.session_state["md_r"] = (tid, M.midas_return_wf(R1[tid], {short(i): R1[i] for i in rids}, int(Kr)))
+                regs = {short(i): R1[i] for i in rids}
+                if md_mm:
+                    MMd_ = PL.mm_item_frame(_mm_F(), tid, md_mm, R1.index)
+                    regs.update({c: MMd_[c] for c in MMd_.columns})
+                o_ = M.midas_return_wf(R1[tid], regs, int(Kr))
+                for a_ in md_alt:
+                    try:
+                        o_["table"][a_] = PL.midas_alt(a_, R1[tid], o_["table"].index).reindex(o_["table"].index)
+                    except Exception as ex:
+                        st.error(f"{a_} 실패: {ex}")
+                st.session_state["md_r"] = (tid, o_)
         if "md_r" in st.session_state:
             tid_, o = st.session_state["md_r"]
+            T_ = o["table"]
+            extra_m = [c for c in T_.columns if c not in ("y", "MIDAS", "동일가중", "과거평균")]
+            if extra_m:
+                rows_ = []
+                for c in ["MIDAS", "동일가중"] + extra_m:
+                    v = T_[["y", c, "과거평균"]].dropna()
+                    pos_ = np.sign(v[c] - v["과거평균"]) if c in ("MIDAS", "동일가중") else np.sign(v[c])
+                    ls_ = pos_ * v.y
+                    rows_.append({"모델": c, "외표본 R² (vs 과거 평균)": 1 - ((v.y - v[c]) ** 2).sum() / ((v.y - v["과거평균"]) ** 2).sum(),
+                                  "방향 적중률": float((np.sign(v[c]) == np.sign(v.y)).mean()), "부호 전략 Sharpe (월간, 비용 전)": float(ls_.mean() / ls_.std() * np.sqrt(12)) if ls_.std() > 0 else np.nan,
+                                  "월 수": len(v)})
+                st.dataframe(pd.DataFrame(rows_).set_index("모델").style.format({"외표본 R² (vs 과거 평균)": "{:+.2%}", "방향 적중률": "{:.1%}",
+                                                                              "부호 전략 Sharpe (월간, 비용 전)": "{:+.2f}"}), use_container_width=True)
+                st.caption("대안 모델은 다음 달 수익률 자체를 예측(부호 전략 = 예측 부호), MIDAS·동일가중은 회귀 예측에서 과거 평균을 뺀 부호. 월 수가 다르면 대안 모델의 초기 자료(512영업일·3년) 요건 때문.")
             st.markdown(f"##### {short(tid_)} 다음 달 수익 — 외표본 R² (기준: 과거 평균)")
             m1_, m2_ = st.columns(2)
             m1_.metric("MIDAS (Beta 가중)", f"{o['oos']['MIDAS']:+.2%}")
@@ -1861,6 +1986,18 @@ def tab_data():
     st.subheader("데이터 카탈로그")
     show = cat.copy(); show["start"] = pd.to_datetime(show["start"]).dt.date; show["end"] = pd.to_datetime(show["end"]).dt.date
     st.dataframe(show.sort_values(["group", "start"]), hide_index=True)
+    st.subheader("멀티모달 자료 — 포트폴리오 › 멀티모달 서브탭 · ④ 예측 설명변수")
+    st.caption("위 카탈로그(가격·거시)와 별도로 수집한 비가격 자료. 시작·끝 = 저장된 원자료의 실제 첫·마지막 날짜. "
+               "분석에는 모두 '발표 이후'에만 쓰이도록 시점을 맞춘 뒤, 2026-10-26 기준 품목별 주간 특성(54개)으로 고정해 사용.")
+    try:
+        import predict_lab as PL
+        st.dataframe(_mm_catalog(), hide_index=True, use_container_width=True)
+    except Exception as ex:
+        st.info(f"멀티모달 자료 목록을 읽지 못함: {ex}")
+    st.caption("원자료 저장: API로 받은 값은 `data/mm/*.parquet`, 보고서 원문(WASDE PDF·STEO 엑셀)은 `data/reports/raw/`(1,354개). "
+               "엑셀 사본 = `data/excel/멀티모달_원자료.xlsx` (시트별 원자료 + 목록, `python -c \"import predict_lab; predict_lab.export_mm_excel()\"`로 다시 만듦). "
+               "텍스트는 FinBERT 점수와 GDELT 헤드라인까지 엑셀에 있고, 베이지북·STEO 본문은 점수만 저장(원문 미보관). "
+               "FinBERT 점수 = P(긍정) − P(부정), 문장 평균. Reddit은 과거 자료를 API가 주지 않아 미사용.")
     st.subheader("방법론 가이드 · 추천")
     st.markdown("""
 | 목적 | 도구 | 무엇을 보나 | 비고 |
@@ -2155,6 +2292,15 @@ Ledoit-Wolf(2004)는 **Σ̂ = δ·F + (1−δ)·S** — S = 표본 공분산, F 
 **Portfolio Customization '전략 조합'은 어떻게 계산하나?** → 재료 = 각 탭 전략의 주간 수익률(각각 목표 변동성 10%, 편도 5bp). 비중 × 수익률을 더한 뒤 직전 26주 실현 변동성으로 다시 10%에 맞춤(최대 4배).
 비중: 직접 입력·동일 = 고정, 역변동성(52주)·최소분산(104주 Ledoit-Wolf, 롱온리)·과거 Sharpe 비례(156주, 음수 0) = 4주마다 **그 전 주까지 자료로만** 다시 계산.
 고른 전략이 모두 있는 구간만 쓰므로 대안 시계열을 넣으면 2012-07부터. 여러 조합을 시험해 최고를 고르면 사후 선택 과대평가 — 차이 t값과 하위기간 Sharpe로 확인.
+
+**④ 예측 탭에서 멀티모달 자료를 설명변수로 넣으면 어떻게 처리되나?** → 포트폴리오 › 멀티모달 서브탭과 같은 품목별 주간 특성(54개, 발표 이후 값)을 2026-10-26 기준으로 저장해 씀.
+단일 품목 탭: 품목별 과거 자료로만 표준화하고 자료가 없는 구간은 0(평균), 분석 주기가 일간이면 그 날까지 나온 마지막 주간 값. 여러 품목 탭: 매 시점 품목 간 순위로 변환(19개 품목 밖은 중간 순위). MIDAS 탭: 일간 계단식 시계열로 Beta 가중(최대 3개).
+
+**대안 시계열 모델(Prophet·TFT 등)은 ④ 탭에서 어떻게 학습하나?** → 단일 품목: 같은 학습/테스트 분할에서 학습 구간으로 한 번 학습, 테스트 구간 각 시점까지 자료로 예측(walk-forward 제외). Prophet은 목표를 '추세 + 연간 계절 + 설명변수 선형'으로,
+TFT는 설명변수를 과거 변수로, iTransformer는 설명변수(상관 상위 15개)를 토큰으로, Chronos-2는 상위 8개를 공변량으로. PatchTST·Chronos-Bolt·TimesFM은 구조상 자기 시계열만. 여러 품목: 19개 품목으로 미리 계산한 예측을 순위 신호로. MIDAS: 월말마다 자기 가격으로 다음 달 예측.
+
+**전략 백테스트(모델 × 설명변수)에서 '위약'은?** → '전부' 묶음과 같은 설명변수지만 자기 정보 외 변수의 시간 순서를 13주 블록으로 섞어 정보만 없앤 판. 실제 묶음이 같은 모델의 위약보다 확실히 높지 않으면 그 설명변수는 우연과 구별되지 않음.
+전략 수가 많을수록(85개+) 예측력이 없어도 최댓값 Sharpe가 높게 나옴 — 표준오차 0.22 × √(2 ln N) ≈ 0.67까지는 운으로 가능.
 
 **칼만 필터를 쓰는 롱숏 전략은?** → ⑨에 2가지: K1 칼만 추세(로그가격을 '수준 + 기울기' 상태공간 모형으로 보고 필터 기울기 부호로 롱숏 — 52주 모멘텀의 적응형 판, 잡음 비율은 사전 고정),
 K2 칼만 동적 헤지 페어(회귀계수 β가 매주 변하는 페어의 예측오차 z로 평균회귀, 관측 잡음은 처음 52주로만 추정). 결과: K1 0.22(2017 이후 음수), MinVar 혼합에 넣으면 0.59–0.64로 기존 70/30(0.69)보다 나쁨, K2 0.14(기존 페어 −0.15보다 나음).
@@ -3812,14 +3958,117 @@ def page_vol():
         vol_forecast_check()
 
 
+def _predict_grid_section():
+    import experiments as EX
+    if "predict_grid" not in EX.EXPERIMENTS:
+        import importlib
+        EX = importlib.reload(EX)
+    st.subheader("전략 백테스트 — 예측 모델 × 설명변수 조합 (19개 품목)")
+    st.caption(f"📌 결과 고정: {PERIOD_LS} (`experiments.predict_grid` · 대안 모델은 `predict_grid_alt`로 미리 계산). 데이터 업데이트를 해도 다시 계산하지 않습니다.")
+    st.caption("공통 틀: 롱숏 탭과 같은 원자재 19개 · 매주 금요일 결정 · 목표 = 4주 뒤 로그수익률 · 품목마다 매년 1월 재학습(그해 이전 자료만, 학습 끝 4주 purge, 2001년부터 확장 창) · "
+               "예측 → 두 방식으로 매매: 방향 = 예측 부호 ÷ 품목 변동성(품목마다 롱/숏), 순위 롱숏 = 예측 ÷ 변동성 상위 1/3 롱·하위 1/3 숏(4주 보유, 달러 중립). 편도 5bp · 목표 변동성 10%. "
+               "설명변수는 모두 그 시점까지 자료로만 표준화. 표준 모델 = OLS · Ridge · Lasso · Elastic Net · PLS · LightGBM (λ·요인 수는 학습 구간 시계열 교차검증). "
+               "대안 시계열 = Prophet · PatchTST · iTransformer · TFT · Neural ODE · GNN · Chronos · TimesFM (설명변수 없음 / 매크로 / 멀티모달).")
+    T, meta = EX.load("predict_grid")
+    fw = EX.DATA / "predict_grid_weekly_compare.csv"
+    if T is None or not fw.exists():
+        st.info("결과가 없습니다 — `EX.predict_grid()` 실행 필요 (표준 모델 약 10분).")
+        return
+    s_ = meta.get("settings", {})
+    st.caption(f"계산 시각 {meta.get('run_at', '?')} · 표준 모델 {len(s_.get('표준모델', []))}개 · 대안 모델 조합 {s_.get('대안모델수', 0)}개 · 전략 {len(T)}개")
+    with st.expander("설명변수 묶음 — 무엇을 넣었나", expanded=False):
+        st.markdown("""
+| 묶음 | 내용 |
+|---|---|
+| ① 자기 정보만 | 그 품목의 1·4·13·26·52주 모멘텀, 26주 변동성 (6개) |
+| ② + 19개 원자재 | 다른 18개 품목의 4주·52주 수익률 (36개) |
+| ③ + 거시 | VIX(로그) · 신용 스프레드 · 달러 4주 변화 · 10년/3개월 금리 4주 변화 · S&P500 4주 · BDI 4주 (1주 늦춤) |
+| ④ 일반적 설정 | 자기 + 19개 원자재 + 거시 |
+| ⑤-1~7 멀티모달 갈래 | 자기 + 텍스트(FinBERT) / 리포트 수치 / COT / 기상 / 매크로 β / 금융 β / 월간 거시 β 하나씩 |
+| ⑥ 멀티모달 전부 | 자기 + 7갈래 54개 |
+| ⑦ 전부 | 자기 + 19개 원자재 + 거시 + 멀티모달 |
+| ⑧ 위약 | ⑦과 같지만 자기 정보 외 변수의 시간 순서를 13주 블록으로 섞음 → 설명변수가 진짜 정보인지 판별 기준 |
+| 대안 모델 '매크로 + 공통 멀티모달' | 매크로 3종 + ONI·SOI·지구 기온 + NFCI·STLFSI·실질금리·5y5y·금리차 (모든 품목 같은 값) |
+| 대안 모델 '품목별 멀티모달 7갈래' | 품목마다 7갈래 요약값(갈래 안 특성들의 과거 표준화 평균) — TFT·Prophet 방식만 |
+""")
+    k1, k2 = st.columns([1, 1.3])
+    mode = k1.radio("매매 방식", ["순위 롱숏", "방향"], horizontal=True, key="pg_mode")
+    grp = k2.multiselect("모델군", sorted(T["모델군"].unique()), sorted(T["모델군"].unique()), key="pg_grp")
+    D = T[T["모델군"].isin(grp)].copy()
+    sc = f"{mode} Sharpe"
+    D = D.sort_values(sc, ascending=False)
+    cols = ["모델군", "모델", "설명변수", "예측 시작", sc, f"{mode} 2007–2016", f"{mode} 2017–2021-10", f"{mode} 최근 5년", f"{mode} 공통 2012-07~",
+            f"{mode} t값", f"{mode} 최대낙폭 (%)", f"{mode} 52주 모멘텀 대비 차이 t", "IC (주별 순위 상관)", "방향 적중률"]
+    fmt = {c: "{:+.2f}" for c in cols[4:]}
+    fmt.update({"IC (주별 순위 상관)": "{:+.3f}", "방향 적중률": "{:.1%}", f"{mode} 최대낙폭 (%)": "{:.1f}"})
+    st.dataframe(D[cols].style.format(fmt, na_rep="–"), hide_index=True, use_container_width=True, height=420)
+    n_ = len(T)
+    se = 1 / np.sqrt(19.8)
+    thr = se * np.sqrt(2 * np.log(max(n_, 2)))
+    pl = T[T["설명변수"].str.startswith("⑧")][sc]
+    base = T[T["모델"] == "52주 모멘텀"][sc]
+    if len(D):
+        best = D.iloc[0]
+        st.info(f"**최고 = {best['모델']} · {best['설명변수']}** ({mode} Sharpe {best[sc]:+.2f} · 52주 모멘텀 대비 차이 t {best[f'{mode} 52주 모멘텀 대비 차이 t']:+.2f}). "
+                f"기준 52주 모멘텀 {base.iloc[0]:+.2f}. 전략을 {n_}개 시험했으므로 예측력이 전혀 없어도 최댓값은 약 +{thr:.2f}까지 나올 수 있음 (Sharpe 표준오차 {se:.2f} × √(2 ln N)) — "
+                f"위약(⑧, 설명변수 시간 섞기) 모델 6개 평균 {pl.mean():+.2f} · 최고 {pl.max():+.2f}. 진짜 정보라면 같은 모델의 위약보다 확실히 높고 하위 기간 모두 양수여야 함.")
+    st.markdown(f"##### 표준 모델 — 모델 × 설명변수 ({mode} Sharpe, 2007–)")
+    S = T[T["모델군"] == "표준"].pivot_table(index="설명변수", columns="모델", values=sc)
+    if len(S):
+        S = S[[m for m in ["OLS", "Ridge", "Lasso", "Elastic Net", "PLS", "LightGBM"] if m in S]]
+        f = go.Figure(go.Heatmap(z=S.values, x=list(S.columns), y=list(S.index), zmin=-0.6, zmax=0.6, colorscale=DIV,
+                                 text=[[f"{v:+.2f}" for v in r] for r in S.values], texttemplate="%{text}", hovertemplate="%{y} · %{x}: %{z:+.2f}<extra></extra>"))
+        f.update_layout(height=120 + 30 * len(S), margin=dict(l=10, r=10, t=10, b=10), yaxis=dict(autorange="reversed"))
+        st.plotly_chart(f, key="pg_heat")
+        rowm = S.mean(1).sort_values(ascending=False)
+        plr = [i for i in rowm.index if i.startswith("⑧")]
+        st.caption("행 평균(모델 6개) 상위: " + " · ".join(f"{k.split(' ', 1)[0]} {v:+.2f}" for k, v in rowm.head(4).items()) +
+                   " | 하위: " + " · ".join(f"{k.split(' ', 1)[0]} {v:+.2f}" for k, v in rowm.tail(3).items()) +
+                   (f" — 위약(⑧) 행 평균 {rowm[plr[0]]:+.2f}" if plr else "") + ". 열(모델) 평균: " +
+                   " · ".join(f"{k} {v:+.2f}" for k, v in S.mean(0).sort_values(ascending=False).items()))
+    A_ = T[T["모델군"] == "대안 시계열"]
+    if len(A_):
+        st.markdown(f"##### 대안 시계열 모델 — 모델 × 설명변수 ({mode} Sharpe)")
+        S2 = A_.pivot_table(index="모델", columns="설명변수", values=sc)
+        f = go.Figure(go.Heatmap(z=S2.values, x=list(S2.columns), y=list(S2.index), zmin=-0.6, zmax=0.6, colorscale=DIV,
+                                 text=[["" if not np.isfinite(v) else f"{v:+.2f}" for v in r] for r in S2.values], texttemplate="%{text}",
+                                 hovertemplate="%{y} · %{x}: %{z:+.2f}<extra></extra>"))
+        f.update_layout(height=120 + 30 * len(S2), margin=dict(l=10, r=10, t=10, b=10), yaxis=dict(autorange="reversed"))
+        st.plotly_chart(f, key="pg_heat_alt")
+        st.caption("빈칸 = 그 조합은 돌리지 않음 (PatchTST·Neural ODE·zero-shot은 외부 변수를 받지 않는 구조, 품목별 7갈래는 TFT·Prophet만). "
+                   "시드 1개 — 같은 모델도 시드에 따라 Sharpe가 ±0.3 정도 흔들림 (⑤ 대안 시계열 탭).")
+    else:
+        st.caption("대안 시계열 모델 결과는 계산 중 — 끝나면 이 자리에 표시됩니다 (`EX.predict_grid_alt()`).")
+    W = pd.read_csv(fw, index_col=0, parse_dates=True, encoding="utf-8-sig")
+    lab = " | " + mode
+    opts = [c for c in W.columns if c.endswith(lab)]
+    top = [f"{r['모델']} · {r['설명변수']}{lab}" for _, r in D.head(4).iterrows()]
+    dflt = [c for c in top if c in opts] + [c for c in opts if c.startswith("52주 모멘텀") and c not in top]
+    sel = st.multiselect("누적 수익 비교", opts, dflt, key=f"pg_sel_{mode}", format_func=lambda c: c.replace(lab, ""))
+    if sel:
+        f = go.Figure()
+        for j, c in enumerate(sel):
+            r = W[c].dropna()
+            bse = c.startswith("52주 모멘텀")
+            f.add_trace(go.Scatter(x=r.index, y=r.cumsum(), name=c.replace(lab, ""), line=dict(width=2.2 if bse else 1.3, dash="dash" if bse else None,
+                                                                                         color=("#e8e6e1" if DARK else "#0b0b0b") if bse else PAL[j % 8])))
+        st.plotly_chart(shade(fig_layout(f, 380, title=f"누적 수익 (%, {mode}, 목표 변동성 10%) — 점선 = 52주 모멘텀", hovermode="x",
+                                         legend=dict(orientation="h", y=-0.3, font=dict(size=10))), W.index), key="pg_cum")
+    st.caption("읽는 법: Sharpe 95% 구간은 2007– 전체 약 ±0.45. 표준 모델은 같은 모델의 ①(자기 정보만)·⑧(위약)과 비교해 설명변수를 넣은 효과를 보고, "
+               "대안 모델은 '설명변수 없음' 열과 비교. 순위 롱숏은 품목 간 상대 예측, 방향은 품목별 절대 예측을 평가 — 둘이 엇갈리면 상대 순위만 맞히거나 시장 방향만 맞힌 것.")
+
+
 def page_predict():
-    a, b, c = st.tabs(["단일 품목 (회귀 · ML · 계량)", "여러 품목 (패널 · 횡단면)", "MIDAS 수익 예측 (혼합 주기)"])
+    a, b, c, d = st.tabs(["단일 품목 (회귀 · ML · 계량)", "여러 품목 (패널 · 횡단면)", "MIDAS 수익 예측 (혼합 주기)",
+                          f"전략 백테스트 — 모델 × 설명변수 ({PERIOD_LS})"])
     with a:
         tab_ml()
     with b:
         tab_panel()
     with c:
         tab_midas(vol_only=False)
+    with d:
+        _predict_grid_section()
 
 
 # 롱숏·대안 시계열·멀티모달 결과는 고정 — 데이터 업데이트(캐시 비움)해도 다시 계산하지 않음 (계산이 길어서).

@@ -851,3 +851,40 @@ def multimodal(progress=None) -> pd.DataFrame:
 EXPERIMENTS["multimodal"] = dict(title="멀티모달 — 뉴스·WASDE 원문(FinBERT) · 리포트 수치 · 기상 · 매크로 → 기존 전략과 혼합 (최근 5년)",
                                  file="multimodal_compare.csv", fn=multimodal, eta="약 5분 (자료 수집·FinBERT 채점은 multimodal.py에서 미리)",
                                  cols=["전략", "Sharpe"])
+
+
+# ④ 예측 확장 — 모델 × 설명변수 백테스트 그리드 (19개 품목, 2007-01 ~ 2026-10-26 고정)
+def _grid_alt_cache() -> dict:
+    p = DATA / "predict_grid_alt_preds.pkl"
+    return pd.read_pickle(p) if p.exists() else {}
+
+
+def predict_grid(progress=None) -> pd.DataFrame:
+    import predict_lab as PL
+    t0 = time.time()
+    L = PL.frozen_levels()
+    pt = DATA / "predict_grid_tab_preds.pkl"
+    if pt.exists():
+        P, tab = pd.read_pickle(pt)
+    else:
+        P, tab = PL.grid_tabular(L, progress=progress or print)
+        pd.to_pickle((P, tab), pt)
+    alt = _grid_alt_cache()
+    T, W = PL.grid_table(P, tab, alt)
+    W.to_csv(DATA / "predict_grid_weekly_compare.csv", encoding="utf-8-sig")
+    _save("predict_grid", T, t0, dict(기간=f"{PL.GRID_START}~{PL.FROZEN_END}", 목표="4주 뒤 수익률", 재학습="매년 1월 (그해 이전 자료, 4주 purge)",
+                                      품목=int(P.shape[1]), 표준모델=PL.GRID_MODELS, 대안모델수=len(alt), 비용="편도 5bp", 목표변동성="10%"))
+    return T
+
+
+def predict_grid_alt(progress=None) -> pd.DataFrame:
+    import predict_lab as PL
+    L = PL.frozen_levels()
+    P = __import__("alt_ts").weekly_px(L, PL.TRAIN_START)
+    PL.grid_alt(L, P, cache=_grid_alt_cache(), progress=progress or print,
+                on_done=lambda d: pd.to_pickle(d, DATA / "predict_grid_alt_preds.pkl"))
+    return predict_grid(progress)
+
+
+EXPERIMENTS["predict_grid"] = dict(title="④ 예측 — 모델 × 설명변수 백테스트 그리드 (19개 품목, 매년 재학습)", file="predict_grid_compare.csv",
+                                   fn=predict_grid, eta="약 10분 (표준 모델) · 대안 모델은 predict_grid_alt (수 시간)", cols=["모델", "설명변수"])

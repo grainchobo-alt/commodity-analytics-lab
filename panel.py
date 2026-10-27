@@ -34,7 +34,7 @@ def macro_char_name(m: str, name: str | None = None) -> str:
 
 
 def build_panel(levels_adj: pd.DataFrame, levels_raw: pd.DataFrame, ids: list[str], units: dict, freq: str = "W-FRI",
-                basis: str = "etf", target: str = "vol_cs", macro: tuple | list = (), names: dict | None = None) -> dict:
+                basis: str = "etf", target: str = "vol_cs", macro: tuple | list = (), names: dict | None = None, mm: dict | None = None) -> dict:
     """return dict(X: (date,id)×특성 [순위변환], y: 목표, r_next: 다음기간 원수익, sigma, dates, ids, raw_chars).
     macro = 거시 변수 id들 → 특성 '거시 β×Δ' = 품목의 과거 1년 거시 민감도(β, 그 시점까지) × 이번 기간 거시 변화.
     (거시 변수 자체는 모든 품목에 같은 값이라 시점별 순위 변환에서 사라짐 → 품목마다 다른 '노출'로 바꿔 넣음)"""
@@ -86,6 +86,9 @@ def build_panel(levels_adj: pd.DataFrame, levels_raw: pd.DataFrame, ids: list[st
         w_ = k(12)
         beta = r.apply(lambda c: c.rolling(w_, min_periods=w_ // 2).cov(dm)).div(dm.rolling(w_, min_periods=w_ // 2).var(), axis=0)
         C[macro_char_name(mv, (names or {}).get(mv))] = beta.mul(dm, axis=0)
+    for nm, S in (mm or {}).items():                                       # 멀티모달 특성 (주간 × 품목, 발표 이후 값) → 결정일까지 나온 마지막 값
+        S = S.reindex(columns=ids)
+        C[nm] = S.reindex(S.index.union(dec)).ffill().reindex(dec)
     # 목표
     r_next = r.shift(-1)
     sig = C["VOL 3M"] / np.sqrt(ppy)                                         # 기간 변동성 (사전)
