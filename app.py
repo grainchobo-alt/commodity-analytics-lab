@@ -3968,7 +3968,8 @@ def _predict_grid_section():
     st.caption("공통 틀: 롱숏 탭과 같은 원자재 19개 · 매주 금요일 결정 · 목표 = 4주 뒤 로그수익률 · 품목마다 매년 1월 재학습(그해 이전 자료만, 학습 끝 4주 purge, 2001년부터 확장 창) · "
                "예측 → 두 방식으로 매매: 방향 = 예측 부호 ÷ 품목 변동성(품목마다 롱/숏), 순위 롱숏 = 예측 ÷ 변동성 상위 1/3 롱·하위 1/3 숏(4주 보유, 달러 중립). 편도 5bp · 목표 변동성 10%. "
                "설명변수는 모두 그 시점까지 자료로만 표준화. 표준 모델 = OLS · Ridge · Lasso · Elastic Net · PLS · LightGBM (λ·요인 수는 학습 구간 시계열 교차검증). "
-               "대안 시계열 = Prophet · PatchTST · iTransformer · TFT · Neural ODE · GNN · Chronos · TimesFM (설명변수 없음 / 매크로 / 멀티모달).")
+               "대안 시계열 = Prophet · PatchTST · iTransformer · TFT · Neural ODE · GNN · Chronos · TimesFM (설명변수 없음 / 매크로 / 멀티모달). "
+               "패널 = 여러 품목 탭 모델 8종 × 특성 묶음 5개, MIDAS = MIDAS 탭 Beta 가중·동일가중 × 일간 설명변수 3가지.")
     T, meta = EX.load("predict_grid")
     fw = EX.DATA / "predict_grid_weekly_compare.csv"
     if T is None or not fw.exists():
@@ -4039,6 +4040,24 @@ def _predict_grid_section():
                    "시드 1개 — 같은 모델도 시드에 따라 Sharpe가 ±0.3 정도 흔들림 (⑤ 대안 시계열 탭).")
     else:
         st.caption("대안 시계열 모델 결과는 계산 중 — 끝나면 이 자리에 표시됩니다 (`EX.predict_grid_alt()`).")
+    for g_, ttl_, note_ in (("패널", "여러 품목 탭 패널 모델 — 모델 × 특성 묶음",
+                             "여러 품목 탭과 같은 엔진: 특성을 매 시점 품목 간 순위로 바꿔 19개 품목을 한 모델로 학습, 목표 = 다음 주 변동성 표준화 상대 수익(시점 평균 제거), "
+                             "26주마다 재학습 · 최소 학습 156주. 상대 수익을 예측하므로 '방향' 매매도 사실상 품목 간 상대 베팅. P⑤ = 거시·멀티모달 특성의 날짜를 섞은 위약."),
+                            ("MIDAS", "MIDAS 탭 — 가중 방식 × 일간 설명변수",
+                             "MIDAS 탭과 같은 엔진: 월말마다 그때까지 자료로 재추정(최소 60개월) → 다음 달 수익 예측, 일간 시차 63개를 Beta 가중(MIDAS) 또는 월 평균(동일가중)으로 요약. "
+                             "월 1회 예측을 그 달 매주 같은 값으로 매매. M③ 멀티모달 종합 = 품목별 7갈래 요약값의 평균(주간 → 일간 계단식).")):
+        G_ = T[T["모델군"] == g_]
+        if not len(G_):
+            st.caption(f"{ttl_.split(' — ')[0]} 결과는 계산 중 — 끝나면 이 자리에 표시됩니다 (`EX.predict_grid_panel_midas()`).")
+            continue
+        st.markdown(f"##### {ttl_} ({mode} Sharpe, 2007–)")
+        S3 = G_.pivot_table(index="설명변수", columns="모델", values=sc)
+        f = go.Figure(go.Heatmap(z=S3.values, x=list(S3.columns), y=list(S3.index), zmin=-0.6, zmax=0.6, colorscale=DIV,
+                                 text=[["" if not np.isfinite(v) else f"{v:+.2f}" for v in r] for r in S3.values], texttemplate="%{text}",
+                                 hovertemplate="%{y} · %{x}: %{z:+.2f}<extra></extra>"))
+        f.update_layout(height=120 + 34 * len(S3), margin=dict(l=10, r=10, t=10, b=10), yaxis=dict(autorange="reversed"))
+        st.plotly_chart(f, key=f"pg_heat_{g_}")
+        st.caption(note_)
     W = pd.read_csv(fw, index_col=0, parse_dates=True, encoding="utf-8-sig")
     lab = " | " + mode
     opts = [c for c in W.columns if c.endswith(lab)]
@@ -4552,6 +4571,62 @@ def _multimodal_section():
         st.dataframe(I.set_index(["갈래", "특성"]).style.format({"평가 기간 IC 평균": "{:+.3f}", "IC t값": "{:+.2f}"}, na_rep="–"), use_container_width=True)
         st.caption("IC = 그 주 신호 순위와 이후 4주 실제 수익률 순위의 상관(+면 신호 높은 품목이 더 오름). 4주 겹침을 감안해 t값은 표본 수를 1/4로 계산. "
                    "|t| ≥ 2가 아니면 우연과 구별 어려움. 매매에서는 이 부호를 그때까지 자료로만 정해 곱함.")
+    _mm_model_section(EX)
+
+
+def _mm_model_section(EX):
+    """멀티모달 자료를 '예측 모델의 입력'으로 넣었을 때 (④ 전략 백테스트 그리드 결과에서): 대안 시계열 × 멀티모달 + 모델군별 없음 vs 넣음."""
+    st.markdown("##### 예측 모델 입력으로 넣으면 — 대안 시계열 × 멀티모달 (④ 예측 › 전략 백테스트 결과)")
+    T, meta = EX.load("predict_grid")
+    if T is None:
+        st.info("④ 예측 › 전략 백테스트 결과가 없습니다 — `EX.predict_grid()` 실행 필요.")
+        return
+    st.caption("위 갈래 신호(IC 부호를 곱해 순위 롱숏)와 달리, 멀티모달 자료를 예측 모델의 설명변수로 넣고 4주 뒤 수익률을 예측해 매매한 결과. 같은 19개 품목 · 매년 재학습 · "
+               f"편도 5bp · 목표 변동성 10% · 2007-01~2026-10-26. 계산 시각 {meta.get('run_at', '?')}. "
+               "'매크로 + 공통 멀티모달' = 매크로 3종 + 엘니뇨 ONI·SOI·지구 기온 + 금융여건 NFCI·STLFSI·실질금리·5y5y·금리차(모든 품목 같은 값), "
+               "'품목별 멀티모달 7갈래' = 품목마다 7갈래(텍스트·리포트·COT·기상·매크로·금융·월간 거시) 요약값.")
+    mode = st.radio("매매 방식", ["순위 롱숏", "방향"], horizontal=True, key="mm_pg_mode")
+    sc = f"{mode} Sharpe"
+    A_ = T[T["모델군"] == "대안 시계열"]
+    order = ["설명변수 없음", "매크로 3종", "매크로 + 공통 멀티모달 (기상·금융 지수)", "품목별 멀티모달 7갈래"]
+    if len(A_):
+        S = A_.pivot_table(index="모델", columns="설명변수", values=sc).reindex(columns=[c for c in order if c in A_["설명변수"].unique()])
+        f = go.Figure(go.Heatmap(z=S.values, x=list(S.columns), y=list(S.index), zmin=-0.6, zmax=0.6, colorscale=DIV,
+                                 text=[["" if not np.isfinite(v) else f"{v:+.2f}" for v in r] for r in S.values], texttemplate="%{text}",
+                                 hovertemplate="%{y} · %{x}: %{z:+.2f}<extra></extra>"))
+        f.update_layout(height=120 + 34 * len(S), margin=dict(l=10, r=10, t=10, b=10), yaxis=dict(autorange="reversed"))
+        st.plotly_chart(f, key="mm_pg_heat")
+        done = int(A_["설명변수"].str.contains("멀티모달").sum())
+        st.caption(f"대안 모델 × 멀티모달 조합 {done}개 계산 완료 (전체 예정 7개: 경량 iTransformer·TFT·GNN × 공통 멀티모달, 경량 TFT·정식 TFT·Prophet 방식 × 품목별 7갈래, "
+                   "정식 iTransformer·TFT × 공통 멀티모달 포함). 빈칸 = 아직 계산 중이거나 구조상 외부 변수를 받지 않는 모델(PatchTST·Neural ODE·zero-shot). 시드 1개라 ±0.3 흔들림.")
+    else:
+        st.caption("대안 시계열 결과는 계산 중입니다.")
+    pairs = [("표준", "① 자기 정보만", ["⑥ 자기 + 멀티모달 전부"], "⑧"), ("패널", "P①", ["P③"], "P⑤"), ("MIDAS", "M①", ["M③"], None),
+             ("대안 시계열", "설명변수 없음", ["매크로 + 공통 멀티모달 (기상·금융 지수)", "품목별 멀티모달 7갈래"], None)]
+    rows = []
+    for g, b0, mms, pl in pairs:
+        G = T[T["모델군"] == g]
+        for m in G["모델"].unique():
+            Gm = G[G["모델"] == m]
+            base = Gm[Gm["설명변수"].str.startswith(b0)]
+            for mm in mms:
+                x = Gm[Gm["설명변수"].str.startswith(mm)]
+                if not len(base) or not len(x):
+                    continue
+                p_ = Gm[Gm["설명변수"].str.startswith(pl)][sc] if pl else pd.Series(dtype=float)
+                rows.append({"모델군": g, "모델": m, "멀티모달 입력": x["설명변수"].iloc[0], "없음 Sharpe": float(base[sc].iloc[0]),
+                             "넣음 Sharpe": float(x[sc].iloc[0]), "차이": float(x[sc].iloc[0] - base[sc].iloc[0]),
+                             "위약 Sharpe": float(p_.iloc[0]) if len(p_) else np.nan, "넣음 최근 5년": float(x[f"{mode} 최근 5년"].iloc[0])})
+    if rows:
+        R_ = pd.DataFrame(rows)
+        st.markdown(f"**모델군별 — 멀티모달을 넣기 전 vs 넣은 뒤 ({mode} Sharpe)**")
+        st.dataframe(R_.style.format({c: "{:+.2f}" for c in ["없음 Sharpe", "넣음 Sharpe", "차이", "위약 Sharpe", "넣음 최근 5년"]}, na_rep="–"),
+                     hide_index=True, use_container_width=True, height=min(36 * (len(R_) + 1) + 4, 470))
+        up = (R_["차이"] > 0).mean()
+        st.caption(f"{len(R_)}개 비교 중 멀티모달을 넣어 좋아진 경우 {up:.0%}, 차이 평균 {R_['차이'].mean():+.2f}. "
+                   "없음 = 표준 ①·패널 P①·MIDAS M①·대안 '설명변수 없음', 넣음 = 표준 ⑥·패널 P③·MIDAS M③·대안 멀티모달판. "
+                   "위약 = 같은 설명변수의 시간 순서를 섞은 판(표준 ⑧은 ⑦ 기준, 패널 P⑤는 P④ 기준) — 넣음이 위약보다 확실히 높지 않으면 멀티모달 정보의 효과로 보기 어려움. "
+                   "Sharpe 차이 ±0.45 안쪽은 우연과 구별 어려움. 전체 비교는 ④ 예측 › 전략 백테스트 서브탭.")
 
 
 @st.cache_data(show_spinner=False)

@@ -469,11 +469,13 @@ def grid_alt(L: pd.DataFrame, P: pd.DataFrame, cache: dict | None = None, progre
     return preds
 
 
-def grid_table(P: pd.DataFrame, tab: dict, alt: dict, cost_bp: float = 5.0) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """전략마다: 방향 매매·순위 롱숏 Sharpe(전체·하위기간·최근 5년), IC, 적중률, t, 52주 모멘텀 대비 차이."""
+def grid_table(P: pd.DataFrame, tab: dict, alt: dict, cost_bp: float = 5.0, extra: dict | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """전략마다: 방향 매매·순위 롱숏 Sharpe(전체·하위기간·최근 5년), IC, 적중률, t, 52주 모멘텀 대비 차이. extra = {모델군: {(모델, 설명변수): 예측}}."""
     lp = np.log(P)
     allp = {("표준", m, s): v for (m, s), v in tab.items()}
     allp.update({("대안 시계열", m, s): v for (m, s), v in alt.items()})
+    for g, d in (extra or {}).items():
+        allp.update({(g, m, s): v for (m, s), v in d.items()})
     allp[("기준", "52주 모멘텀", "자기 정보 (52주 수익률 부호)")] = lp - lp.shift(52)
     base = {md: AT.signal_book(allp[("기준", "52주 모멘텀", "자기 정보 (52주 수익률 부호)")], P, md, cost_bp).loc[GRID_START:FROZEN_END] for md in ("dir", "xs")}
     rows, W = [], {}
@@ -625,3 +627,103 @@ def export_mm_excel(path: Path | None = None) -> Path:
                 d[c] = d[c].dt.tz_localize(None)
             d.to_excel(xw, sheet_name=nm[:31], index=False)
     return path
+
+
+# ============================================================================
+# 4) 그리드 확장 — 패널 모델 (여러 품목 탭) · MIDAS (혼합 주기 탭)를 같은 19개 품목·같은 매매 규칙으로
+# ============================================================================
+PANEL_MACRO = ("yf:DX-Y.NYB", "fred:VIXCLS", "fred:DGS10", "fred:BAA10Y")
+
+
+def _panel_sets(chars0: list, macro_chars: list, mm_chars: list) -> dict:
+    return {"P① 기본 특성 (모멘텀·반전·변동성·왜도·롤수익·COT·계절)": chars0,
+            "P② 기본 + 거시 β×Δ (달러·VIX·10년 금리·신용)": chars0 + macro_chars,
+            "P③ 기본 + 멀티모달 전부": chars0 + mm_chars,
+            "P④ 기본 + 거시 + 멀티모달": chars0 + macro_chars + mm_chars,
+            "P⑤ 위약 · P④의 거시·멀티모달 특성을 13주 블록으로 시간 섞기": chars0 + macro_chars + mm_chars}
+
+
+def _to_weekly(pred: pd.Series, P: pd.DataFrame) -> pd.DataFrame:
+    """(결정일, 품목) 예측 → 주간(W-FRI) × 품목 표."""
+    W = pred.unstack("id")
+    W.index = pd.DatetimeIndex(W.index).to_period("W-FRI").to_timestamp(how="end").normalize()
+    W = W[~W.index.duplicated(keep="last")]
+    return W.reindex(index=P.index, columns=P.columns)
+
+
+def grid_panel(L_adj: pd.DataFrame, L_raw: pd.DataFrame, P: pd.DataFrame, units: dict, models=None, progress=print, cache: dict | None = None,
+               on_done=None) -> dict:
+    """여러 품목 탭의 패널 모델(시점별 순위 특성 → 다음 주 변동성 표준화 상대 수익) · 26주마다 재학습 · 최소 학습 156주."""
+    import panel as PN
+    models = models or PN.PANEL_MODELS
+    F = mm_features(L_adj)
+    mm = {"MM · " + nm: S for d in F.values() for nm, S in d.items()}
+    pan = PN.build_panel(L_adj, L_raw, list(P.columns), units, "W-FRI", "futures", "vol_cs", PANEL_MACRO, None, mm=mm)
+    cols = list(pan["X"].columns)
+    macro_c = [c for c in cols if c.startswith("거시")]
+    mm_c = [c for c in cols if c.startswith("MM · ")]
+    chars0 = [c for c in PN.CHARS if c in cols]
+    sets = _panel_sets(chars0, macro_c, mm_c)
+    # 위약판: 거시·멀티모달 특성의 날짜를 13주 블록 단위로 섞음 (품목 간 순위 구조는 유지, 시점 정보만 제거)
+    X = pan["X"]
+    ud = np.unique(X.index.get_level_values("date"))
+    perm = ud[_shuffle_rows(len(ud), 7)]
+    mp = dict(zip(ud, perm))
+    sh = X[macro_c + mm_c].copy()
+    src = sh.copy(); src.index = pd.MultiIndex.from_arrays([[mp[d] for d in X.index.get_level_values("date")], X.index.get_level_values("id")])
+    sh.loc[:, :] = src.reindex(X.index).fillna(0.0).values
+    pan_pl = dict(pan, X=pd.concat([X[chars0], sh], axis=1)[cols])
+    out = dict(cache or {})
+    for sname, chars in sets.items():
+        for m in models:
+            key = (m, sname)
+            if key in out:
+                continue
+            progress(f"패널: {m} · {sname[:12]}")
+            try:
+                wf = PN.walk_forward_panel(pan_pl if sname.startswith("P⑤") else pan, m, chars, refit=26, min_train=156)
+                out[key] = _to_weekly(wf["pred"], P)
+                if on_done:
+                    on_done(out)
+            except Exception as e:
+                print("패널 실패", key, e, flush=True)
+    return out
+
+
+def _midas_item(i: str, r: pd.Series, regs: dict, K: int) -> dict:
+    import midas as M
+    try:
+        o = M.midas_return_wf(r, regs, K)
+    except Exception as e:
+        print("MIDAS 실패", i, e, flush=True)
+        return {}
+    return {"MIDAS (Beta 가중)": o["table"]["MIDAS"], "동일가중 (월 평균 집계)": o["table"]["동일가중"]}
+
+
+def grid_midas(L: pd.DataFrame, P: pd.DataFrame, units: dict, K: int = 63, n_jobs: int = 6, progress=print, cache: dict | None = None,
+               on_done=None) -> dict:
+    """MIDAS 탭과 같은 방식: 월말마다 그때까지 자료로 재추정 → 다음 달 수익 예측 → 그 달 동안 매주 같은 예측으로 매매."""
+    import analytics as A
+    from joblib import Parallel, delayed
+    ids = list(P.columns)
+    mac = ["yf:DX-Y.NYB", "fred:VIXCLS", "fred:DGS10"]
+    R = A.make_panel(L, ids + mac, units, "B", "logret", pd.Timestamp(TRAIN_START), pd.Timestamp(FROZEN_END))
+    comp = mm_composite(mm_features(L))
+    allc = pd.concat(comp.values(), keys=range(len(comp))).groupby(level=1).mean()       # 7갈래 요약의 평균 (품목별 멀티모달 종합)
+    variants = {"M① 자기 일간 수익률": lambda i: {"자기": R[i]},
+                "M② 자기 + 거시 일간 (달러·VIX·10년 금리)": lambda i: {"자기": R[i], **{m: R[m] for m in mac}},
+                "M③ 자기 + 멀티모달 종합 (7갈래 요약 평균)": lambda i: {"자기": R[i], "멀티모달": allc[i].reindex(allc.index.union(R.index)).ffill().reindex(R.index).fillna(0.0)}}
+    out = dict(cache or {})
+    for vn, mk in variants.items():
+        if all((m, vn) in out for m in ("MIDAS (Beta 가중)", "동일가중 (월 평균 집계)")):
+            continue
+        progress(f"MIDAS: {vn}")
+        res = Parallel(n_jobs=n_jobs, verbose=0)(delayed(_midas_item)(i, R[i], mk(i), K) for i in ids)
+        for m in ("MIDAS (Beta 가중)", "동일가중 (월 평균 집계)"):
+            W = pd.DataFrame({i: r[m] for i, r in zip(ids, res) if r})
+            W.index = pd.DatetimeIndex(W.index)
+            Wk = W.reindex(W.index.union(P.index)).ffill(limit=6).reindex(P.index)       # 월말 결정 → 다음 달 매주 같은 예측
+            out[(m, vn)] = Wk
+        if on_done:
+            on_done(out)
+    return out

@@ -870,10 +870,13 @@ def predict_grid(progress=None) -> pd.DataFrame:
         P, tab = PL.grid_tabular(L, progress=progress or print)
         pd.to_pickle((P, tab), pt)
     alt = _grid_alt_cache()
-    T, W = PL.grid_table(P, tab, alt)
+    extra = {g: pd.read_pickle(DATA / fn) for g, fn in (("패널", "predict_grid_panel_preds.pkl"), ("MIDAS", "predict_grid_midas_preds.pkl"))
+             if (DATA / fn).exists()}
+    T, W = PL.grid_table(P, tab, alt, extra=extra)
     W.to_csv(DATA / "predict_grid_weekly_compare.csv", encoding="utf-8-sig")
     _save("predict_grid", T, t0, dict(기간=f"{PL.GRID_START}~{PL.FROZEN_END}", 목표="4주 뒤 수익률", 재학습="매년 1월 (그해 이전 자료, 4주 purge)",
-                                      품목=int(P.shape[1]), 표준모델=PL.GRID_MODELS, 대안모델수=len(alt), 비용="편도 5bp", 목표변동성="10%"))
+                                      품목=int(P.shape[1]), 표준모델=PL.GRID_MODELS, 대안모델수=len(alt), 패널조합수=len(extra.get("패널", {})),
+                                      MIDAS조합수=len(extra.get("MIDAS", {})), 비용="편도 5bp", 목표변동성="10%"))
     return T
 
 
@@ -888,3 +891,19 @@ def predict_grid_alt(progress=None) -> pd.DataFrame:
 
 EXPERIMENTS["predict_grid"] = dict(title="④ 예측 — 모델 × 설명변수 백테스트 그리드 (19개 품목, 매년 재학습)", file="predict_grid_compare.csv",
                                    fn=predict_grid, eta="약 10분 (표준 모델) · 대안 모델은 predict_grid_alt (수 시간)", cols=["모델", "설명변수"])
+
+
+def predict_grid_panel_midas(progress=None) -> pd.DataFrame:
+    """그리드에 여러 품목 탭(패널 모델 8종 × 특성 묶음 5개)과 MIDAS(Beta 가중·동일가중 × 설명변수 3가지)를 같은 매매 규칙으로 추가."""
+    import analytics as A
+    import predict_lab as PL
+    pr = progress or print
+    cat = A.load_catalog()
+    units = dict(zip(cat.id, cat.unit))
+    La, Lr = PL.frozen_levels(True), PL.frozen_levels(False)
+    P = __import__("alt_ts").weekly_px(La, PL.TRAIN_START)
+    fm = DATA / "predict_grid_midas_preds.pkl"
+    PL.grid_midas(La, P, units, progress=pr, cache=pd.read_pickle(fm) if fm.exists() else None, on_done=lambda d: pd.to_pickle(d, fm))
+    fp = DATA / "predict_grid_panel_preds.pkl"
+    PL.grid_panel(La, Lr, P, units, progress=pr, cache=pd.read_pickle(fp) if fp.exists() else None, on_done=lambda d: pd.to_pickle(d, fp))
+    return predict_grid(progress)
