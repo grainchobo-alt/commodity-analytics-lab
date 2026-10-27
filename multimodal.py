@@ -842,7 +842,7 @@ def _beta_pred(R: pd.DataFrame, x: pd.Series, win: int = 260, lag: int = 4) -> p
     return cov.div(var, axis=0).mul(x, axis=0)
 
 
-def features(L: pd.DataFrame, P: pd.DataFrame, use_news: bool = True) -> dict:
+def features(L: pd.DataFrame, P: pd.DataFrame, use_news: bool = False) -> dict:
     """갈래 → {특성 이름: 주간 × 품목 표}."""
     import alt_ts as AT
     idx, cols = P.index, P.columns
@@ -948,7 +948,7 @@ def signed(S: pd.DataFrame, P: pd.DataFrame, win: int = 104, min_obs: int = 52, 
     return Z.mul(sgn, axis=0), ic
 
 
-def build(L: pd.DataFrame, P: pd.DataFrame, use_news: bool = True, F: dict | None = None) -> dict:
+def build(L: pd.DataFrame, P: pd.DataFrame, use_news: bool = False, F: dict | None = None) -> dict:
     F = F or features(L, P, use_news)
     out = dict(features=F, ic={}, cover={})
     for mode in ("rolling", "fixed"):
@@ -969,7 +969,7 @@ def build(L: pd.DataFrame, P: pd.DataFrame, use_news: bool = True, F: dict | Non
 # ============================================================================
 # 백테스트
 # ============================================================================
-def backtest(L: pd.DataFrame, cost_bp: float = 5.0, use_news: bool = True, progress=print) -> dict:
+def backtest(L: pd.DataFrame, cost_bp: float = 5.0, use_news: bool = False, progress=print) -> dict:   # GDELT 뉴스는 수집이 너무 느려 제외 (2026-10-27)
     import ls_extra as LX
     P = LS.weekly(L, LS.BASKET, "2001-01-01"); P = P[[c for c in LS.BASKET if c in P]]
     R = LS._ret(P)

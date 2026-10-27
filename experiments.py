@@ -680,28 +680,29 @@ PLUS_GROUPS = {"기본 (현재)": [], "+ 가치 (5년 평균 대비·품목 간 
                "+ 추세 (52주 모멘텀·칼만 기울기 t)": ["r52", "kal_t"], "+ 레짐 (HMM 스트레스·VIX 분위·상관 급등·바스켓 13주)": ["stress", "vix_pct", "ar_z", "mkt13"]}
 
 
-def defer_plus(progress=None, split: str = "2017-01-01") -> pd.DataFrame:
-    """품목마다 기존 '미루기' 실험이 학습으로 고른 (미룸 주, 계절 특성)을 그대로 쓰고, 설명변수만 바꿔 '더 쌀 확률' AUC 비교 (학습 2008–16 / 시험 2017–)."""
-    import procurement as PR
+def _plus_base(La):
+    """'더 쌀 확률' 보완 실험 공용: 19개 품목 주간 가격과 롱숏 연구 신호(가치·추세·칼만·레짐)."""
     import ls_strategies as LS
     import ls_extra as LX
-    from sklearn.metrics import roc_auc_score
-    t0 = time.time(); La, Lr, U, _ = _data()
-    ev = defer_evidence()
-    ids = [i for i in LS.BASKET if i in ev.index and i in La]
     P = LS.weekly(La, LS.BASKET, "2001-01-01"); P = P[[c for c in LS.BASKET if c in P]]; lp = np.log(P); R = LS._ret(P)
     v5 = 100 * (lp - lp.rolling(260, min_periods=156).mean())
-    v5r = v5.rank(axis=1, pct=True)
     r26 = lp.diff(26)
     sec_mean = r26.T.groupby(lambda c: LX.SECTOR.get(c, "기타")).transform("mean").T
-    catch = -(r26 - sec_mean) * 100                                             # 섹터 평균보다 뒤처질수록 +
-    r52 = 100 * lp.diff(52)
-    kal = pd.DataFrame({c: LX.kalman_trend(lp[c].ffill())["t"] for c in P})
-    stress = LS.stress_prob(La).reindex(P.index)
     vix = La["fred:VIXCLS"].resample("W-FRI").last().reindex(P.index).ffill() if "fred:VIXCLS" in La else pd.Series(np.nan, index=P.index)
-    vix_pct = vix.rolling(156, min_periods=52).rank(pct=True)
-    ar = LS.absorption(R, 52); d_ = ar - ar.shift(4); ar_z = d_ / d_.rolling(156, min_periods=52).std()
-    mkt13 = 100 * R.mean(1).rolling(13).sum()
+    ar = LS.absorption(R, 52); d_ = ar - ar.shift(4)
+    item = {"v5": v5, "v5_rank": v5.rank(axis=1, pct=True), "catchup": -(r26 - sec_mean) * 100, "r52": 100 * lp.diff(52),
+            "kal_t": pd.DataFrame({c: LX.kalman_trend(lp[c].ffill())["t"] for c in P})}
+    common = {"stress": LS.stress_prob(La).reindex(P.index), "vix_pct": vix.rolling(156, min_periods=52).rank(pct=True),
+              "ar_z": d_ / d_.rolling(156, min_periods=52).std(), "mkt13": 100 * R.mean(1).rolling(13).sum()}
+    return P, R, item, common
+
+
+def _defer_auc(name: str, groups: dict, item: dict, common: dict, ids: list, La, Lr, progress=None, split: str = "2017-01-01", settings=None):
+    """품목마다 기존 '미루기' 실험이 고른 (미룸 주, 계절 특성)을 그대로 두고 설명변수 묶음만 바꿔 '더 쌀 확률' AUC (학습 2008–16 / 시험 2017–)."""
+    import procurement as PR
+    from sklearn.metrics import roc_auc_score
+    t0 = time.time()
+    ev = defer_evidence()
     P0 = PR.PRESETS["추천 (고도화: 상대가치+계절+MIDAS)"]
     rows = []
     for j, i in enumerate(ids):
@@ -709,10 +710,9 @@ def defer_plus(progress=None, split: str = "2017-01-01") -> pd.DataFrame:
         sig = PR.signals(La[i], PR.item_lookback(i, int(P0["lookback"])), inp["rel"], inp["rel_sign"], inp["vol_fc"], inp["crisis"], P0["season"])
         W_ = PR.weekly_frame(Lr[i], sig, PR.score(sig, P0["w"]))
         h, sea = int(ev.loc[i, "미룸주"]), bool(ev.loc[i, "계절특성"])
-        allx = pd.DataFrame({"v5": v5[i], "v5_rank": v5r[i], "catchup": catch[i], "r52": r52[i], "kal_t": kal[i],
-                             "stress": stress, "vix_pct": vix_pct, "ar_z": ar_z, "mkt13": mkt13}).reindex(W_.index, method="ffill", limit=1)
-        groups = dict(PLUS_GROUPS); groups["+ 전체"] = sum(PLUS_GROUPS.values(), [])
+        allx = pd.DataFrame({**{k: v[i] for k, v in item.items() if i in v}, **common}).reindex(W_.index, method="ffill", limit=1)
         for gname, cols in groups.items():
+            cols = [c for c in cols if c in allx]
             F = PR.fc_walkforward(W_, h, season=sea, extra=allx[cols] if cols else None)
             for per, msk in [("학습", (F.index >= "2008-01-01") & (F.index < split)), ("시험", F.index >= split)]:
                 q = F[msk].dropna(subset=["p_down", "y_down"])
@@ -722,8 +722,18 @@ def defer_plus(progress=None, split: str = "2017-01-01") -> pd.DataFrame:
         if progress:
             progress((j + 1) / len(ids))
     df = pd.DataFrame(rows)
-    _save("defer_plus", df, t0, dict(품목=len(ids), 묶음=list(groups), 분할=split, 시계="기존 미루기 실험이 품목별로 고른 값"))
+    _save(name, df, t0, dict(품목=len(ids), 묶음=list(groups), 분할=split, 시계="기존 미루기 실험이 품목별로 고른 값", **(settings or {})))
     return df
+
+
+def defer_plus(progress=None, split: str = "2017-01-01") -> pd.DataFrame:
+    import ls_strategies as LS
+    La, Lr, U, _ = _data()
+    ev = defer_evidence()
+    P, R, item, common = _plus_base(La)
+    ids = [i for i in LS.BASKET if i in ev.index and i in La]
+    groups = dict(PLUS_GROUPS); groups["+ 전체"] = sum(PLUS_GROUPS.values(), [])
+    return _defer_auc("defer_plus", groups, item, common, ids, La, Lr, progress, split)
 
 
 EXPERIMENTS["defer_plus"] = dict(title="구매 '더 쌀 확률' 보완 — 가치·추세·칼만·레짐 신호 추가 시 AUC", file="defer_plus_compare.csv",
@@ -842,7 +852,7 @@ def multimodal(progress=None) -> pd.DataFrame:
     res = MMd.backtest(A.load_levels(roll_adjusted=True), progress=progress or print)
     res["returns"].to_csv(DATA / "multimodal_weekly_compare.csv", encoding="utf-8-sig")
     res["ic"].to_csv(DATA / "multimodal_ic_compare.csv", index=False, encoding="utf-8-sig")
-    src = {"WASDE 서술": (MMd.MM / "wasde_text.parquet").exists(), "GDELT 뉴스": (MMd.MM / "gdelt_scored.parquet").exists(),
+    src = {"WASDE 서술": (MMd.MM / "wasde_text.parquet").exists(), "GDELT 뉴스": False,
            "기상": (MMd.MM / "weather.parquet").exists()}
     _save("multimodal", res["table"], t0, dict(기간=f"{MMd.EVAL}–", 방향학습="과거 104주 IC 부호", 자료=src, 비용="편도 5bp", 목표변동성="10%"))
     return res["table"]
@@ -907,3 +917,51 @@ def predict_grid_panel_midas(progress=None) -> pd.DataFrame:
     fp = DATA / "predict_grid_panel_preds.pkl"
     PL.grid_panel(La, Lr, P, units, progress=pr, cache=pd.read_pickle(fp) if fp.exists() else None, on_done=lambda d: pd.to_pickle(d, fp))
     return predict_grid(progress)
+
+
+# 구매 '더 쌀 확률' 보완 2: 상관 · 멀티모달(뉴스 제외) · 예측 모델(④ 그리드 표본 외 예측) 신호
+PLUS2_GROUPS = {"기본 (현재)": [], "+ 레짐 (기존 보완 실험 최고)": ["stress", "vix_pct", "ar_z", "mkt13"],
+                "+ 상관 (품목-바스켓 52주 상관·흡수비율 수준)": ["corr52", "ar_lvl"],
+                "+ 멀티모달 7갈래 요약 (텍스트 FinBERT·리포트·COT·기상·매크로·금융·월간 거시, 뉴스 제외)": [],
+                "+ 멀티모달 COT·리포트 수치만": ["mm_포지션 (CFTC COT)", "mm_리포트 수치"],
+                "+ 예측 모델 4주 예측 (Lasso·EN·패널 EN·MIDAS·경량 Neural ODE·PatchTST·Chronos-Bolt)": []}
+
+
+def defer_plus2(progress=None, split: str = "2017-01-01") -> pd.DataFrame:
+    import ls_strategies as LS
+    import predict_lab as PL
+    La, Lr, U, _ = _data()
+    ev = defer_evidence()
+    P, R, item, common = _plus_base(La)
+    ids = [i for i in LS.BASKET if i in ev.index and i in La]
+    mkt = R.mean(1)
+    item["corr52"] = R.apply(lambda c: c.rolling(52, min_periods=40).corr(mkt))
+    common["ar_lvl"] = LS.absorption(R, 52)
+    F = PL.mm_features()
+    mm = {}
+    for fam, d in F.items():
+        Z = [PL._tz(S, 52) for nm, S in d.items() if not nm.startswith("뉴스")]          # GDELT 뉴스 제외
+        mm["mm_" + fam] = pd.concat(Z, keys=range(len(Z))).groupby(level=1).mean().clip(-4, 4).reindex(P.index).fillna(0.0)
+    item.update(mm)
+    pt, pa = DATA / "predict_grid_tab_preds.pkl", DATA / "predict_grid_alt_preds.pkl"
+    tab = pd.read_pickle(pt)[1] if pt.exists() else {}
+    alt = pd.read_pickle(pa) if pa.exists() else {}
+    pnl = pd.read_pickle(DATA / "predict_grid_panel_preds.pkl") if (DATA / "predict_grid_panel_preds.pkl").exists() else {}
+    mid = pd.read_pickle(DATA / "predict_grid_midas_preds.pkl") if (DATA / "predict_grid_midas_preds.pkl").exists() else {}
+    src = {"fc_lasso": tab.get(("Lasso", "② 자기 + 19개 원자재")), "fc_en": tab.get(("Elastic Net", "⑤-7 자기 + 멀티모달 · 월간 거시 (FRED)")),
+           "fc_panel_en": next((v for k, v in pnl.items() if k[0] == "Elastic Net" and k[1].startswith("P①")), None),
+           "fc_midas": mid.get(("MIDAS (Beta 가중)", "M① 자기 일간 수익률")),
+           "fc_node": alt.get(("Neural ODE 방식 (경량)", "설명변수 없음")), "fc_patch": alt.get(("PatchTST 방식 (경량)", "설명변수 없음")),
+           "fc_bolt": alt.get(("Chronos-Bolt-small (zero-shot)", "설명변수 없음"))}
+    fc = {k: PL._tz(v.reindex(index=P.index, columns=P.columns), 52).fillna(0.0) for k, v in src.items() if v is not None}
+    item.update(fc)
+    groups = dict(PLUS2_GROUPS)
+    groups["+ 멀티모달 7갈래 요약 (텍스트 FinBERT·리포트·COT·기상·매크로·금융·월간 거시, 뉴스 제외)"] = list(mm)
+    groups["+ 예측 모델 4주 예측 (Lasso·EN·패널 EN·MIDAS·경량 Neural ODE·PatchTST·Chronos-Bolt)"] = list(fc)
+    groups["+ 전체 (레짐 + 상관 + 멀티모달 + 예측 모델)"] = sum([v for k, v in groups.items() if k != "기본 (현재)" and not k.startswith("+ 멀티모달 COT")], [])
+    return _defer_auc("defer_plus2", groups, item, common, ids, La, Lr, progress, split,
+                      dict(예측모델=list(fc), 멀티모달="7갈래 요약 (뉴스 제외)"))
+
+
+EXPERIMENTS["defer_plus2"] = dict(title="구매 '더 쌀 확률' 보완 2 — 상관·멀티모달·예측 모델 신호 추가 시 AUC", file="defer_plus2_compare.csv",
+                                  fn=defer_plus2, eta="약 10~20분", cols=["id", "변수묶음", "기간"])

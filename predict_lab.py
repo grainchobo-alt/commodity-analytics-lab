@@ -41,7 +41,7 @@ def mm_features(L: pd.DataFrame | None = None) -> dict:
         return pd.read_pickle(FEAT_PKL)
     import multimodal as MMd
     L = frozen_levels() if L is None else L
-    F = MMd.features(L, AT.weekly_px(L))
+    F = MMd.features(L, AT.weekly_px(L), use_news=False)                 # GDELT 뉴스 제외 (수집 속도 문제)
     FEAT_PKL.parent.mkdir(parents=True, exist_ok=True)
     pd.to_pickle(F, FEAT_PKL)
     return F
@@ -494,12 +494,28 @@ def grid_table(P: pd.DataFrame, tab: dict, alt: dict, cost_bp: float = 5.0, extr
             d = (r - base[md].reindex(r.index)).dropna()
             row.update({f"{lab} Sharpe": mt["Sharpe"], f"{lab} 2007–2016": LS.metrics(r[:"2016-12-31"])["Sharpe"],
                         f"{lab} 2017–2021-10": LS.metrics(r["2017-01-01":RECENT])["Sharpe"], f"{lab} 최근 5년": LS.metrics(r[RECENT:])["Sharpe"],
-                        f"{lab} 공통 2012-07~": LS.metrics(r["2012-07-01":])["Sharpe"],
+                        f"{lab} 공통 2012-07~": LS.metrics(r["2012-07-01":])["Sharpe"], f"{lab} 2017~": LS.metrics(r["2017-01-01":])["Sharpe"],
                         f"{lab} t값": mt["Sharpe"] * np.sqrt(len(r) / 52) if np.isfinite(mt["Sharpe"]) else np.nan,
                         f"{lab} 최대낙폭 (%)": mt["최대낙폭 (%)"],
                         f"{lab} 52주 모멘텀 대비 차이 t": float(d.mean() / d.std() * np.sqrt(len(d))) if len(d) > 52 and d.std() > 0 else np.nan})
         rows.append(row)
-    return pd.DataFrame(rows), pd.DataFrame(W)
+    T, Wd = pd.DataFrame(rows), pd.DataFrame(W)
+    # 같은 모델의 위약(설명변수 시간 섞기) 대비: 표준 = ⑧, 패널 = P⑤ (같은 모델군·같은 모델). 차이 t = 주간 수익 차이의 t값
+    plk = {"표준": "⑧", "패널": "P⑤"}
+    for lab in ("방향", "순위 롱숏"):
+        dif, dt = [], []
+        for _, r_ in T.iterrows():
+            pk = plk.get(r_["모델군"])
+            pl = T[(T["모델군"] == r_["모델군"]) & (T["모델"] == r_["모델"]) & T["설명변수"].str.startswith(pk)] if pk else T.iloc[:0]
+            if not len(pl) or r_["설명변수"].startswith(pk):
+                dif.append(np.nan); dt.append(np.nan); continue
+            a = Wd[f"{r_['모델']} · {r_['설명변수']} | {lab}"]; b = Wd[f"{r_['모델']} · {pl['설명변수'].iloc[0]} | {lab}"]
+            d = (a - b).dropna()
+            dif.append(float(r_[f"{lab} Sharpe"] - pl[f"{lab} Sharpe"].iloc[0]))
+            dt.append(float(d.mean() / d.std() * np.sqrt(len(d))) if len(d) > 52 and d.std() > 0 else np.nan)
+        T[f"{lab} 위약 대비 차이"] = dif
+        T[f"{lab} 위약 대비 차이 t"] = dt
+    return T, Wd
 
 
 # ============================================================================
@@ -548,7 +564,7 @@ _SRC = [  # (갈래, 자료, 출처, 빈도, 파일, 날짜 열, 대상 품목, 
      "발표일 이후"),
     ("텍스트 (FinBERT)", "연준 베이지북 감성 (에너지·금속·농업 문장)", "미니애폴리스 연준 베이지북 아카이브", "연 8회", "beige.parquet", "month",
      "에너지·금속·농산물 품목", "발표 월 다음 주부터"),
-    ("텍스트 (FinBERT)", "뉴스 헤드라인 감성", "GDELT 2.0 DOC API (수집 진행 중)", "주간 집계", "gdelt_titles.parquet", "date", "19개 품목", "기사 날짜 이후"),
+    ("텍스트 (FinBERT)", "뉴스 헤드라인 감성", "GDELT 2.0 DOC API — 요청 제한으로 수집 중단, 분석에서 제외", "주간 집계", "gdelt_titles.parquet", "date", "19개 품목", "기사 날짜 이후"),
     ("리포트 수치", "WASDE 기말재고·재고율·생산 수정폭", "USDA WASDE 수치표", "월간", "../reports/wasde_features.parquet", "release", "곡물·유지·설탕·면화",
      "발표 12:00 ET → 그날 금요일 종가부터"),
     ("리포트 수치", "EIA STEO 3개월 가격 전망 수정폭", "EIA STEO 엑셀 (원문 data/reports/raw)", "월간", "../reports/steo_features.parquet", "avail",
@@ -636,10 +652,11 @@ def export_mm_excel(path: Path | None = None) -> Path:
 PANEL_MACRO = ("yf:DX-Y.NYB", "fred:VIXCLS", "fred:DGS10", "fred:BAA10Y")
 
 
-def _panel_sets(chars0: list, macro_chars: list, mm_chars: list) -> dict:
+def _panel_sets(chars0: list, macro_chars: list, mm_chars: list, sum_chars: list) -> dict:
     return {"P① 기본 특성 (모멘텀·반전·변동성·왜도·롤수익·COT·계절)": chars0,
             "P② 기본 + 거시 β×Δ (달러·VIX·10년 금리·신용)": chars0 + macro_chars,
             "P③ 기본 + 멀티모달 전부": chars0 + mm_chars,
+            "P③-요약 기본 + 멀티모달 7갈래 요약 (갈래별 과거 표준화 평균)": chars0 + sum_chars,
             "P④ 기본 + 거시 + 멀티모달": chars0 + macro_chars + mm_chars,
             "P⑤ 위약 · P④의 거시·멀티모달 특성을 13주 블록으로 시간 섞기": chars0 + macro_chars + mm_chars}
 
@@ -659,18 +676,20 @@ def grid_panel(L_adj: pd.DataFrame, L_raw: pd.DataFrame, P: pd.DataFrame, units:
     models = models or PN.PANEL_MODELS
     F = mm_features(L_adj)
     mm = {"MM · " + nm: S for d in F.values() for nm, S in d.items()}
+    mm.update({"MM요약 · " + fam: S for fam, S in mm_composite(F).items()})   # 7갈래 요약 (특성 수를 54 → 7로 줄인 판)
     pan = PN.build_panel(L_adj, L_raw, list(P.columns), units, "W-FRI", "futures", "vol_cs", PANEL_MACRO, None, mm=mm)
     cols = list(pan["X"].columns)
     macro_c = [c for c in cols if c.startswith("거시")]
     mm_c = [c for c in cols if c.startswith("MM · ")]
+    sum_c = [c for c in cols if c.startswith("MM요약 · ")]
     chars0 = [c for c in PN.CHARS if c in cols]
-    sets = _panel_sets(chars0, macro_c, mm_c)
+    sets = _panel_sets(chars0, macro_c, mm_c, sum_c)
     # 위약판: 거시·멀티모달 특성의 날짜를 13주 블록 단위로 섞음 (품목 간 순위 구조는 유지, 시점 정보만 제거)
     X = pan["X"]
     ud = np.unique(X.index.get_level_values("date"))
     perm = ud[_shuffle_rows(len(ud), 7)]
     mp = dict(zip(ud, perm))
-    sh = X[macro_c + mm_c].copy()
+    sh = X[macro_c + mm_c + sum_c].copy()
     src = sh.copy(); src.index = pd.MultiIndex.from_arrays([[mp[d] for d in X.index.get_level_values("date")], X.index.get_level_values("id")])
     sh.loc[:, :] = src.reindex(X.index).fillna(0.0).values
     pan_pl = dict(pan, X=pd.concat([X[chars0], sh], axis=1)[cols])

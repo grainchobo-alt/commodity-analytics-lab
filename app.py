@@ -2189,6 +2189,10 @@ LDA = 군집이 가장 잘 갈리는 2차원 지도 축, 로지스틱 계수 = �
 시험 AUC 평균: 기본 0.544 · +가치 0.553 · +추세 0.545 · +레짐 0.551 · +전체 0.555. 품목마다 학습 AUC 1위 묶음을 고르면 0.556(+0.012, 19개 중 11개 개선, t 2.07) — 레짐 묶음이 8품목에서 선택.
 개선은 통계적으로 의미 있는 경계지만 크기가 작고, 시험 AUC > 0.55 품목 수는 7 → 8. ★ 구매 탭 '보완 실험' 펼치기에 품목별 결과.
 
+**상관·멀티모달·대안 시계열 등 다른 탭 방법론을 구매 판단에 넣으면 AUC가 오르나? (보완 실험 2, 2026-10-27)** → 같은 틀로 상관(품목-바스켓 52주 상관·흡수비율), 멀티모달 7갈래 요약(뉴스 제외), COT·리포트만,
+④ 그리드의 표본 외 4주 예측(Lasso·EN·패널·MIDAS·Neural ODE·PatchTST·Chronos-Bolt)을 추가. 시험 AUC 평균 기본 0.544 → 레짐 0.551 · 상관 0.550(t 1.86) · 예측 모델 0.548 · 멀티모달 0.548 · 전체 0.544(변수가 많아 오히려 그대로).
+품목별 학습 1위 묶음 선택 0.552(9/19 개선, t 1.26). 어느 묶음도 t > 2가 아니라 판단 기준은 그대로 두고 참고 표시만 — ★ 구매 탭 '보완 실험 2'.
+
 **추세 배지** → 52주 수익률 부호 (견고성이 확인된 유일한 방향 신호). 🔴 보류인데 상승 추세면 '보류는 신중'.
 
 **🏷️ 횡단면상 매력 묶음 배지** → '횡단면' 하위 탭과 같은 방식(기본 19개 품목 · 구매 매력도 특성 · K-평균, K = 실루엣 자동)으로 군집했을 때 가격 매력 점수 평균이 가장 높은 군집 1에 속한 품목.
@@ -2452,6 +2456,28 @@ def _macro_table() -> pd.DataFrame:
     return pd.DataFrame(rows).set_index(["구분", "지표"])
 
 
+def _defer_plus_view(dp_):
+    """구매 탭 보완 실험 공용: 변수 묶음별 학습·시험 AUC 요약 + 품목별 시험 AUC (학습 1위 묶음 선택 포함)."""
+    tr_ = dp_[dp_.기간 == "학습"].pivot_table(index="품목", columns="변수묶음", values="AUC")
+    te_ = dp_[dp_.기간 == "시험"].pivot_table(index="품목", columns="변수묶음", values="AUC")
+    base_ = "기본 (현재)"
+    order_ = [base_] + [c for c in te_.columns if c != base_]
+    pick_ = tr_.idxmax(1)
+    sel_ = pd.Series([te_.loc[i, pick_[i]] for i in te_.index], index=te_.index)
+    summ_ = []
+    for c in order_:
+        d_ = te_[c] - te_[base_]
+        summ_.append({"변수 묶음": c, "학습 AUC 평균": tr_[c].mean(), "시험 AUC 평균": te_[c].mean(), "기본 대비 시험 차": d_.mean(),
+                      "개선 품목 수": f"{int((d_ > 0).sum())} / {len(d_)}", "차이 t값": d_.mean() / d_.std() * np.sqrt(len(d_)) if d_.std() > 0 else np.nan})
+    d_ = sel_ - te_[base_]
+    summ_.append({"변수 묶음": "품목마다 학습 AUC 1위 묶음 선택", "학습 AUC 평균": tr_.max(1).mean(), "시험 AUC 평균": sel_.mean(), "기본 대비 시험 차": d_.mean(),
+                  "개선 품목 수": f"{int((d_ > 0).sum())} / {len(d_)}", "차이 t값": d_.mean() / d_.std() * np.sqrt(len(d_))})
+    st.dataframe(pd.DataFrame(summ_).set_index("변수 묶음").style.format({"학습 AUC 평균": "{:.3f}", "시험 AUC 평균": "{:.3f}", "기본 대비 시험 차": "{:+.4f}",
+                                                                        "차이 t값": "{:+.2f}"}, na_rep="–"))
+    show_ = te_[order_].copy(); show_["학습으로 고른 묶음"] = pick_.map(lambda c: c.split(" (")[0])
+    st.dataframe(show_.style.format({c: "{:.3f}" for c in order_}), height=min(36 * (len(show_) + 1) + 4, 470))
+
+
 def tab_procure():
     import procurement as PR
     st.subheader("구매 의사결정 — 지금 살까, 미룰까")
@@ -2686,28 +2712,22 @@ def tab_procure():
         if dp_ is None:
             st.info("⑥ 실험 결과가 없습니다 — experiments.defer_plus() 실행 필요 (약 2분).")
         else:
-            tr_ = dp_[dp_.기간 == "학습"].pivot_table(index="품목", columns="변수묶음", values="AUC")
-            te_ = dp_[dp_.기간 == "시험"].pivot_table(index="품목", columns="변수묶음", values="AUC")
-            base_ = "기본 (현재)"
-            order_ = [base_] + [c for c in te_.columns if c != base_]
-            pick_ = tr_.idxmax(1)
-            sel_ = pd.Series([te_.loc[i, pick_[i]] for i in te_.index], index=te_.index)
-            summ_ = []
-            for c in order_:
-                d_ = te_[c] - te_[base_]
-                summ_.append({"변수 묶음": c, "학습 AUC 평균": tr_[c].mean(), "시험 AUC 평균": te_[c].mean(), "기본 대비 시험 차": d_.mean(),
-                              "개선 품목 수": f"{int((d_ > 0).sum())} / {len(d_)}", "차이 t값": d_.mean() / d_.std() * np.sqrt(len(d_)) if d_.std() > 0 else np.nan})
-            d_ = sel_ - te_[base_]
-            summ_.append({"변수 묶음": "품목마다 학습 AUC 1위 묶음 선택", "학습 AUC 평균": tr_.max(1).mean(), "시험 AUC 평균": sel_.mean(), "기본 대비 시험 차": d_.mean(),
-                          "개선 품목 수": f"{int((d_ > 0).sum())} / {len(d_)}", "차이 t값": d_.mean() / d_.std() * np.sqrt(len(d_))})
-            st.dataframe(pd.DataFrame(summ_).set_index("변수 묶음").style.format({"학습 AUC 평균": "{:.3f}", "시험 AUC 평균": "{:.3f}", "기본 대비 시험 차": "{:+.4f}",
-                                                                                "차이 t값": "{:+.2f}"}, na_rep="–"))
-            show_ = te_[order_].copy(); show_["학습으로 고른 묶음"] = pick_.map(lambda c: c.split(" (")[0])
-            st.dataframe(show_.style.format({c: "{:.3f}" for c in order_}), height=min(36 * (len(show_) + 1) + 4, 470))
+            _defer_plus_view(dp_)
             st.caption("품목마다 기존 '미루기' 실험이 고른 미루는 기간·계절 특성은 그대로 두고 설명변수만 추가. 가치 = 5년 평균 대비 위치·19개 품목 중 순위·섹터 평균 대비 뒤처짐, "
                        "추세 = 52주 수익률·칼만 기울기 t, 레짐 = 다변량 HMM 스트레스 확률·VIX 3년 분위·흡수비율 급등 z·바스켓 13주 수익(모두 그 주까지 정보). "
                        "결과: 평균 AUC +0.01 안팎(0.544 → 0.555), 품목별로 학습 1위 묶음을 고르면 +0.012(19품목 중 11개 개선, t 2.07) — 개선은 있으나 작음. "
                        "레짐 신호가 가장 자주 선택(8품목). 품목 하나의 AUC 표준오차가 약 0.03이라 개별 품목의 ±0.02 변화는 잡음 범위.")
+    with st.expander("보완 실험 2 — 상관·멀티모달(뉴스 제외)·예측 모델(④ 그리드) 신호를 넣으면 AUC가 오르나"):
+        dp2_, _m2 = EX.load("defer_plus2")
+        if dp2_ is None:
+            st.info("⑥ 실험 결과가 없습니다 — experiments.defer_plus2() 실행 필요 (약 15분).")
+        else:
+            _defer_plus_view(dp2_)
+            st.caption("같은 틀(품목별 미룸 주·계절 특성 고정, 학습 2008–16 / 시험 2017–). 상관 = 품목-바스켓 52주 상관·흡수비율 수준, "
+                       "멀티모달 = 7갈래 요약(텍스트 FinBERT·리포트·COT·기상·매크로·금융·월간 거시, 품목별 과거 표준화 평균, GDELT 뉴스 제외), "
+                       "예측 모델 = ④ 전략 백테스트의 표본 외 4주 예측(Lasso·Elastic Net·패널 Elastic Net·MIDAS·경량 Neural ODE·PatchTST·Chronos-Bolt, 과거 표준화). "
+                       "결과: 시험 AUC 평균 기본 0.544 → 레짐 0.551 · 상관 0.550(11/19 개선, t 1.86) · 예측 모델 0.548 · 멀티모달 0.548 · 전체 0.544. "
+                       "품목마다 학습 1위 묶음을 고르면 0.552(9/19 개선, t 1.26) — 어느 묶음도 기본보다 확실히 낫지 않아 판단 기준은 그대로 둠.")
     with st.expander("신호 구성 상세표 (구성요소 점수 · 위험 · 4주 범위)"):
         show = T.drop(columns=["id"]).set_index("품목")
         st.dataframe(show.style.format({c: "{:,.1f}" for c in show.columns if show[c].dtype.kind == "f"}))
@@ -3958,6 +3978,35 @@ def page_vol():
         vol_forecast_check()
 
 
+def _grid_preselect(T: pd.DataFrame, mode: str):
+    """사전 선택 검증: 2007–2016 성과로만 조합을 고르고 2017년 이후 성과로 확인 (전략 전체, 위약 제외)."""
+    tr, te = f"{mode} 2007–2016", f"{mode} 2017~"
+    with st.expander(f"사전 선택 검증 — 2007–2016 성과로 상위 조합을 고르면 2017년 이후에도 좋았나 ({mode})", expanded=True):
+        if te not in T:
+            st.caption("결과표를 다시 계산하는 중 — 끝나면 표시됩니다.")
+            return
+        C = T[~T["설명변수"].str.startswith(("⑧", "P⑤"))].dropna(subset=[tr, te]).copy()
+        C["시험 순위"] = C[te].rank(ascending=False).astype(int)
+        rho = C[tr].corr(C[te], method="spearman")
+        top = C.sort_values(tr, ascending=False).head(10)
+        mom = T[T["모델"] == "52주 모멘텀"]
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("학습 1위의 2017~ Sharpe", f"{top[te].iloc[0]:+.2f}", f"시험 {int(top['시험 순위'].iloc[0])}위 / {len(C)}", delta_color="off")
+        m2.metric("학습 상위 10개 평균 (2017~)", f"{top[te].mean():+.2f}", f"전체 평균 {C[te].mean():+.2f}", delta_color="off")
+        m3.metric("52주 모멘텀 (2017~)", f"{mom[te].iloc[0]:+.2f}" if len(mom) else "–")
+        m4.metric("학습·시험 Sharpe 순위 상관", f"{rho:+.2f}", "0 근처 = 과거 순위가 미래를 못 맞힘", delta_color="off")
+        st.dataframe(top[["모델군", "모델", "설명변수", tr, te, "시험 순위"]].style.format({tr: "{:+.2f}", te: "{:+.2f}"}), hide_index=True, use_container_width=True)
+        f = go.Figure()
+        for j, (g, G) in enumerate(C.groupby("모델군")):
+            f.add_trace(go.Scatter(x=G[tr], y=G[te], mode="markers", name=g, marker=dict(size=7, color=PAL[j % 8], opacity=0.75),
+                                   text=G["모델"] + " · " + G["설명변수"], hovertemplate="%{text}<br>2007–16 %{x:+.2f} → 2017~ %{y:+.2f}<extra></extra>"))
+        f.add_hline(y=0, line_color="#898781", line_width=1); f.add_vline(x=0, line_color="#898781", line_width=1)
+        st.plotly_chart(fig_layout(f, 340, title=f"전략별 2007–2016 Sharpe(학습) vs 2017~ Sharpe(시험) — {len(C)}개, 위약 제외", xaxis_title="2007–2016", yaxis_title="2017~",
+                                   hovermode="closest"), key=f"pg_pre_{mode}")
+        st.caption("고르는 과정까지 표본 외로 둔 검증: 시험 기간 성과는 고를 때 보지 않음. 학습 상위가 시험에서도 상위·양수면 그 조합의 우위가 지속적이라는 근거, "
+                   "순위 상관이 0 근처이고 상위 10개 평균이 전체 평균과 비슷하면 2007–2016의 순위는 운이 컸다는 뜻. 대안 시계열(neuralforecast)은 2년마다 재학습판.")
+
+
 def _predict_grid_section():
     import experiments as EX
     if "predict_grid" not in EX.EXPERIMENTS:
@@ -3998,8 +4047,10 @@ def _predict_grid_section():
     D = T[T["모델군"].isin(grp)].copy()
     sc = f"{mode} Sharpe"
     D = D.sort_values(sc, ascending=False)
-    cols = ["모델군", "모델", "설명변수", "예측 시작", sc, f"{mode} 2007–2016", f"{mode} 2017–2021-10", f"{mode} 최근 5년", f"{mode} 공통 2012-07~",
+    cols = ["모델군", "모델", "설명변수", "예측 시작", sc, f"{mode} 위약 대비 차이", f"{mode} 위약 대비 차이 t", f"{mode} 2007–2016", f"{mode} 2017~",
+            f"{mode} 2017–2021-10", f"{mode} 최근 5년", f"{mode} 공통 2012-07~",
             f"{mode} t값", f"{mode} 최대낙폭 (%)", f"{mode} 52주 모멘텀 대비 차이 t", "IC (주별 순위 상관)", "방향 적중률"]
+    cols = [c for c in cols if c in D.columns]
     fmt = {c: "{:+.2f}" for c in cols[4:]}
     fmt.update({"IC (주별 순위 상관)": "{:+.3f}", "방향 적중률": "{:.1%}", f"{mode} 최대낙폭 (%)": "{:.1f}"})
     st.dataframe(D[cols].style.format(fmt, na_rep="–"), hide_index=True, use_container_width=True, height=420)
@@ -4013,6 +4064,10 @@ def _predict_grid_section():
         st.info(f"**최고 = {best['모델']} · {best['설명변수']}** ({mode} Sharpe {best[sc]:+.2f} · 52주 모멘텀 대비 차이 t {best[f'{mode} 52주 모멘텀 대비 차이 t']:+.2f}). "
                 f"기준 52주 모멘텀 {base.iloc[0]:+.2f}. 전략을 {n_}개 시험했으므로 예측력이 전혀 없어도 최댓값은 약 +{thr:.2f}까지 나올 수 있음 (Sharpe 표준오차 {se:.2f} × √(2 ln N)) — "
                 f"위약(⑧, 설명변수 시간 섞기) 모델 6개 평균 {pl.mean():+.2f} · 최고 {pl.max():+.2f}. 진짜 정보라면 같은 모델의 위약보다 확실히 높고 하위 기간 모두 양수여야 함.")
+    if f"{mode} 위약 대비 차이" in T:
+        st.caption("위약 대비 차이 = 같은 모델·같은 설명변수 개수인데 설명변수의 시간 순서만 섞은 판(표준 ⑧ · 패널 P⑤)과의 Sharpe 차이, t = 두 전략 주간 수익 차이의 t값. "
+                   "|t| ≥ 2여야 설명변수가 '진짜 정보'라고 볼 수 있음. 대안 시계열·MIDAS는 위약판이 없어 빈칸.")
+    _grid_preselect(T, mode)
     st.markdown(f"##### 표준 모델 — 모델 × 설명변수 ({mode} Sharpe, 2007–)")
     S = T[T["모델군"] == "표준"].pivot_table(index="설명변수", columns="모델", values=sc)
     if len(S):
@@ -4043,7 +4098,8 @@ def _predict_grid_section():
         st.caption("대안 시계열 모델 결과는 계산 중 — 끝나면 이 자리에 표시됩니다 (`EX.predict_grid_alt()`).")
     for g_, ttl_, note_ in (("패널", "여러 품목 탭 패널 모델 — 모델 × 특성 묶음",
                              "여러 품목 탭과 같은 엔진: 특성을 매 시점 품목 간 순위로 바꿔 19개 품목을 한 모델로 학습, 목표 = 다음 주 변동성 표준화 상대 수익(시점 평균 제거), "
-                             "26주마다 재학습 · 최소 학습 156주. 상대 수익을 예측하므로 '방향' 매매도 사실상 품목 간 상대 베팅. P⑤ = 거시·멀티모달 특성의 날짜를 섞은 위약."),
+                             "26주마다 재학습 · 최소 학습 156주. 상대 수익을 예측하므로 '방향' 매매도 사실상 품목 간 상대 베팅. P⑤ = 거시·멀티모달 특성의 날짜를 섞은 위약. "
+                             "P③-요약 = 멀티모달 54개 대신 7갈래 요약값 7개만 — P③보다 나으면 54개를 넣어 생긴 과적합, 비슷하게 나쁘면 정보 자체가 없음."),
                             ("MIDAS", "MIDAS 탭 — 가중 방식 × 일간 설명변수",
                              "MIDAS 탭과 같은 엔진: 월말마다 그때까지 자료로 재추정(최소 60개월) → 다음 달 수익 예측, 일간 시차 63개를 Beta 가중(MIDAS) 또는 월 평균(동일가중)으로 요약. "
                              "월 1회 예측을 그 달 매주 같은 값으로 매매. M③ 멀티모달 종합 = 품목별 7갈래 요약값의 평균(주간 → 일간 계단식).")):
@@ -4528,7 +4584,7 @@ def _multimodal_section():
         EX = importlib.reload(EX)
     st.markdown("##### 멀티모달 — 뉴스·USDA 원문(FinBERT 감성) · 리포트 수치 · 기상 · 매크로·금융을 수치 전략에 섞으면")
     st.caption(f"📌 결과 고정: {PERIOD_MM} 자료 기준 (`python experiments.py multimodal`로 미리 계산). 데이터 업데이트를 해도 다시 계산하지 않습니다.")
-    st.caption("갈래 7개: ① 텍스트 = USDA WASDE 서술 문단(밀·곡물·유지작물·설탕·축산·면화) · EIA STEO 서술(원유·연료·가스) · 연준 베이지북(에너지·금속·농업 문장) · GDELT 뉴스 헤드라인을 FinBERT(금융 문장 감성 모델)로 채점, "
+    st.caption("갈래 7개: ① 텍스트 = USDA WASDE 서술 문단(밀·곡물·유지작물·설탕·축산·면화) · EIA STEO 서술(원유·연료·가스) · 연준 베이지북(에너지·금속·농업 문장) 서술을 FinBERT(금융 문장 감성 모델)로 채점 (GDELT 뉴스는 요청 제한으로 수집이 너무 느려 제외), "
                "② 리포트 수치 = WASDE 기말재고·재고율·생산 수정폭, EIA 주간 재고(원유·휘발유·난방유·천연가스, 5년 평년 대비), EIA STEO 3개월 가격 전망 수정폭, LME 구리 재고·금/은 ETF 보유량, USDA NASS 주간 작황 우량 비율, "
                "③ 포지션 = CFTC COT 19개 품목(투기·상업 순포지션, 쏠림, 4주 변화), "
                "④ 기상 = NOAA 엘니뇨 ONI·남방진동 SOI·지구 기온 편차 + Open-Meteo 주산지 22곳 4주 강수(z)·기온 편차·냉난방 수요, "
@@ -4536,7 +4592,7 @@ def _multimodal_section():
                "⑦ 월간 거시(FRED) = CPI·실업률·산업생산·M2·소비자심리·PPI·고용 전년비(발표 지연 45일, 최신 수정치라 미래 정보 일부 섞일 수 있음). "
                "공통 값(기상 지수·매크로·금융·거시)은 '품목별 과거 민감도(β) × 현재 값'으로 바꿈. "
                "모든 값은 발표 이후에만 사용. 신호 방향(+/−)은 두 방식: ① 매주 갱신 = 그 시점까지 104주 순위 IC 평균 부호, ② 고정 = 특성이 생긴 뒤 처음 3년 IC로 한 번 정하고 고정(사후 부호 선택 없음). "
-               "매매는 순위 롱숏(상위 1/3 롱 · 하위 1/3 숏, 4주 보유), 편도 5bp, 목표 변동성 10%. 평가 2007–(롱숏 탭과 같음, 최근 5년 2021-11~ 따로), 자료는 1990년부터(GDELT 뉴스는 2017년~).")
+               "매매는 순위 롱숏(상위 1/3 롱 · 하위 1/3 숏, 4주 보유), 편도 5bp, 목표 변동성 10%. 평가 2007–(롱숏 탭과 같음, 최근 5년 2021-11~ 따로), 자료는 1990년부터.")
     T, meta = EX.load("multimodal")
     fw = EX.DATA / "multimodal_weekly_compare.csv"
     if T is None or not fw.exists():
