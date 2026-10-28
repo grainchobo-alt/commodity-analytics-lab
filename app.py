@@ -2918,7 +2918,7 @@ K2 칼만 동적 헤지 페어(회귀계수 β가 매주 변하는 페어의 예
 **다른 품목의 지난 충격·분산이 이 품목의 분산에 들어가도록** 허용함. A의 비대각 = i 품목의 지난주 뜻밖의 가격 변화(충격)가 j 품목의 이번 주 분산을 키우는 정도('충격 → 분산 전이', ARCH 전이),
 B의 비대각 = i 품목의 높은 분산이 j 품목 분산으로 이어지는 정도('분산 → 분산 전이', GARCH 전이). 즉 **수익률(평균)이 옮겨 가는 것(VAR의 영역)이 아니라 위험(2차 모멘트)이 옮겨 가는 것** — 문헌의 'volatility spillover'.
 
-**목표변동성 서브탭의 3D 투자선 수익률이 같은 화면의 목표 50% 표 수익률보다 훨씬 낮은 이유?** → 점 구름·투자선은 재료 전략을 **섞기만 한 상태**(레버리지를 다시 맞추기 전)이기 때문.
+**투자선(3D·2D, Portfolio Customization) 수익률이 목표변동성 서브탭 표의 같은 목표(예: 50%) 수익률보다 훨씬 낮은 이유?** → 점 구름·투자선은 재료 전략을 **섞기만 한 상태**(레버리지를 다시 맞추기 전)이기 때문.
 섞으면 손실이 서로 상쇄돼 변동성이 목표보다 낮아지고 수익도 그만큼 낮게 찍힘. 성과표의 가치 혼합은 섞은 뒤 **다시 목표 변동성까지 레버리지를 키운** 결과 → 3D·2D의 ☆ 점이 표와 같은 위치.
 또 배율 상한(예: 4배)에 걸린 재료(52주 모멘텀 등)는 목표를 올려도 단독 수익이 덜 늘어 구름 전체가 아래에 머묾.
 
@@ -5746,27 +5746,6 @@ def _voltgt_section():
             f2.add_trace(go.Scatter(x=eq.index, y=eq.values, name=f"목표 {t_}%", line=dict(width=2.2 if t_ == 10 else 1.4, color=PAL[j % 8])))
         st.plotly_chart(shade(fig_layout(f2, 400, title=f"자본 1 → 누적 (복리, {short[s_pick]}, 상한 {cap})", hovermode="x",
                                          yaxis=dict(type="log" if logy else "linear", title="자본 (배)")), W_.index), key="vt_cum")
-    if fw.exists():
-        st.markdown("---")
-        st.markdown("#### 효율적 투자선 — 위에서 고른 배율 상한으로, 이 전략들을 섞으면")
-        e1, e2 = st.columns([2.6, 1])
-        trio = [x for x in ["기준 · MinVar 롱 (⑥)", "기준 · 52주 모멘텀 (④)", "V1 가치 (5년 평균 대비 싼 품목 롱)"] if x in order]
-        ef_s = e1.multiselect("섞을 전략 (2개 이상)", order, trio, format_func=lambda x: short[x], key="vt_ef_s")
-        tg_ = sorted(VT["목표 변동성 (%)"].unique())
-        ef_t = e2.selectbox("목표 변동성 (%)", tg_, tg_.index(10) if 10 in tg_ else 0, key="vt_ef_t")
-        capn_ = {"2배": 2, "4배": 4, "8배": 8, "없음": 1000}[cap]
-        cols_ = [f"{x}|{ef_t}|{capn_}" for x in ef_s]
-        if len(ef_s) >= 2 and all(c in W_ for c in cols_):
-            Xf = W_[cols_].loc["2007-01-01":].dropna()
-            Xf.columns = [short[x] for x in ef_s]
-            w_ = pd.Series([{"기준 · MinVar 롱 (⑥)": 50.0, "기준 · 52주 모멘텀 (④)": 25.0, "V1 가치 (5년 평균 대비 싼 품목 롱)": 25.0}[x] if set(ef_s) == set(trio) else 1.0
-                            for x in ef_s], Xf.columns)
-            st.caption(("내 비중 = MinVar 50 · 모멘텀 25 · 가치 25 (가치 혼합)" if set(ef_s) == set(trio) else "내 비중 = 동일 비중") +
-                       f" · 재료 = 각 전략을 목표 {ef_t}% · 배율 상한 {cap}로 계산한 주간 수익률 → 섞은 뒤 다시 목표 {ef_t}%로 맞춤(☆).")
-            combo_f, _ = _combine(Xf, "직접 입력", w_, tgt=float(ef_t))
-            _frontier_section(Xf, w_, combo_f, float(ef_t), kp="vt")
-        else:
-            st.info("전략을 2개 이상 고르세요.")
     st.markdown("""
 **읽는 법**
 - **산술 연수익**은 목표에 거의 비례(레버리지만 키운 것이라 Sharpe는 그대로). 하지만 **복리 연수익**(실제 자본이 불어나는 속도)은 변동성²/2만큼 덜 늘어남 — 가치 혼합은 목표 50%에서 산술 45%가 복리 36% 정도.
