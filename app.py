@@ -5112,23 +5112,32 @@ def _voltgt_section():
         VT["레버리지 상한"] = "4배"
     st.caption("공통 틀: 롱숏 탭과 같은 19개 품목 · 주간 결정 · 편도 5bp. 품목 비중에 '목표 ÷ 직전 26주 실현 변동성' 배율을 곱해 목표 수준에 맞추고(배율 상한까지), 혼합은 섞은 뒤 다시 맞춤(혼합 배율 상한 4배). "
                "기본 = 목표 10% · 상한 4배(롱숏 탭 표와 같음). 2007-01 ~ 2026-10 평가.")
+    st.caption("무엇이 손익에 들어갔나: ✔ 변동성이 낮을수록 레버리지를 키움(배율 = 목표 ÷ 직전 26주 실현 변동성 — 변동성이 1/3이면 3배, 분산이 1/3이면 √3≈1.7배) · ✔ 레버리지 배율 상한(선택값) · ✔ 거래비용 편도 5bp. ✖ 차입이자 없음(선물은 명목 전액을 빌리지 않음) · ✖ 증거금에 붙는 이자 수익도 더하지 않음(보수적) · ✖ 거래소 증거금률은 손익 계산에 안 들어감 — 그 레버리지에 자본이 얼마나 묶이는지 보여 주는 표시용 가정.")
     k1, k2, k3 = st.columns([1.1, 1.6, 1])
     caps = [c for c in ["2배", "4배", "8배", "없음"] if c in set(VT["레버리지 상한"])]
     cap = k1.radio("레버리지 상한 (변동성 맞춤 배율의 최대치)", caps, index=caps.index("4배") if "4배" in caps else 0, horizontal=True, key="vt_cap",
                    help="원래 비중에 곱하는 배율(목표 ÷ 직전 26주 실현 변동성)의 최대치. 상한이 낮으면 목표를 올려도 실제 변동성이 따라가지 않음(특히 52주 모멘텀). '없음' = 목표를 맞출 때까지 배율을 키움. 실제 명목 노출은 '총 명목 노출' 지표로 확인")
     mets = ["연수익 산술 (%)", "연수익 복리 (%)", "Sharpe", "실현 변동성 (%)", "최대 낙폭 (%)", "최악 1년 (%)", "최악 1주 (%)", "총 명목 노출 평균 (배)", "필요 증거금 (자본 대비 %)"]
-    met = k2.selectbox("지표", mets, key="vt_met")
+    met = k2.selectbox("그래프 지표 (아래 선 그래프)", mets, key="vt_met")
     mrate = k3.slider("거래소 증거금률 가정 (명목 대비 %)", 3, 20, 8, key="vt_mr",
                       help="원자재 선물 개시 증거금은 대략 명목의 5–12%(품목·변동성에 따라 다름). 필요 증거금 = 총 명목 노출 × 증거금률")
     D = VT[VT["레버리지 상한"] == cap].copy()
     D["필요 증거금 (자본 대비 %)"] = D["총 명목 노출 평균 (배)"] * mrate
     order = list(D["전략"].drop_duplicates())
     short = {s_: s_.replace(" (사후 선택 주의)", "").replace("혼합 · ", "").replace("기준 · ", "") for s_ in order}
-    PV = D.pivot(index="전략", columns="목표 변동성 (%)", values=met).reindex(order)
-    PV.index = [short[s_] for s_ in PV.index]
+    rows3 = [("연수익 산술 (%)", "① 연수익 (%)"), ("실현 변동성 (%)", "② 연 변동성 (%)"), ("최대 낙폭 (%)", "③ 최대 낙폭 MDD (%)")]
+    parts = []
+    for col_, lab_ in rows3:
+        pv_ = D.pivot(index="전략", columns="목표 변동성 (%)", values=col_).reindex(order)
+        pv_.index = pd.MultiIndex.from_tuples([(short[s_], lab_) for s_ in pv_.index], names=["전략", "지표"])
+        parts.append(pv_)
+    PV = pd.concat(parts)
+    PV = PV.reindex(pd.MultiIndex.from_tuples([(short[s_], lab_) for s_ in order for _, lab_ in rows3], names=["전략", "지표"]))
     PV.columns = [f"목표 {c}%" for c in PV.columns]
-    fmt = "{:.2f}" if met in ("Sharpe", "총 명목 노출 평균 (배)") else "{:.1f}"
-    st.dataframe(PV.style.format(fmt, na_rep="–"), use_container_width=True)
+    st.markdown(f"##### 전략별 연수익 · 연 변동성 · 최대 낙폭 (레버리지 배율 상한 {cap})")
+    st.dataframe(PV.style.format("{:.1f}", na_rep="–"), use_container_width=True, height=min(36 * (len(PV) + 1) + 4, 1120))
+    st.caption("행마다 3줄: ① 산술 연수익(주간 수익률 평균 × 52) · ② 실제로 나온 연 변동성(목표와 다르면 배율 상한에 걸린 것) · ③ 최대 낙폭(고점 대비 최대 손실, 복리 자본 기준). "
+               "같은 전략이면 ①·②·③이 목표에 거의 비례해 함께 커짐 — 수익만 커지는 게 아님. 복리 수익·Sharpe·노출·증거금은 아래 '지표'에서 선택.")
     if met.startswith("총 명목") or met.startswith("필요 증거금"):
         st.caption("총 명목 노출 = 롱·숏 비중 절댓값의 합(자본 대비 배수), 2007– 주간 평균. 다전략(K2 페어·COT 포함)은 비중을 재구성하지 않아 '–'. "
                    f"필요 증거금 = 노출 × 증거금률 {mrate}% — 100%를 넘으면 그 계좌로는 운용 불가, 50%를 넘으면 손실 시 마진콜 여유가 거의 없음. 급등락 때 거래소가 증거금률을 올리면 더 필요.")
