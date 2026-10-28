@@ -4436,6 +4436,23 @@ def tab_ls():
     st.dataframe(TX.style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}", spx[0]: "{:+.2f}", spx[1]: "{:+.2f}",
                                   "t값": "{:+.2f}", "기존 70/30과 상관": "{:+.2f}", "52주 모멘텀과 상관": "{:+.2f}", "기존 70/30 대비 차이 t": "{:+.2f}"}, na_rep="–"),
                  height=min(36 * (len(TX) + 1) + 4, 470))
+    st.caption("※ 같은 '혼합 · MinVar 50 + 모멘텀 25 + 가치 25'가 ⑤ Portfolio Customization에서는 Sharpe 0.89–0.90으로 조금 다르게 나옴 — 계산 주기·재료는 같고, "
+               "섞은 뒤 목표 변동성 10%로 맞추는 배율(직전 26주 실현 변동성)의 출발점만 다름. 여기는 2001년부터 이어진 배율을 쓰고, Customization은 고정 재료가 2007년부터라 "
+               "2007년 초 약 반년(처음 13주 배율 1, 26주까지 짧은 창)을 새로 계산 → 2007년 중반 이후는 완전히 같음(상관 1.0, 처음 26주를 빼면 둘 다 0.896).")
+    _vt = A.DATA / "voltgt_compare.csv"
+    if _vt.exists():
+        with st.expander("목표 변동성 10% → 15 · 20 · 25 · 30%로 올리면? (상위 10개 전략, 낙폭 −30% 이내 최대 목표 변동성)", expanded=False):
+            VT = pd.read_csv(_vt, encoding="utf-8-sig").set_index("전략")
+            vm = st.radio("보기", ["Sharpe", "연수익", "복리", "최대낙폭"], horizontal=True, key="ls_vt_m",
+                          format_func=lambda x: {"연수익": "연수익 (산술, %)", "복리": "연수익 (복리, %)", "최대낙폭": "최대 낙폭 (%)"}.get(x, x))
+            cols_ = [f"{t}% {vm}" for t in (10, 15, 20, 25, 30)]
+            VS = VT[cols_ + ["낙폭 −30% 이내 최대 목표 변동성", "그때 연수익(근사)"]].copy()
+            VS.columns = [f"목표 {t}%" for t in (10, 15, 20, 25, 30)] + ["낙폭 −30% 이내 최대 목표 변동성 (%)", "그때 연수익 (%, 근사)"]
+            st.dataframe(VS.style.format("{:.2f}" if vm == "Sharpe" else "{:.1f}", na_rep="10% 미만 불가").format(
+                {"낙폭 −30% 이내 최대 목표 변동성 (%)": "{:.1f}", "그때 연수익 (%, 근사)": "{:.1f}"}, na_rep="5%에서도 초과"), use_container_width=True)
+            st.caption("같은 전략에 레버리지만 바꿔 다시 계산(2007–, 편도 5bp, 레버리지 최대 4배). 혼합 전략은 수익이 목표에 거의 비례하고 Sharpe는 유지되지만 낙폭이 빠르게 커짐 — "
+                       "복리 수익은 변동성²/2만큼 덜 늘어남. '낙폭 −30% 이내 최대 목표 변동성' = 목표 5 · 7.5 · 10 · 12.5 · 15 · 20 · 25 · 30% 결과 사이를 선형 보간해 최대 낙폭이 −30%에 닿는 지점(과거 19년 최악 기준, 미래 낙폭 보장 아님). "
+                       "52주 모멘텀은 15%를 넘기면 레버리지 상한(4배)에 걸려 실제 변동성이 15% 근처에 머묾. 연속월물 기준이라 롤 비용 과대평가(ETF 기준 연 약 −3%p)도 레버리지만큼 커짐.")
     DX = LX_["returns"]
     selx = st.multiselect("누적 수익 비교 (⑨)", list(DX.columns), [c for c in DX.columns if c.startswith(("혼합 · MinVar 70 + 모멘텀 30", "혼합 · MinVar 70 + 칼만",
                                                                                                      "V1", "S2", "K1 칼만 추세 (느림", "혼합 · MinVar 50 + 모멘텀 25 + 가치"))], key="ls_x_sel")
@@ -4882,6 +4899,20 @@ def _frontier_calc(X: pd.DataFrame, n_rand: int = 4000) -> dict:
 def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series):
     """Portfolio Customization: 고른 전략으로 만들 수 있는 위험-수익 조합(구름) · 효율적 투자선 · 내 포트폴리오 위치 (3D · 2D)."""
     st.markdown("##### 효율적 투자선 — 고른 전략들로 만들 수 있는 위험·수익 조합과 내 포트폴리오의 위치")
+    ends = [d_ for d_ in pd.date_range(X.index[0] + pd.DateOffset(years=5), X.index[-1], freq="YE")]
+    opts_ = ["전체 기간 (사후)"] + [f"{d_:%Y-%m} 시점 (직전 5년)" for d_ in ends]
+    pick = st.select_slider("투자선을 그릴 시점 — 그 시점 직전 5년 자료로만 계산하면 '당시 알 수 있었던' 투자선 (사후 정보 없음)", opts_, opts_[0], key="cu_ef_when")
+    nxt = None
+    if pick != opts_[0]:
+        d_ = ends[opts_.index(pick) - 1]
+        X = X[(X.index > d_ - pd.DateOffset(years=5)) & (X.index <= d_)]
+        nx = combo[(combo.index > d_) & (combo.index <= d_ + pd.DateOffset(years=1))]
+        combo = combo[(combo.index > d_ - pd.DateOffset(years=5)) & (combo.index <= d_)]
+        if len(nx) >= 26:
+            nxt = (float(nx.std() * np.sqrt(52)), float(nx.mean() * 52))
+        st.caption(f"{X.index[0]:%Y-%m} ~ {X.index[-1]:%Y-%m} 자료만 사용. ◇ = 내 포트폴리오의 그다음 1년 실제 위치 — 과거 5년 투자선이 다음 해를 얼마나 맞히는지 비교 "
+                   "(대개 크게 빗나감: 평균 수익률은 5년 자료로도 추정 오차가 큼).")
+    tag = "(사후)" if nxt is None and pick == opts_[0] else "(그 5년 기준)"
     F = _frontier_calc(X)
     w = (w_eff / w_eff.sum()).reindex(F["names"]).fillna(0).values
     u_vol, u_ret = float(np.sqrt(w @ F["S"] @ w)), float(w @ F["mu"])
@@ -4890,7 +4921,7 @@ def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series):
     smin, smax = float(np.nanpercentile(sh, 1)), float(np.nanmax(sh))
     short = [n[:22] for n in F["names"]]
     ink = "#e8e6e1" if DARK else "#0b0b0b"
-    xmax = max(float(F["vol"].max()), c_vol, u_vol) * 1.12
+    xmax = max(float(F["vol"].max()), c_vol, u_vol, nxt[0] if nxt else 0) * 1.12
     dv, dr = np.sqrt(np.diag(F["S"])), F["mu"]
     t3, t2 = st.tabs(["3D 보기 (위험 × 수익 × Sharpe)", "2D 보기 (평면 · 레버리지선)"])
     with t3:
@@ -4907,7 +4938,7 @@ def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series):
                                       hovertemplate="투자선 · 변동성 %{x:.1f}% · 수익 %{y:.1f}%<extra></extra>"))
             f3.add_trace(go.Scatter3d(x=fx, y=fy, z=np.full(len(fx), smin), mode="lines", name="투자선 그림자", showlegend=False,
                                       line=dict(color=PAL[1], width=3, dash="dot"), opacity=0.5, hoverinfo="skip"))
-        for nm, (vx, vy), sym, col in [("최대 Sharpe (사후)", F["tan"], "diamond", PAL[3]), ("최소분산", F["gmv"], "circle", PAL[6]),
+        for nm, (vx, vy), sym, col in [(f"최대 Sharpe {tag}", F["tan"], "diamond", PAL[3]), ("최소분산", F["gmv"], "circle", PAL[6]),
                                        ("★ 내 포트폴리오 (섞기만)", (u_vol, u_ret), "diamond", PAL[2])]:
             f3.add_trace(go.Scatter3d(x=[vx], y=[vy], z=[vy / vx], mode="markers+text", text=[nm], textposition="top center", name=nm,
                                       marker=dict(size=9, symbol=sym, color=col, line=dict(color=ink, width=1)), textfont=dict(size=11)))
@@ -4934,15 +4965,18 @@ def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series):
         f2.add_trace(go.Scatter(x=[0, xmax], y=[0, u_ret / u_vol * xmax], mode="lines", name="내 포트폴리오 레버리지선", line=dict(color=PAL[2], width=1.6, dash="dash")))
         f2.add_trace(go.Scatter(x=dv, y=dr, mode="markers+text", text=short, textposition="top center", name="재료 전략 (단독)", textfont=dict(size=10),
                                 marker=dict(size=10, symbol="square", color="#b4b2a9", line=dict(color=ink, width=0.6))))
-        for nm, (vx, vy), sym, col, sz in [("최소분산", F["gmv"], "circle", PAL[6], 13), ("최대 Sharpe (사후)", F["tan"], "diamond", PAL[3], 15),
+        for nm, (vx, vy), sym, col, sz in [("최소분산", F["gmv"], "circle", PAL[6], 13), (f"최대 Sharpe {tag}", F["tan"], "diamond", PAL[3], 15),
                                            ("★ 내 포트폴리오 (섞기만)", (u_vol, u_ret), "star", PAL[2], 20),
                                            ("☆ 내 포트폴리오 (목표 변동성 10% 적용 후, 실제)", (c_vol, c_ret), "star-open", PAL[2], 20)]:
             f2.add_trace(go.Scatter(x=[vx], y=[vy], mode="markers", name=nm, marker=dict(size=sz, symbol=sym, color=col, line=dict(color=ink, width=1.2)),
                                     hovertemplate=nm + "<br>변동성 %{x:.1f}% · 수익 %{y:.1f}%<extra></extra>"))
+        if nxt:
+            f2.add_trace(go.Scatter(x=[nxt[0]], y=[nxt[1]], mode="markers", name="◇ 내 포트폴리오 · 그다음 1년 실제", marker=dict(size=16, symbol="diamond-open", color=PAL[7],
+                                    line=dict(width=2.5)), hovertemplate="다음 1년 실제<br>변동성 %{x:.1f}% · 수익 %{y:.1f}%<extra></extra>"))
         f2.add_annotation(x=c_vol, y=c_ret, ax=u_vol, ay=u_ret, xref="x", yref="y", axref="x", ayref="y", showarrow=True, arrowhead=3, arrowwidth=1.5,
                           arrowcolor=PAL[2], text="")
-        ymin = min(0.0, float(F["ret"].min()), float(dr.min())) - 1
-        ymax = max(float(F["ret"].max()), c_ret, float(dr.max())) * 1.25 + 1
+        ymin = min(0.0, float(F["ret"].min()), float(dr.min()), nxt[1] if nxt else 0) - 1
+        ymax = max(float(F["ret"].max()), c_ret, float(dr.max()), nxt[1] if nxt else 0) * 1.25 + 1
         st.plotly_chart(fig_layout(f2, 520, hovermode="closest", xaxis=dict(title="연 변동성 (%)", range=[0, xmax], zeroline=False),
                                    yaxis=dict(title="연 수익률 (%, 산술 평균)", range=[ymin, ymax]), legend=dict(orientation="h", y=-0.18, font=dict(size=10))),
                         key="cu_ef2d")
@@ -5018,6 +5052,9 @@ def tab_custom():
     st.info(f"평가 {combo.index.min():%Y-%m} ~ {combo.index.max():%Y-%m} ({len(combo) / 52:.1f}년) · 내 포트폴리오 Sharpe {mc['Sharpe']:+.2f} vs 기존 70/30 {bc['Sharpe']:+.2f} "
             f"(연 {mc['기존 대비 연 수익 차 (%p)']:+.2f}%p, 차이 t {mc['차이 t값']:+.2f}). Sharpe 95% 구간은 약 ±{1.96 / np.sqrt(len(combo) / 52):.2f}라 그보다 작은 차이는 우연과 구별 어려움. "
             "여러 조합을 시험해 보고 가장 좋은 것을 고르면 과대평가(사후 선택) — 고르기 전에 이유를 정해 두는 것이 안전.")
+    st.caption("※ 기본값(MinVar 50 + 모멘텀 25 + 가치 25)이 롱숏 탭 표의 0.88과 조금 다르게(0.89–0.90) 나오는 이유: 계산 주기·재료는 같고, 섞은 뒤 목표 변동성 10%로 맞추는 배율"
+               "(직전 26주 실현 변동성)의 출발점만 다름 — 여기는 고정 재료가 2007년부터라 2007년 초 약 반년(처음 13주 배율 1, 26주까지 짧은 창)을 새로 계산하고, 롱숏 탭은 2001년부터 이어진 배율을 씀. "
+               "2007년 중반 이후는 완전히 같음(상관 1.0, 처음 26주를 빼면 둘 다 0.896).")
     f = go.Figure()
     for j, (nm, r) in enumerate(series.items()):
         star, bse = nm.startswith("★"), nm.startswith("기준 · MinVar 70")
