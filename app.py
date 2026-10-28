@@ -762,6 +762,184 @@ def _rv_lbl(i):
 # ============================================================================
 # ③ 다변량 GARCH (GARCH · DCC · ADCC · BEKK)
 # ============================================================================
+MG_CRISES = [("2008 금융위기", "2008-09-01", "2009-03-31"), ("2020 코로나", "2020-02-20", "2020-06-30"), ("2022 전쟁·인플레", "2022-02-24", "2022-07-31")]
+
+
+def _yfrac(idx) -> np.ndarray:
+    """날짜 → 연도 소수 (3D 축은 숫자여야 위기 구간 판·곡면을 같은 좌표로 그릴 수 있음)."""
+    idx = pd.DatetimeIndex(idx)
+    return idx.year + (idx.dayofyear - 1) / 365.25
+
+
+def _mg_dcc_3d(dc: dict, asym_: bool):
+    """변동성-공분산 탭 DCC/ADCC 3D: 시간 × 품목 쌍 × 조건부 상관 지형 + 위기 구간 판."""
+    st.markdown("##### 3D 보기 — " + ("ADCC" if asym_ else "DCC") + " 상관 지형: 어느 쌍이 언제 같이 움직였나")
+    P = dc["pairs"].copy()
+    if len(P) > 700:                                                  # 일간이면 주간으로 줄여 곡면을 가볍게
+        P = P.resample("W-FRI").last().dropna(how="all")
+    nm = {c: short(c) for c in dc["cols"]}
+    c1, c2 = st.columns([2, 1])
+    nmax = c1.slider("보여 줄 쌍 수 (평균 상관이 큰 순)", 3, max(3, P.shape[1]), min(15, P.shape[1]), key="mg3_n")
+    sort_ = c2.radio("쌍 정렬", ["평균 상관 큰 순", "위기 때 상승폭 큰 순"], key="mg3_sort")
+    if sort_.startswith("평균"):
+        order = P.mean().sort_values(ascending=False).index[:nmax]
+    else:
+        msk = np.zeros(len(P), bool)
+        for _, a, b in MG_CRISES:
+            msk |= (P.index >= a) & (P.index <= b)
+        order = (P[msk].mean() - P[~msk].mean()).sort_values(ascending=False).index[:nmax] if msk.any() else P.mean().sort_values(ascending=False).index[:nmax]
+    P = P[order]
+    xs = _yfrac(P.index)
+    ylab = [f"{nm[a]}–{nm[b]}" for a, b in P.columns]
+    ink = "#e8e6e1" if DARK else "#0b0b0b"
+    f = go.Figure(go.Surface(x=xs, y=list(range(P.shape[1])), z=P.T.values, colorscale=DIV, cmin=-1, cmax=1,
+                             colorbar=dict(title="상관", thickness=12, len=0.6), contours=dict(z=dict(show=True, usecolormap=True, project_z=True)),
+                             customdata=np.array([[f"{d:%Y-%m-%d}" for d in P.index]] * P.shape[1]),
+                             text=np.array([[y] * len(P) for y in ylab]),
+                             hovertemplate="%{customdata} · %{text}<br>상관 %{z:+.2f}<extra></extra>"))
+    ny = P.shape[1] - 1
+    for nm_c, a, b in MG_CRISES:
+        x0, x1 = _yfrac([pd.Timestamp(a)])[0], _yfrac([pd.Timestamp(b)])[0]
+        if x1 < xs.min() or x0 > xs.max():
+            continue
+        vx = [x0, x1, x1, x0, x0, x1, x1, x0]; vy = [0, 0, ny, ny, 0, 0, ny, ny]; vz = [-1, -1, -1, -1, 1, 1, 1, 1]
+        f.add_trace(go.Mesh3d(x=vx, y=vy, z=vz, i=[0, 0, 4, 4, 0, 0, 1, 1, 2, 2, 3, 3], j=[1, 2, 5, 6, 1, 5, 2, 6, 3, 7, 0, 4], k=[2, 3, 6, 7, 5, 4, 6, 5, 7, 6, 4, 7],
+                              color="#e34948", opacity=0.10, name=nm_c, hoverinfo="name", showlegend=True))
+        f.add_trace(go.Scatter3d(x=[(x0 + x1) / 2], y=[ny], z=[1.05], mode="text", text=[nm_c], showlegend=False, textfont=dict(size=11, color=ink), hoverinfo="skip"))
+    f.update_layout(height=600, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", y=-0.02, font=dict(size=10)),
+                    scene=dict(xaxis=dict(title="연도"), yaxis=dict(title="", tickvals=list(range(P.shape[1])), ticktext=ylab),
+                               zaxis=dict(title="조건부 상관", range=[-1, 1.1]), aspectratio=dict(x=2.3, y=1.2, z=0.7), camera=dict(eye=dict(x=0.5, y=-2.1, z=1.0))))
+    st.plotly_chart(f, key="mg3_dcc")
+    msk = np.zeros(len(P), bool)
+    for _, a, b in MG_CRISES:
+        msk |= (P.index >= a) & (P.index <= b)
+    if msk.any():
+        up = (P[msk].mean() - P[~msk].mean())
+        st.caption(f"빨간 판 = 위기 구간(2008-09~2009-03 · 2020-02~06 · 2022-02~07). 위기 때 평균 상관 {P[msk].values.mean():+.2f} vs 평상시 {P[~msk].values.mean():+.2f} "
+                   f"(보여 준 {P.shape[1]}쌍 중 {int((up > 0).sum())}쌍이 위기 때 상승, 최대 {ylab[int(np.argmax(up.values))]} {up.max():+.2f}). "
+                   "판 안에서 곡면이 전체적으로 솟으면 위기 때 동조화(분산 효과 감소). 마우스로 돌려 보기.")
+
+
+def _mg_bekk_net(bk: dict, title: str, key: str, nm: dict, h: int = 520):
+    """BEKK 전이 네트워크 3D: 아래층 = 충격 전이 A, 위층 = 변동성 전이 B. 선 굵기 = |계수|, 색 = 유의(|t| ≥ 1.96) 여부, 원뿔 = 방향(행 → 열)."""
+    cols = bk["cols"]; n = len(cols)
+    ang = np.linspace(0, 2 * np.pi, n, endpoint=False) + np.pi / 2
+    px_, py_ = np.cos(ang), np.sin(ang)
+    ink = "#e8e6e1" if DARK else "#0b0b0b"
+    f = go.Figure()
+    allv = np.abs(np.concatenate([bk["A"].values[~np.eye(n, dtype=bool)], bk["B"].values[~np.eye(n, dtype=bool)]])) if n > 1 else np.array([1.0])
+    vmax = float(allv.max()) or 1.0
+    for z, Mx, Mt, lab, col in [(0.0, bk["A"], bk["A_t"], "충격 전이 A (아래층)", PAL[1]), (1.0, bk["B"], bk["B_t"], "변동성 전이 B (위층)", PAL[0])]:
+        f.add_trace(go.Scatter3d(x=px_, y=py_, z=[z] * n, mode="markers+text", text=[nm[c] for c in cols], textposition="top center", name=lab,
+                                 marker=dict(size=[8 + 30 * abs(Mx.iloc[i, i]) / (abs(np.diag(Mx.values)).max() or 1) for i in range(n)], color=col,
+                                             line=dict(color=ink, width=1)), textfont=dict(size=12),
+                                 hovertemplate="%{text}<br>자기 계수 " + "<extra></extra>"))
+        for i in range(n):
+            for j in range(n):
+                if i == j:
+                    continue
+                v, t = float(Mx.iloc[i, j]), float(Mt.iloc[i, j])
+                if not np.isfinite(v) or abs(v) < 1e-6:
+                    continue
+                sig = np.isfinite(t) and abs(t) >= 1.96
+                c_ = ("#e34948" if v > 0 else "#2a78d6") if sig else "#898781"
+                x0, y0, x1, y1 = px_[i], py_[i], px_[j], py_[j]
+                off = 0.06 * (1 if i < j else -1)                       # 양방향 화살표가 겹치지 않게 살짝 비킴
+                dx, dy = -(y1 - y0) * off, (x1 - x0) * off
+                f.add_trace(go.Scatter3d(x=[x0 + dx, x1 + dx], y=[y0 + dy, y1 + dy], z=[z, z], mode="lines", showlegend=False,
+                                         line=dict(color=c_, width=1.5 + 12 * abs(v) / vmax), opacity=1.0 if sig else 0.45,
+                                         hovertemplate=f"{nm[cols[i]]} → {nm[cols[j]]}<br>{lab.split(' (')[0]} {v:+.3f} (t {t:.1f})<extra></extra>"))
+                f.add_trace(go.Cone(x=[x0 + dx + 0.82 * (x1 - x0)], y=[y0 + dy + 0.82 * (y1 - y0)], z=[z], u=[x1 - x0], v=[y1 - y0], w=[0],
+                                    sizemode="absolute", sizeref=0.12, anchor="tip", showscale=False, colorscale=[[0, c_], [1, c_]], hoverinfo="skip"))
+    for i in range(n):
+        f.add_trace(go.Scatter3d(x=[px_[i], px_[i]], y=[py_[i], py_[i]], z=[0, 1], mode="lines", line=dict(color="#898781", width=1, dash="dot"),
+                                 showlegend=False, hoverinfo="skip"))
+    f.update_layout(title=dict(text=title, font=dict(size=13)), height=h, margin=dict(l=0, r=0, t=36, b=0), legend=dict(orientation="h", y=-0.02, font=dict(size=10)),
+                    scene=dict(xaxis=dict(visible=False), yaxis=dict(visible=False), zaxis=dict(visible=False), aspectratio=dict(x=1, y=1, z=0.8),
+                               camera=dict(eye=dict(x=1.3, y=-1.3, z=0.9))))
+    st.plotly_chart(f, key=key)
+
+
+def _mg_bekk_3d(bk: dict, R: pd.DataFrame, bkind: str, ann: int):
+    import mvgarch as M
+    st.markdown("##### 3D 보기 — BEKK 전이 네트워크: 누가 누구에게 충격·변동성을 옮기나")
+    if bkind != "Full":
+        st.caption("Diagonal·Scalar BEKK는 품목 사이 전이를 0으로 고정해 네트워크 선이 없음 — 유형을 Full로 추정하면 화살표가 그려짐.")
+    nm = {c: short(c) for c in bk["cols"]}
+    _mg_bekk_net(bk, "전체 기간", "mg3_bekk", nm)
+    st.caption("아래층 = 충격 전이(A, 지난주 뜻밖의 가격 변화가 다른 품목 분산을 키움), 위층 = 변동성 전이(B, 높은 변동성이 이어 옮겨 감). "
+               "화살표 = 행 품목 → 열 품목, 굵기 = |계수|, 빨강 = 양(+)·파랑 = 음(−) 이고 유의(|t| ≥ 1.96), 회색 = 유의하지 않음. 점 크기 = 자기 자신에게 남는 정도(대각 계수).")
+    if bkind == "Full":
+        cut = pd.Timestamp("2017-01-01")
+        r1, r2 = R[bk["cols"]].loc[:cut - pd.Timedelta(days=1)].dropna(), R[bk["cols"]].loc[cut:].dropna()
+        lab1 = f"{r1.index.min():%Y-%m}–2016" if len(r1) else "–"
+        if st.button(f"시기별 비교: {lab1} / 2017– 두 구간으로 다시 추정 (Full, 약 1분)", key="mg3_split_btn"):
+            if min(len(r1), len(r2)) < 150:
+                st.warning("한 구간의 관측치가 150개 미만이라 추정이 불안정합니다 — 주간 빈도·시작 연도를 확인하세요.")
+            else:
+                with st.spinner("두 구간 BEKK 추정 중…"):
+                    try:
+                        st.session_state["mg_b_split"] = (tuple(bk["cols"]), M.bekk_fit(r1, "Full", ann), M.bekk_fit(r2, "Full", ann), lab1)
+                    except Exception as ex:
+                        st.error(f"구간 추정 실패: {ex}")
+        sp_ = st.session_state.get("mg_b_split")
+        if sp_ and sp_[0] == tuple(bk["cols"]):
+            q1, q2 = st.columns(2)
+            with q1:
+                _mg_bekk_net(sp_[1], f"{sp_[3]} (수렴 {'✔' if sp_[1]['converged'] else '✖'})", "mg3_bekk_a", nm, 460)
+            with q2:
+                _mg_bekk_net(sp_[2], f"2017– (수렴 {'✔' if sp_[2]['converged'] else '✖'})", "mg3_bekk_b", nm, 460)
+            nA1 = int((np.abs(sp_[1]["A_t"].values[~np.eye(len(nm), dtype=bool)]) >= 1.96).sum())
+            nA2 = int((np.abs(sp_[2]["A_t"].values[~np.eye(len(nm), dtype=bool)]) >= 1.96).sum())
+            nB1 = int((np.abs(sp_[1]["B_t"].values[~np.eye(len(nm), dtype=bool)]) >= 1.96).sum())
+            nB2 = int((np.abs(sp_[2]["B_t"].values[~np.eye(len(nm), dtype=bool)]) >= 1.96).sum())
+            st.caption(f"유의한 전이 화살표 수: 충격 A {nA1} → {nA2}, 변동성 B {nB1} → {nB2} (가능한 {len(nm) * (len(nm) - 1)}개 중). "
+                       "화살표가 새로 생기거나 사라지면 위험이 옮겨 가는 길이 바뀐 것 — 단 구간이 짧으면 계수가 불안정하니 수렴 표시와 t값을 함께 볼 것.")
+
+
+def _mg_hmm_overlay(dc: dict):
+    """DCC 평균 상관(동조화 지표)과 레짐 탭 다변량 HMM 국면을 같은 시간축에 — 두 방법이 같은 위기 신호를 주는지 교차 확인."""
+    import regime_mv as RM
+    ss = st.session_state
+    opts = [i for i in COMMOD_IDS if not i.startswith("etf:")]
+    comm = tuple(ss.get("rv_comm_W") or [i for i in RM.COMM_W_DEFAULT if i in opts])
+    mopts = [i for i in RM.MACRO if i == "spread:10y2y" or i in NAME]
+    macro = tuple(ss.get("rv_macro") or [i for i in RM.MACRO_DEFAULT if i in mopts])
+    tgt = ss.get("rv_tgt_W") or (comm[0] if comm else None)
+    K = int(ss.get("rv_k", 3)); cov = ss.get("rv_cov", "full")
+    if not comm or tgt not in comm:
+        st.info("레짐 탭에서 원자재를 먼저 고르세요."); return
+    try:
+        d = _rv_desc(comm, macro, "W", ROLL, tgt, K, cov)
+    except Exception as ex:
+        st.warning(f"HMM 추정 실패: {ex}"); return
+    G = d["smooth"]; Fp = d["filt"]
+    ac = dc["avg_corr"].copy()
+    if len(ac) > 700:
+        ac = ac.resample("W-FRI").last()
+    lab = pd.Series(G.values.argmax(1), index=G.index)
+    f = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.6, 0.4], vertical_spacing=0.06,
+                      subplot_titles=("DCC 평균 조건부 상관 — 배경 = 레짐 탭 HMM의 가장 가능성 높은 국면", "HMM 국면 확률 (실시간 필터)"))
+    f.add_trace(go.Scatter(x=ac.index, y=ac.values, line=dict(color=PAL[6], width=2), name="평균 DCC 상관"), 1, 1)
+    b0 = 0
+    for t in range(1, len(lab) + 1):
+        if t == len(lab) or lab.iloc[t] != lab.iloc[b0]:
+            f.add_vrect(x0=lab.index[b0], x1=lab.index[min(t, len(lab) - 1)], fillcolor=RV_COL[lab.iloc[b0] % 4], opacity=0.22, line_width=0, layer="below", row=1, col=1)
+            b0 = t
+    for j, c in enumerate(Fp.columns):
+        f.add_trace(go.Scatter(x=Fp.index, y=Fp[c], line=dict(width=1.2, color=RV_COL[j % 4]), name=f"{c}: {d['names'][c]}"), 2, 1)
+    st.plotly_chart(fig_layout(f, 480, hovermode="x", legend=dict(orientation="h", y=-0.15, font=dict(size=10))), key="mg_hmm_ov")
+    j_ = pd.concat([ac.rename("상관"), lab.reindex(ac.index, method="ffill").rename("국면")], axis=1).dropna()
+    if len(j_):
+        tb = j_.groupby("국면")["상관"].agg(["mean", "count"])
+        txt = " · ".join(f"{G.columns[int(k)]} ({d['names'][G.columns[int(k)]]}) {r['mean']:+.2f} ({int(r['count'])}주)" for k, r in tb.iterrows())
+        jump = ac.diff(4)
+        top = jump.nlargest(8)
+        hit = np.mean([lab.reindex([x], method="ffill").iloc[0] == tb["mean"].idxmax() for x in top.index]) if len(top) else np.nan
+        st.caption(f"국면별 평균 DCC 상관: {txt}. 4주간 상관이 가장 크게 뛴 8번 중 {hit:.0%}가 상관이 가장 높은 국면 안 — 높을수록 두 방법이 같은 위기 신호. "
+                   f"HMM 설정은 레짐 탭에서 고른 값(원자재 {len(comm)}개 · 거시 {len(macro)}개 · 대상 {short(tgt)} · {K}국면)을 그대로 씀, 주간 빈도.")
+
+
 def tab_mvgarch():
     import mvgarch as M
     st.subheader("전통 GARCH · DCC · BEKK 변동성 분석")
@@ -832,6 +1010,9 @@ def tab_mvgarch():
         ti = dates.get_loc(pd.Timestamp(pick))
         Rm = pd.DataFrame(dc["R"][ti], index=cols, columns=cols)
         st.plotly_chart(heat(Rm, f"DCC 상관행렬 — {pick}  (평균 {dc['avg_corr'].iloc[ti]:.3f})", *range_of(Rm), h=420, nodiag=True), key="mg_dheat")
+        _mg_dcc_3d(dc, asym_)
+        with st.expander("DCC 평균 상관 × 레짐 탭 HMM 국면 — 같은 위기 신호를 주나 (교차 확인)", expanded=False):
+            _mg_hmm_overlay(dc)
 
     # ---- ③ BEKK ----
     st.markdown("##### ③ BEKK(1,1) — 충격·변동성 전이")
@@ -866,6 +1047,7 @@ def tab_mvgarch():
             return fig
         k1_.plotly_chart(mat_fig(bk["A"], bk["A_t"], "A — 충격(ARCH) 전이: 행 → 열"), key="mg_bA")
         k2_.plotly_chart(mat_fig(bk["B"], bk["B_t"], "B — 변동성(GARCH) 전이: 행 → 열"), key="mg_bB")
+        _mg_bekk_3d(bk, R, bkind, ANN)
         if bkind == "Full" or len(bk["cols"]) > 0:
             sp = M.spillover_table(bk, nm)
             if bkind != "Full":
