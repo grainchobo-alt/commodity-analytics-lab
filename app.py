@@ -498,6 +498,104 @@ def tab_regime():
         vol_regime()
 
 
+def _rv_hmm_3d(X: pd.DataFrame, G: pd.DataFrame, names: dict, tgt: str):
+    """레짐 탭 HMM 3D: ① 변수 3개 공간의 국면 구름 ② 시간 × 국면 × 확률 지형 ③ (3국면) 확률 삼각형 궤적. 새 변수 없이 이미 추정한 결과만 사용."""
+    import regime_mv as RM
+    st.markdown("##### 3D 보기 — 국면이 변수 공간·시간 위에서 어떻게 나뉘나")
+    lab = pd.Series(G.values.argmax(1), index=G.index)
+    cols = list(X.columns)
+    ink = "#e8e6e1" if DARK else "#0b0b0b"
+    pref = [tgt] + [c for c in ("fred:VIXCLS", "fred:BAMLH0A0HYM2", "fred:BAA10Y", "fred:DTWEXBGS") if c in cols] + cols
+    dflt = list(dict.fromkeys(pref))[:3]
+    tabs = ["국면 구름 (변수 3개 공간)", "국면 확률 지형 (시간 × 국면 × 확률)"] + (["확률 삼각형 궤적 (3국면)"] if G.shape[1] == 3 else [])
+    tt = st.tabs(tabs)
+    with tt[0]:
+        a1, a2, a3 = st.columns(3)
+        ax = [a1.selectbox("x축", cols, cols.index(dflt[0]), format_func=RM.label, key="rv3_x"),
+              a2.selectbox("y축", cols, cols.index(dflt[1 % len(dflt)]), format_func=RM.label, key="rv3_y"),
+              a3.selectbox("z축", cols, cols.index(dflt[2 % len(dflt)]), format_func=RM.label, key="rv3_z")]
+        Z = X[ax].reindex(G.index).dropna()
+        Z = (Z - Z.mean()) / Z.std()
+        f = go.Figure()
+        for j, c in enumerate(G.columns):
+            m = lab.reindex(Z.index).values == j
+            if not m.any():
+                continue
+            zz = Z[m]
+            f.add_trace(go.Scatter3d(x=zz.iloc[:, 0], y=zz.iloc[:, 1], z=zz.iloc[:, 2], mode="markers", name=f"{c}: {names[c]} ({m.sum()}개)",
+                                     marker=dict(size=2.6, color=RV_COL[j % 4], opacity=0.55),
+                                     text=[f"{d:%Y-%m-%d}" for d in zz.index], hovertemplate="%{text}<extra>" + c + "</extra>"))
+            ctr = zz.mean()
+            f.add_trace(go.Scatter3d(x=[ctr.iloc[0]], y=[ctr.iloc[1]], z=[ctr.iloc[2]], mode="markers+text", text=[c], textposition="top center",
+                                     marker=dict(size=11, color=RV_COL[j % 4], symbol="diamond", line=dict(color=ink, width=1.5)), showlegend=False,
+                                     hovertemplate=f"{c} 중심<extra></extra>"))
+        last = Z.iloc[-26:]
+        f.add_trace(go.Scatter3d(x=last.iloc[:, 0], y=last.iloc[:, 1], z=last.iloc[:, 2], mode="lines+markers", name="최근 26기간 경로",
+                                 line=dict(color=ink, width=4), marker=dict(size=3, color=ink)))
+        f.update_layout(height=580, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", y=-0.02, font=dict(size=10)),
+                        scene=dict(xaxis_title=RM.label(ax[0]) + " (z)", yaxis_title=RM.label(ax[1]) + " (z)", zaxis_title=RM.label(ax[2]) + " (z)",
+                                   camera=dict(eye=dict(x=1.5, y=-1.5, z=0.9))))
+        st.plotly_chart(f, key="rv3_cloud")
+        st.caption("점 = 각 기간(주·월), 색 = 그 기간에 가장 가능성 높은 국면(전 기간 평활), ◆ = 국면 중심, 검은 선 = 최근 26기간 경로(지금 어느 국면 쪽으로 가는지). "
+                   "축은 표준화(z) 값 — 국면 구름이 잘 떨어져 있을수록 그 변수들로 국면이 뚜렷이 구분됨. 마우스로 돌려 보기.")
+    with tt[1]:
+        f = go.Figure(go.Surface(x=G.index, y=list(range(G.shape[1])), z=G.T.values, colorscale=SEQ, cmin=0, cmax=1, showscale=True,
+                                 colorbar=dict(title="확률", thickness=12, len=0.6),
+                                 contours=dict(z=dict(show=True, usecolormap=True, project_z=True, highlightcolor=ink)),
+                                 hovertemplate="%{x|%Y-%m-%d} · 국면 %{y}<br>확률 %{z:.0%}<extra></extra>"))
+        f.update_layout(height=520, margin=dict(l=0, r=0, t=10, b=0),
+                        scene=dict(xaxis_title="", yaxis=dict(title="국면", tickvals=list(range(G.shape[1])), ticktext=[f"{c}" for c in G.columns]),
+                                   zaxis=dict(title="확률", range=[0, 1]), aspectratio=dict(x=2.2, y=0.8, z=0.6), camera=dict(eye=dict(x=0.4, y=-2.0, z=1.0))))
+        st.plotly_chart(f, key="rv3_surf")
+        st.caption("능선 = 그 국면에 있을 확률이 높았던 시기. 바닥에 비친 등고선이 2D 확률 그래프와 같음 — 능선이 국면 사이를 자주 오가면 국면이 불안정, 길게 이어지면 지속성이 큼.")
+    if G.shape[1] == 3:
+        with tt[2]:
+            pr = G.values
+            xs = pr[:, 1] + pr[:, 2] / 2
+            ys = pr[:, 2] * np.sqrt(3) / 2
+            tnum = np.arange(len(G))
+            f = go.Figure()
+            for (vx, vy), c, j in zip([(0, 0), (1, 0), (0.5, np.sqrt(3) / 2)], G.columns, range(3)):
+                f.add_trace(go.Scatter3d(x=[vx, vx], y=[vy, vy], z=[0, len(G)], mode="lines", line=dict(color=RV_COL[j], width=3, dash="dash"),
+                                         name=f"{c}: {names[c]} (꼭짓점 = 확률 100%)"))
+            f.add_trace(go.Scatter3d(x=xs, y=ys, z=tnum, mode="lines", line=dict(color=lab.values, colorscale=[[0, RV_COL[0]], [0.5, RV_COL[1]], [1, RV_COL[2]]],
+                                                                           cmin=0, cmax=2, width=4), showlegend=False,
+                                     text=[f"{d:%Y-%m-%d}" for d in G.index], hovertemplate="%{text}<extra></extra>"))
+            f.update_layout(height=560, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", y=-0.02, font=dict(size=10)),
+                            scene=dict(xaxis=dict(visible=False), yaxis=dict(visible=False),
+                                       zaxis=dict(title="시간", tickvals=list(tnum[::max(1, len(tnum) // 6)]),
+                                                  ticktext=[f"{G.index[k]:%Y}" for k in tnum[::max(1, len(tnum) // 6)]]),
+                                       aspectratio=dict(x=1, y=1, z=1.6), camera=dict(eye=dict(x=1.6, y=-1.6, z=0.6))))
+            st.plotly_chart(f, key="rv3_simplex")
+            st.caption("바닥 삼각형의 세 꼭짓점 = 각 국면 확률 100%, 가운데 = 셋이 비슷(불확실). 위로 갈수록 최근 — 선이 한 꼭짓점 기둥에 붙어 있으면 그 국면이 확실했던 시기, "
+                       "가운데를 가로지르면 국면 전환기.")
+
+
+def _kalman_3d(B: pd.DataFrame, Bf: pd.DataFrame | None, tgt: str):
+    """레짐 탭 Kalman TVP 3D: 설명변수 × 시간 × 시변 β 곡면 (이미 추정한 β만 사용)."""
+    import regime_mv as RM
+    st.markdown("##### 3D 보기 — 시변 계수(β) 지형: 어느 변수의 영향이 언제 커졌나")
+    kind = st.radio("β", ["평활 (전 기간 자료, 형태 보기)", "필터 (그 시점까지 자료만, 실시간)"], horizontal=True, key="kf3_kind") if Bf is not None else "평활"
+    M = (Bf if (Bf is not None and kind.startswith("필터")) else B).copy()
+    M = M[[c for c in M.columns if c.lower() not in ("const", "상수", "intercept")]]
+    if M.empty:
+        return
+    vm = float(np.nanpercentile(np.abs(M.values), 99)) or 1.0
+    ylab = [RM.label(c)[:24] for c in M.columns]
+    f = go.Figure(go.Surface(x=M.index, y=list(range(M.shape[1])), z=M.T.values, colorscale=DIV, cmin=-vm, cmax=vm,
+                             colorbar=dict(title="β", thickness=12, len=0.6),
+                             contours=dict(z=dict(show=True, usecolormap=True, project_z=True)),
+                             hovertemplate="%{x|%Y-%m-%d}<br>β %{z:+.3f}<extra></extra>"))
+    f.add_trace(go.Surface(x=M.index, y=list(range(M.shape[1])), z=np.zeros((M.shape[1], len(M))), showscale=False, opacity=0.18,
+                           colorscale=[[0, "#898781"], [1, "#898781"]], hoverinfo="skip"))
+    f.update_layout(height=560, margin=dict(l=0, r=0, t=10, b=0),
+                    scene=dict(xaxis_title="", yaxis=dict(title="", tickvals=list(range(M.shape[1])), ticktext=ylab),
+                               zaxis_title="β", aspectratio=dict(x=2.2, y=1.1, z=0.7), camera=dict(eye=dict(x=0.6, y=-2.0, z=0.9))))
+    st.plotly_chart(f, key="kf3_surf")
+    st.caption(f"Y = {RM.label(tgt)}. 위로 솟은 곳 = 그 변수가 Y를 같은 방향으로 크게 움직이던 시기, 아래로 꺼진 곳 = 반대 방향, 회색 판 = β 0. "
+               "산맥이 시간에 따라 높아졌다 낮아지면 관계가 국면에 따라 바뀐 것. 설명변수는 표준화돼 있어 높이를 서로 비교 가능.")
+
+
 def _rv_hmm(X, tgt, K, cov, F, comm, macro, fmt):
     import regime_mv as RM
     with st.spinner("다변량 HMM 추정 중…"):
@@ -529,6 +627,7 @@ def _rv_hmm(X, tgt, K, cov, F, comm, macro, fmt):
                                opacity=0.5), 2, 1)
         f.add_trace(go.Scatter(x=Fp.index, y=Fp[c], line=dict(width=0.8, color=RV_COL[j % 4], dash="dot"), showlegend=False), 2, 1)
     st.plotly_chart(fig_layout(f, 520, hovermode="x"), key="rv_fig_ts")
+    _rv_hmm_3d(X, G, d["names"], tgt)
     # ② 국면 프로파일 · ③ 전이행렬
     g1, g2 = st.columns([1.15, 1])
     pv_ = g1.radio("프로파일", ["평균 (z)", "변동성 (전체 대비 배수)"], horizontal=True, key="rv_prof_kind",
@@ -626,6 +725,9 @@ def _rv_reg(X, tgt, model, K, F):
         st.dataframe(met[[c for c in met.columns if c in ("R² (학습)", "R² (테스트)", "RMSE (테스트)", "OOS R² (vs 학습평균)", "방향 적중률",
                                                          "부호전략 Sharpe")]].style.format("{:.4f}", na_rep="–"))
         model_detail(model, out_[model], D, tgt_, out_, hp0, P="rv_")
+        ex_ = out_[model].get("extra", {})
+        if model.startswith("Kalman") and isinstance(ex_.get("beta_smoothed"), pd.DataFrame):
+            _kalman_3d(ex_["beta_smoothed"], ex_.get("beta_filtered"), tgt_)
         st.caption("설명 모드 = 같은 시점 관계(국면별 베타·헤지 비율), 예측 모드 = 다음 기간 수익률 (학습 70% / 테스트 30%). "
                    "Markov-switching은 설명변수를 주성분 3개로 줄여 추정 (국면마다 모수가 늘어나기 때문).")
 
@@ -4906,12 +5008,12 @@ def _frontier_calc(X: pd.DataFrame, n_rand: int = 4000) -> dict:
     return dict(mu=mu, S=S, vol=vol, ret=ret, front=np.array(fr), gmv=pt(gmv), tan=pt(tan), w_tan=tan, w_gmv=gmv, names=list(X.columns))
 
 
-def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series, tgt: float = 10.0):
+def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series, tgt: float = 10.0, kp: str = "cu"):
     """Portfolio Customization: 고른 전략으로 만들 수 있는 위험-수익 조합(구름) · 효율적 투자선 · 내 포트폴리오 위치 (3D · 2D)."""
     st.markdown("##### 효율적 투자선 — 고른 전략들로 만들 수 있는 위험·수익 조합과 내 포트폴리오의 위치")
     ends = [d_ for d_ in pd.date_range(X.index[0] + pd.DateOffset(years=5), X.index[-1], freq="YE")]
     opts_ = ["전체 기간 (사후)"] + [f"{d_:%Y-%m} 시점 (직전 5년)" for d_ in ends]
-    pick = st.select_slider("투자선을 그릴 시점 — 그 시점 직전 5년 자료로만 계산하면 '당시 알 수 있었던' 투자선 (사후 정보 없음)", opts_, opts_[0], key="cu_ef_when")
+    pick = st.select_slider("투자선을 그릴 시점 — 그 시점 직전 5년 자료로만 계산하면 '당시 알 수 있었던' 투자선 (사후 정보 없음)", opts_, opts_[0], key=f"{kp}_ef_when")
     nxt = None
     if pick != opts_[0]:
         d_ = ends[opts_.index(pick) - 1]
@@ -4957,7 +5059,7 @@ def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series, tgt: 
         f3.update_layout(height=560, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", y=-0.02, font=dict(size=10)),
                          scene=dict(xaxis_title="연 변동성 (%)", yaxis_title="연 수익률 (%)", zaxis_title="Sharpe", aspectmode="manual",
                                     aspectratio=dict(x=1.15, y=1, z=0.7), camera=dict(eye=dict(x=1.55, y=-1.55, z=0.85))))
-        st.plotly_chart(f3, key="cu_ef3d")
+        st.plotly_chart(f3, key=f"{kp}_ef3d")
         st.caption("마우스로 돌려 보기 · 휠로 확대. 높이(z) = Sharpe라 높이 솟은 곳일수록 같은 위험에서 수익이 많은 조합. 주황 선 = 효율적 투자선, 바닥 점선 = 그 그림자.")
     with t2:
         f2 = go.Figure()
@@ -4989,7 +5091,7 @@ def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series, tgt: 
         ymax = max(float(F["ret"].max()), c_ret, float(dr.max()), nxt[1] if nxt else 0) * 1.25 + 1
         st.plotly_chart(fig_layout(f2, 520, hovermode="closest", xaxis=dict(title="연 변동성 (%)", range=[0, xmax], zeroline=False),
                                    yaxis=dict(title="연 수익률 (%, 산술 평균)", range=[ymin, ymax]), legend=dict(orientation="h", y=-0.18, font=dict(size=10))),
-                        key="cu_ef2d")
+                        key=f"{kp}_ef2d")
     wt = pd.DataFrame({"최대 Sharpe (사후) 비중": F["w_tan"], "최소분산 비중": F["w_gmv"], "내 비중": w}, index=short) * 100
     with st.expander("그래프 읽는 법 · 최대 Sharpe·최소분산 조합의 비중", expanded=False):
         st.markdown(f"""
@@ -5099,6 +5201,20 @@ def tab_custom():
                "대안 시계열·멀티모달 갈래는 단독 성과가 약하거나 기간이 짧아(2012-07~) 섞을 때 효과가 작음 — 상관이 낮으면 Sharpe가 약해도 혼합 낙폭을 줄일 수는 있음.")
 
 
+def _merged_table(PV: pd.DataFrame, fmt: str = "{:.1f}"):
+    """(전략, 지표) 2단 행 표를 전략 이름 칸을 세로로 합친(rowspan) HTML 표로 그림 — st.dataframe은 같은 이름을 줄마다 반복하므로."""
+    bd = "rgba(255,255,255,0.12)" if DARK else "rgba(11,11,11,0.10)"
+    hd = "rgba(255,255,255,0.05)" if DARK else "rgba(11,11,11,0.035)"
+    sty = (PV.style.format(fmt, na_rep="–")
+           .set_table_styles([{"selector": "", "props": f"border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums;"},
+                              {"selector": "th, td", "props": f"border:1px solid {bd};padding:4px 8px;"},
+                              {"selector": "thead th", "props": f"background:{hd};font-weight:500;text-align:center;"},
+                              {"selector": "th.row_heading.level0", "props": "font-weight:500;text-align:left;vertical-align:middle;min-width:220px;"},
+                              {"selector": "th.row_heading.level1", "props": "font-weight:400;text-align:left;white-space:nowrap;"},
+                              {"selector": "td", "props": "text-align:right;"}]))
+    st.markdown(f'<div style="overflow-x:auto">{sty.to_html()}</div>', unsafe_allow_html=True)
+
+
 def _voltgt_section():
     """⑤ 포트폴리오 › 목표변동성에 따른 수익율 변화 Backtest — 롱숏 상위 10개 전략을 목표 변동성 5–50% × 레버리지 상한 2·4·8배·없음으로 다시 계산한 고정 결과."""
     st.subheader("목표변동성에 따른 수익율 변화 Backtest — 같은 전략, 레버리지만 바꾸면?")
@@ -5135,7 +5251,7 @@ def _voltgt_section():
     PV = PV.reindex(pd.MultiIndex.from_tuples([(short[s_], lab_) for s_ in order for _, lab_ in rows3], names=["전략", "지표"]))
     PV.columns = [f"목표 {c}%" for c in PV.columns]
     st.markdown(f"##### 전략별 연수익 · 연 변동성 · 최대 낙폭 (레버리지 배율 상한 {cap})")
-    st.dataframe(PV.style.format("{:.1f}", na_rep="–"), use_container_width=True, height=min(36 * (len(PV) + 1) + 4, 1120))
+    _merged_table(PV, "{:.1f}")
     st.caption("행마다 3줄: ① 산술 연수익(주간 수익률 평균 × 52) · ② 실제로 나온 연 변동성(목표와 다르면 배율 상한에 걸린 것) · ③ 최대 낙폭(고점 대비 최대 손실, 복리 자본 기준). "
                "같은 전략이면 ①·②·③이 목표에 거의 비례해 함께 커짐 — 수익만 커지는 게 아님. 복리 수익·Sharpe·노출·증거금은 아래 '지표'에서 선택.")
     if met.startswith("총 명목") or met.startswith("필요 증거금"):
@@ -5167,6 +5283,27 @@ def _voltgt_section():
             f2.add_trace(go.Scatter(x=eq.index, y=eq.values, name=f"목표 {t_}%", line=dict(width=2.2 if t_ == 10 else 1.4, color=PAL[j % 8])))
         st.plotly_chart(shade(fig_layout(f2, 400, title=f"자본 1 → 누적 (복리, {short[s_pick]}, 상한 {cap})", hovermode="x",
                                          yaxis=dict(type="log" if logy else "linear", title="자본 (배)")), W_.index), key="vt_cum")
+    if fw.exists():
+        st.markdown("---")
+        st.markdown("#### 효율적 투자선 — 위에서 고른 배율 상한으로, 이 전략들을 섞으면")
+        e1, e2 = st.columns([2.6, 1])
+        trio = [x for x in ["기준 · MinVar 롱 (⑥)", "기준 · 52주 모멘텀 (④)", "V1 가치 (5년 평균 대비 싼 품목 롱)"] if x in order]
+        ef_s = e1.multiselect("섞을 전략 (2개 이상)", order, trio, format_func=lambda x: short[x], key="vt_ef_s")
+        tg_ = sorted(VT["목표 변동성 (%)"].unique())
+        ef_t = e2.selectbox("목표 변동성 (%)", tg_, tg_.index(10) if 10 in tg_ else 0, key="vt_ef_t")
+        capn_ = {"2배": 2, "4배": 4, "8배": 8, "없음": 1000}[cap]
+        cols_ = [f"{x}|{ef_t}|{capn_}" for x in ef_s]
+        if len(ef_s) >= 2 and all(c in W_ for c in cols_):
+            Xf = W_[cols_].loc["2007-01-01":].dropna()
+            Xf.columns = [short[x] for x in ef_s]
+            w_ = pd.Series([{"기준 · MinVar 롱 (⑥)": 50.0, "기준 · 52주 모멘텀 (④)": 25.0, "V1 가치 (5년 평균 대비 싼 품목 롱)": 25.0}[x] if set(ef_s) == set(trio) else 1.0
+                            for x in ef_s], Xf.columns)
+            st.caption(("내 비중 = MinVar 50 · 모멘텀 25 · 가치 25 (가치 혼합)" if set(ef_s) == set(trio) else "내 비중 = 동일 비중") +
+                       f" · 재료 = 각 전략을 목표 {ef_t}% · 배율 상한 {cap}로 계산한 주간 수익률 → 섞은 뒤 다시 목표 {ef_t}%로 맞춤(☆).")
+            combo_f, _ = _combine(Xf, "직접 입력", w_, tgt=float(ef_t))
+            _frontier_section(Xf, w_, combo_f, float(ef_t), kp="vt")
+        else:
+            st.info("전략을 2개 이상 고르세요.")
     st.markdown("""
 **읽는 법**
 - **산술 연수익**은 목표에 거의 비례(레버리지만 키운 것이라 Sharpe는 그대로). 하지만 **복리 연수익**(실제 자본이 불어나는 속도)은 변동성²/2만큼 덜 늘어남 — 가치 혼합은 목표 50%에서 산술 45%가 복리 36% 정도.
