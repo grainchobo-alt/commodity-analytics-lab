@@ -12,6 +12,17 @@ PAL = ["#20808d", "#a84b2f", "#1f8a5b", "#c98500", "#d55181", "#008300", "#7a6fd
 GREY = "#898781"
 
 
+def _tabs23(c):
+    """2D · 3D 보기 탭 — 위의 슬라이더를 함께 써서 매개변수를 바꾸면 두 그림이 같이 바뀜."""
+    return c.tabs(["2D 보기", "3D 보기 (마우스로 회전 · 휠로 확대)"])
+
+
+def _scene(f, h=520, x="", y="", z="", eye=(1.5, -1.5, 0.9), **kw):
+    f.update_layout(height=h, margin=dict(l=0, r=0, t=30, b=0), legend=dict(orientation="h", y=-0.02, font=dict(size=10)),
+                    scene=dict(xaxis_title=x, yaxis_title=y, zaxis_title=z, camera=dict(eye=dict(x=eye[0], y=eye[1], z=eye[2])), **kw))
+    return f
+
+
 def _lay(f, h=380, **kw):
     base = dict(height=h, margin=dict(l=10, r=10, t=40, b=10), legend=dict(orientation="h", y=-0.18), hovermode="closest")
     base.update(kw)
@@ -95,7 +106,19 @@ def viz_ridge_lasso(c):
     f.add_trace(go.Scatter(x=[sol[0]], y=[sol[1]], mode="markers", marker=dict(size=13, color=PAL[2]), name=f"규제 해 β = ({sol[0]:.2f}, {sol[1]:.2f})"))
     _lay(f, 470, title="등고선(손실)이 허용 영역에 처음 닿는 점이 해 — Lasso는 꼭짓점(축 위)에 닿아 계수가 정확히 0",
          xaxis=dict(title="β₁", range=[-1, 3], scaleanchor="y"), yaxis=dict(title="β₂", range=[-1, 3]))
-    c.plotly_chart(f, key="at_rl_fig")
+    t2, t3 = _tabs23(c)
+    t2.plotly_chart(f, key="at_rl_fig")
+    Qc = np.minimum(Q, 6.0)
+    qf = lambda b_: float((np.asarray(b_) - bo) @ H @ (np.asarray(b_) - bo))  # noqa: E731
+    f3 = go.Figure(go.Surface(x=g, y=g, z=Qc, colorscale="Teal", opacity=0.75, showscale=False, name="손실",
+                              contours=dict(z=dict(show=True, usecolormap=True, project_z=True, start=0, end=6, size=0.4))))
+    qb = np.einsum("ni,ij,nj->n", cand - bo, H, cand - bo)
+    f3.add_trace(go.Scatter3d(x=bx, y=by, z=np.zeros_like(bx), mode="lines", line=dict(color=PAL[1], width=6), name="허용 영역 경계 (바닥)"))
+    f3.add_trace(go.Scatter3d(x=bx, y=by, z=np.minimum(qb, 6.0), mode="lines", line=dict(color=PAL[1], width=4, dash="dash"), name="경계를 손실 그릇에 올린 선"))
+    f3.add_trace(go.Scatter3d(x=[bo[0]], y=[bo[1]], z=[0], mode="markers", marker=dict(size=6, color=GREY, symbol="x"), name="OLS 해 (그릇 바닥)"))
+    f3.add_trace(go.Scatter3d(x=[sol[0]], y=[sol[1]], z=[qf(sol)], mode="markers", marker=dict(size=7, color=PAL[2]), name=f"규제 해 (손실 {qf(sol):.2f})"))
+    t3.plotly_chart(_scene(f3, 540, "β₁", "β₂", "손실", eye=(1.4, -1.6, 1.0)), key="at_rl_3d")
+    t3.caption("그릇 = 손실(낮을수록 좋음), 바닥 선 = 허용 영역. 해 = 경계를 그릇에 올린 점선에서 가장 낮은 곳. λ를 키우면 경계가 줄어 해가 그릇 벽을 타고 올라감(손실 증가 = 편향).")
     c.caption("λ를 키우면 영역이 작아져 두 계수 모두 0쪽으로. Lasso는 β₂가 먼저 정확히 0 → 변수 선택. Ridge는 둘 다 줄지만 0이 되지 않음. "
               "Elastic Net은 그 중간 (꼭짓점이 둥글어 상관된 변수들을 함께 남김).")
 
@@ -121,7 +144,25 @@ def viz_nonconvex(c):
     for j, (nm, yv) in enumerate([("Lasso (soft)", soft), ("SCAD", scad), ("MCP", mcp)]):
         f.add_trace(go.Scatter(x=z, y=yv, name=nm, line=dict(color=PAL[j], width=2.5), showlegend=False), 1, 2)
     f.add_trace(go.Scatter(x=z, y=z, name="축소 없음 (OLS)", line=dict(color=GREY, dash="dot")), 1, 2)
-    c.plotly_chart(_lay(f, 400), key="at_nc_fig")
+    t2, t3 = _tabs23(c)
+    t2.plotly_chart(_lay(f, 400), key="at_nc_fig")
+    pen3 = t3.radio("곡면", ["MCP", "SCAD"], horizontal=True, key="at_nc_3k")
+    zz, gg = np.linspace(-4, 4, 161), np.linspace(1.5, 6.0, 46)
+    Zg, Gg = np.meshgrid(zz, gg)
+    if pen3 == "MCP":
+        Gm = np.maximum(Gg, 1.01)
+        P3 = np.where(np.abs(Zg) <= Gm * lam, lam * np.abs(Zg) - Zg ** 2 / (2 * Gm), Gm * lam ** 2 / 2)
+        cur = pmc
+    else:
+        Am = np.maximum(Gg, 2.01)
+        P3 = np.where(np.abs(Zg) <= lam, lam * np.abs(Zg), np.where(np.abs(Zg) <= Am * lam, (2 * Am * lam * np.abs(Zg) - Zg ** 2 - lam ** 2) / (2 * (Am - 1)),
+                                                                    (Am + 1) * lam ** 2 / 2))
+        cur = psc
+    f3 = go.Figure(go.Surface(x=zz, y=gg, z=P3, colorscale="Teal", opacity=0.85, showscale=False))
+    f3.add_trace(go.Scatter3d(x=z, y=np.full_like(z, gamma), z=cur, mode="lines", line=dict(color=PAL[1], width=7), name=f"지금 γ = {gamma:.1f}"))
+    f3.add_trace(go.Scatter3d(x=z, y=np.full_like(z, 6.0), z=lam * np.abs(z), mode="lines", line=dict(color=GREY, width=4, dash="dash"), name="Lasso |β| (비교, 뒷벽)"))
+    t3.plotly_chart(_scene(f3, 520, "β", "γ (a)", "벌점 p(β)", eye=(1.6, -1.4, 0.8)), key="at_nc_3d")
+    t3.caption("γ가 작을수록 벌점이 일찍 평평해짐(큰 계수는 더 이상 깎지 않음), 클수록 Lasso의 V자에 가까워짐. 주황 선 = 슬라이더의 γ.")
     c.caption("Lasso는 큰 계수도 λ만큼 계속 깎음(편향). SCAD·MCP는 벌점이 일정 크기 이후 평평 → 작은 계수는 0으로, 큰 계수는 깎지 않음 "
               "(오라클 성질). Adaptive Lasso는 1차 추정이 큰 변수의 벌점 가중치를 작게 해 비슷한 효과.")
 
@@ -234,7 +275,18 @@ def viz_tar(c):
     b_lo, b_hi = np.polyfit(x[lo], y[lo], 1)[0], np.polyfit(x[~lo], y[~lo], 1)[0]
     f.add_trace(go.Scatter(x=[q.min(), tf["gamma"], tf["gamma"], q.max()], y=[b_lo, b_lo, b_hi, b_hi], name=f"TAR 추정 (γ̂ = {tf['gamma']:.2f})",
                            line=dict(color=PAL[1], width=2.5, shape="hv")), 1, 2)
-    c.plotly_chart(_lay(f, 420), key="at_tar_fig")
+    t2, t3 = _tabs23(c)
+    t2.plotly_chart(_lay(f, 420), key="at_tar_fig")
+    qg, xg = np.linspace(np.quantile(q, 0.01), np.quantile(q, 0.99), 60), np.linspace(-2.5, 2.5, 30)
+    Q3, X3 = np.meshgrid(qg, xg)
+    Ytrue = (0.3 + 1.2 / (1 + np.exp(-gam * (Q3 - th)))) * X3
+    Ytar = np.where(Q3 <= tf["gamma"], b_lo, b_hi) * X3
+    f3 = go.Figure(go.Surface(x=qg, y=xg, z=Ytrue, colorscale="Teal", opacity=0.8, showscale=False, name="참 STAR 곡면"))
+    f3.add_trace(go.Surface(x=qg, y=xg, z=Ytar, colorscale=[[0, PAL[1]], [1, PAL[1]]], opacity=0.35, showscale=False, name="TAR 추정 (γ̂에서 절벽)"))
+    f3.add_trace(go.Scatter3d(x=q, y=x, z=y, mode="markers", marker=dict(size=2, color=np.where(lo, PAL[0], PAL[1]), opacity=0.5), name="관측치"))
+    t3.plotly_chart(_scene(f3, 560, "임계 변수 q", "X", "Y", eye=(1.6, -1.5, 0.8)), key="at_tar_3d")
+    t3.caption(f"청록 곡면 = 참 관계(STAR, γ = {gam:.1f}), 주황 반투명 = TAR 추정(γ̂ = {tf['gamma']:.2f}에서 기울기가 뚝 바뀌는 두 평면). "
+               "γ를 키우면 청록 곡면의 휘는 구간이 좁아져 TAR 절벽과 겹침.")
     c.caption("TAR: 관측 가능한 변수 q(예: VIX)가 임계값 γ를 넘으면 기울기가 '뚝' 바뀜 — γ는 SSR 최소 격자탐색, 유의성은 Hansen 부트스트랩. "
               "STAR: 로지스틱 함수로 '서서히' 바뀜. HMM과 달리 레짐이 관측 변수로 정해져 해석이 쉬움 (예: 'VIX 24 이상이면 WTI의 주식 베타 3배').")
 
@@ -260,7 +312,18 @@ def viz_garch(c):
     z = np.linspace(-3, 3, 100) * np.sqrt(h.mean())
     f.add_trace(go.Scatter(x=z, y=np.sqrt(w + (alpha + gam * (z < 0)) * z ** 2 + beta * h.mean()), line=dict(color=PAL[1], width=2.5),
                            name="다음기 변동성"), 2, 2)
-    c.plotly_chart(_lay(f, 520, showlegend=False), key="at_g_fig")
+    t2, t3 = _tabs23(c)
+    t2.plotly_chart(_lay(f, 520, showlegend=False), key="at_g_fig")
+    sd0 = np.sqrt(h.mean())
+    eg = np.linspace(-3, 3, 61) * sd0
+    hg = np.linspace(np.quantile(h, 0.02), np.quantile(h, 0.98), 40)
+    E3, H3 = np.meshgrid(eg, hg)
+    S3 = np.sqrt(w + (alpha + gam * (E3 < 0)) * E3 ** 2 + beta * H3)
+    f3 = go.Figure(go.Surface(x=eg, y=np.sqrt(hg), z=S3, colorscale="Teal", opacity=0.9, colorbar=dict(title="다음기 √h", thickness=12, len=0.6)))
+    f3.add_trace(go.Scatter3d(x=e[:-1], y=np.sqrt(h[:-1]), z=np.sqrt(h[1:]), mode="markers", marker=dict(size=1.6, color=PAL[1], opacity=0.35), name="시뮬레이션 실제 점"))
+    t3.plotly_chart(_scene(f3, 540, "직전 충격 εₜ₋₁", "직전 변동성 √hₜ₋₁", "다음기 변동성 √hₜ", eye=(1.5, -1.6, 0.8)), key="at_g_3d")
+    t3.caption("곡면 = 뉴스 충격 곡선을 직전 변동성 수준마다 쌓은 것. α↑ → 좌우(충격 방향) 기울기가 가팔라짐, β↑ → 뒤쪽(직전 변동성 큼)이 높아짐(지속성), "
+               "γ>0 → 왼쪽(하락 충격) 날개가 더 높아 비대칭.")
     hl = np.log(0.5) / np.log(alpha + beta + max(gam, 0) / 2)
     c.caption(f"hₜ = ω + (α + γ·1[εₜ₋₁<0])·ε²ₜ₋₁ + β·hₜ₋₁. 지속성 α+β = {alpha + beta:.2f} → 충격 반감기 {hl:.0f}기. "
               "γ>0(GJR)이면 하락 충격이 변동성을 더 키움(레버리지) → 뉴스 충격 곡선이 비대칭. 원자재는 상승 충격이 더 큰 '역레버리지'(γ<0)도 흔함. "
@@ -289,7 +352,20 @@ def viz_dcc(c):
                    go.Scatter(y=roll, name="60기 롤링 상관", line=dict(color=PAL[1], width=1.5, dash="dot"))])
     _lay(f, 400, title="DCC: 표준화 잔차의 곱으로 상관행렬을 매 시점 갱신 — Qₜ = (1−a−b)Q̄ + a·zz' + b·Qₜ₋₁",
          yaxis=dict(title="상관", range=[-0.2, 1]), xaxis_title="시점", hovermode="x unified")
-    c.plotly_chart(f, key="at_dcc_fig")
+    t2, t3 = _tabs23(c)
+    t2.plotly_chart(f, key="at_dcc_fig")
+    zg = np.linspace(-3, 3, 49)
+    Z1, Z2 = np.meshgrid(zg, zg)
+    Q11 = (1 - da - db) * Qbar[0, 0] + da * Z1 ** 2 + db * Qbar[0, 0]
+    Q22 = (1 - da - db) * Qbar[1, 1] + da * Z2 ** 2 + db * Qbar[1, 1]
+    Q12 = (1 - da - db) * Qbar[0, 1] + da * Z1 * Z2 + db * Qbar[0, 1]
+    R3 = Q12 / np.sqrt(Q11 * Q22)
+    f3 = go.Figure(go.Surface(x=zg, y=zg, z=R3, colorscale="RdBu_r", cmid=float(Qbar[0, 1]), colorbar=dict(title="다음기 상관", thickness=12, len=0.6)))
+    f3.add_trace(go.Surface(x=zg, y=zg, z=np.full_like(R3, Qbar[0, 1]), colorscale=[[0, GREY], [1, GREY]], opacity=0.25, showscale=False, name="평소 상관 Q̄"))
+    t3.plotly_chart(_scene(f3, 540, "품목 1 충격 z₁", "품목 2 충격 z₂", "다음기 상관 ρₜ₊₁", eye=(1.5, -1.5, 0.9)), key="at_dcc_3d")
+    t3.caption(f"지금 상관이 평소 수준(Q̄ = {Qbar[0, 1]:.2f})일 때, 이번 기 두 품목의 표준화 충격 조합에 따라 다음 기 상관이 어떻게 바뀌나. "
+               "같은 방향 큰 충격(오른쪽 위·왼쪽 아래 모서리) → 상관 상승, 반대 방향 → 하락. a↑ → 곡면이 더 휘고, b↑ → 회색 평면(평소)에 붙어 있음. "
+               "ADCC는 왼쪽 아래(동반 하락) 모서리만 더 들어 올림.")
     c.caption("1단계: 품목별 GARCH로 변동성 제거 → 2단계: 남은 표준화 잔차로 상관만 동학 추정. 위기 때 상관 급등(분산투자 효과 소멸)을 롤링보다 빠르게 포착. "
               "ADCC는 동반 하락 충격에 상관이 더 오르는 비대칭 추가. BEKK는 공분산 전체를 한 식으로 — 충격·변동성의 '전이 방향'까지 추정.")
 
@@ -366,7 +442,22 @@ def viz_gp(c):
                    go.Scatter(x=xx, y=mu, name="GP 예측평균", line=dict(color=PAL[0], width=2.5)),
                    go.Scatter(x=x, y=y, mode="markers", marker=dict(color=PAL[1], size=8), name="관측치")])
     _lay(f, 420, title="Gaussian Process: 데이터가 없는 곳(가운데·양끝)에서 불확실성이 넓어짐", xaxis_title="X", yaxis_title="Y")
-    c.plotly_chart(f, key="at_gp_fig")
+    t2, t3 = _tabs23(c)
+    t2.plotly_chart(f, key="at_gp_fig")
+    lsg = np.linspace(0.1, 3.0, 30)
+    xg = np.linspace(-4, 4, 120)
+    M3, SD3 = [], []
+    for l_ in lsg:
+        kk = lambda A_, B_: np.exp(-0.5 * (A_[:, None] - B_[None, :]) ** 2 / l_ ** 2)  # noqa: E731
+        K_ = kk(x, x) + nz ** 2 * np.eye(len(x)); Ks_ = kk(xg, x)
+        M3.append(Ks_ @ np.linalg.solve(K_, y))
+        SD3.append(np.sqrt(np.maximum(1 - np.sum(Ks_ * np.linalg.solve(K_, Ks_.T).T, 1), 0) + nz ** 2))
+    M3, SD3 = np.array(M3), np.array(SD3)
+    f3 = go.Figure(go.Surface(x=xg, y=lsg, z=M3, surfacecolor=SD3, colorscale="Teal", opacity=0.9, colorbar=dict(title="예측 표준편차", thickness=12, len=0.6)))
+    f3.add_trace(go.Scatter3d(x=xx, y=np.full_like(xx, ls), z=mu, mode="lines", line=dict(color=PAL[1], width=7), name=f"지금 ℓ = {ls:.1f}"))
+    f3.add_trace(go.Scatter3d(x=x, y=np.full_like(x, ls), z=y, mode="markers", marker=dict(size=4, color=PAL[1]), name="관측치 (지금 ℓ 위치)"))
+    t3.plotly_chart(_scene(f3, 540, "X", "길이척도 ℓ", "GP 예측평균", eye=(1.4, -1.7, 0.9)), key="at_gp_3d")
+    t3.caption("앞쪽(ℓ 작음) = 관측치마다 구불구불(과적합), 뒤쪽(ℓ 큼) = 거의 직선. 색 = 불확실성(밝을수록 큼) — 관측치가 없는 가운데·양끝에서 커짐. 주황 선 = 슬라이더의 ℓ.")
     c.caption("'비슷한 X는 비슷한 Y'를 커널(유사도)로 표현하고, 관측치로 조건부 분포를 계산 → 평균과 불확실성을 함께 얻음. "
               "ℓ이 작으면 구불구불(과적합), 크면 직선에 가까움 — 이 앱에서는 주변우도로 자동 선택. Kernel Ridge는 같은 예측평균을 내지만 구간은 없음.")
 
@@ -430,7 +521,21 @@ def viz_newton(c):
     f.add_trace(go.Scatter(x=[np.sqrt(w0 @ S @ w0)], y=[w0 @ mu], mode="markers", marker=dict(size=11, color=PAL[0]), name="현재(1/N)"))
     _lay(f, 420, title=f"평균-분산-비용 최적화: max μ'w − λ/2·w'Σw − 비용·|w−w₀| (Newton {info['iter']}회 반복)",
          xaxis_title="변동성 (연)", yaxis_title="기대수익 (연)")
-    c.plotly_chart(f, key="at_nt_fig")
+    t2, t3 = _tabs23(c)
+    t2.plotly_chart(f, key="at_nt_fig")
+    wg = np.linspace(0, 1, 61)
+    W1, W2 = np.meshgrid(wg, wg)
+    W3 = 1 - W1 - W2
+    Wt = np.stack([W1, W2, W3], -1)
+    U3 = Wt @ mu - lam / 2 * np.einsum("...i,ij,...j->...", Wt, S, Wt) - cost / 1e4 * np.abs(Wt - w0).sum(-1)
+    U3 = np.where(W3 >= -1e-9, U3, np.nan) * 100
+    uo = lambda w_: float((w_ @ mu - lam / 2 * w_ @ S @ w_ - cost / 1e4 * np.abs(w_ - w0).sum()) * 100)  # noqa: E731
+    f3 = go.Figure(go.Surface(x=wg, y=wg, z=U3, colorscale="Teal", opacity=0.9, colorbar=dict(title="목적함수 (%)", thickness=12, len=0.6)))
+    f3.add_trace(go.Scatter3d(x=[w[0]], y=[w[1]], z=[uo(w)], mode="markers", marker=dict(size=8, color=PAL[1], symbol="diamond"), name="Newton 최적"))
+    f3.add_trace(go.Scatter3d(x=[w0[0]], y=[w0[1]], z=[uo(w0)], mode="markers", marker=dict(size=6, color=PAL[0]), name="현재 (1/N)"))
+    t3.plotly_chart(_scene(f3, 540, "원유 비중 w₁", "금 비중 w₂ (구리 = 1 − w₁ − w₂)", "목적함수 μ'w − λ/2·w'Σw − 비용 (%)", eye=(1.5, -1.5, 1.0)), key="at_nt_3d")
+    t3.caption("가능한 모든 롱온리 비중(삼각형) 위의 목적함수 언덕 — Newton은 기울기·곡률로 꼭대기(◆)를 몇 번 만에 찾음. "
+               "λ를 키우면 언덕이 둥글게 좁아지며 꼭대기가 저위험(금) 쪽으로, 비용을 키우면 1/N 점 주변에 주름(|w−w₀|의 꺾임)이 생겨 꼭대기가 1/N 쪽으로 끌려옴.")
     c.caption("ML이 아니라 수치 최적화: 목적함수의 기울기(1차)와 곡률(2차, 헤시안)로 한 번에 최적점 근처로 점프 → 몇 번 만에 수렴. "
               "λ가 크면 저위험 쪽, 비용이 크면 현재 비중(1/N)에서 덜 움직임(무거래 구간). 입력 μ(예측)·Σ(공분산)의 질이 결과를 좌우.")
 
