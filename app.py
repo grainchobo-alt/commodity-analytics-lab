@@ -950,6 +950,81 @@ def _mg_hmm_overlay(dc: dict):
                    f"HMM 설정은 레짐 탭에서 고른 값(원자재 {len(comm)}개 · 거시 {len(macro)}개 · 대상 {short(tgt)} · {K}국면)을 그대로 씀, 주간 빈도.")
 
 
+def _spill_proxy(R: pd.DataFrame) -> pd.DataFrame:
+    """BEKK 조합 고르기용 빠른 근사: i → j 충격 전이 t값 = (표준화 수익률²_j,t) ~ 상수 + 자기 지연² + (i의 지연²) 회귀에서 i 계수의 t.
+    BEKK A의 비대각(지난 충격이 다른 품목 분산을 키움)과 같은 방향의 신호 — 추정이 수천 배 빠름."""
+    X = ((R - R.mean()) / R.std()).dropna()
+    E2 = (X ** 2).values
+    n, k = E2.shape
+    T = np.full((k, k), np.nan)
+    for j in range(k):
+        y = E2[1:, j]
+        for i in range(k):
+            if i == j:
+                continue
+            Z = np.column_stack([np.ones(n - 1), E2[:-1, j], E2[:-1, i]])
+            b, *_ = np.linalg.lstsq(Z, y, rcond=None)
+            e = y - Z @ b
+            cov = np.linalg.inv(Z.T @ Z) * (e @ e) / (len(y) - 3)
+            T[i, j] = b[2] / np.sqrt(cov[2, 2])
+    return pd.DataFrame(T, index=R.columns, columns=R.columns)
+
+
+def _mg_bekk_search(R: pd.DataFrame, ids: list, ann: int):
+    """Full BEKK로 추정할 품목 조합(3–5개)을 자동 추천: ① 근사 전이 점수로 모든 조합 순위 → ② 상위 몇 개만 실제 Full BEKK로 확인 → 고른 조합을 아래 품목 칸에 채움."""
+    import itertools
+    import mvgarch as M
+    with st.expander("🔎 전이가 가장 많은 품목 조합 자동 찾기 (Full BEKK, 3–5개)", expanded=False):
+        cand = [c for c in ids if c in R]
+        if len(cand) < 3:
+            st.info("위 '분석 품목'에서 3개 이상 고르세요."); return
+        s1, s2, s3 = st.columns([1, 1, 2])
+        kk = s1.radio("조합 크기", [3, 4, 5], horizontal=True, key="mg_bs_k", help="Full BEKK 모수 = 2N² + N(N+1)/2 → 3개 24 · 4개 42 · 5개 65개. 5개는 추정이 느리고 불안정할 수 있음")
+        kk = min(kk, len(cand))
+        nver = s2.number_input("BEKK로 확인할 상위 조합 수", 1, 6, 3, key="mg_bs_n", help="조합당 3개 ≈ 30초, 4개 ≈ 1–2분, 5개 ≈ 3분 이상 (주간 기준)")
+        T = _spill_proxy(R[cand])
+        rows = []
+        for cb in itertools.combinations(cand, kk):
+            sub = T.loc[list(cb), list(cb)].values
+            off = sub[~np.eye(kk, dtype=bool)]
+            sig = int((np.abs(off) >= 1.96).sum())
+            edges = sorted(((abs(T.loc[a, b]), a, b) for a in cb for b in cb if a != b), reverse=True)[:3]
+            rows.append({"조합": " · ".join(short(c) for c in cb), "근사 유의 전이 수": sig, "근사 |t| 합": float(np.nansum(np.abs(off))),
+                         "주요 전이 (근사 t)": ", ".join(f"{short(a)}→{short(b)} {T.loc[a, b]:+.1f}" for _, a, b in edges), "_ids": cb})
+        S = pd.DataFrame(rows).sort_values(["근사 유의 전이 수", "근사 |t| 합"], ascending=False).reset_index(drop=True)
+        s3.caption(f"조합 {len(S)}개를 근사 점수로 정렬 — 근사 = 각 품목의 표준화 수익률²를 다른 품목의 지난주 수익률²로 설명하는 회귀 t값(BEKK의 충격 전이 A와 같은 방향). "
+                   "근사로 후보를 좁힌 뒤 실제 Full BEKK로 확인.")
+        st.dataframe(S.drop(columns="_ids").head(10).style.format({"근사 |t| 합": "{:.1f}"}), hide_index=True, use_container_width=True)
+        if st.button(f"상위 {int(nver)}개 조합을 Full BEKK로 확인", key="mg_bs_run"):
+            out = []
+            prog = st.progress(0.0)
+            for q, cb in enumerate(S["_ids"].head(int(nver))):
+                try:
+                    bk = M.bekk_fit(R[list(cb)].dropna(), "Full", ann)
+                    m_ = ~np.eye(len(cb), dtype=bool)
+                    nA, nB = int((np.abs(bk["A_t"].values[m_]) >= 1.96).sum()), int((np.abs(bk["B_t"].values[m_]) >= 1.96).sum())
+                    out.append({"조합": " · ".join(short(c) for c in cb), "유의 충격 전이 A": nA, "유의 변동성 전이 B": nB, "합계": nA + nB,
+                                "가능한 화살표": 2 * len(cb) * (len(cb) - 1), "수렴": "✔" if bk["converged"] else "✖", "BIC": bk["bic"], "_ids": cb})
+                except Exception as ex:
+                    out.append({"조합": " · ".join(short(c) for c in cb), "유의 충격 전이 A": np.nan, "유의 변동성 전이 B": np.nan, "합계": np.nan,
+                                "가능한 화살표": np.nan, "수렴": f"실패: {ex}"[:40], "BIC": np.nan, "_ids": cb})
+                prog.progress((q + 1) / int(nver))
+            st.session_state["mg_bs_out"] = pd.DataFrame(out).sort_values(["합계"], ascending=False, na_position="last").reset_index(drop=True)
+        O = st.session_state.get("mg_bs_out")
+        if O is not None and len(O):
+            st.dataframe(O.drop(columns="_ids").style.format({"BIC": "{:.1f}", "유의 충격 전이 A": "{:.0f}", "유의 변동성 전이 B": "{:.0f}", "합계": "{:.0f}",
+                                                             "가능한 화살표": "{:.0f}"}, na_rep="–"), hide_index=True, use_container_width=True)
+            ok_ = O[O["수렴"] == "✔"]
+            best = (ok_ if len(ok_) else O).iloc[0]
+            st.caption(f"추천 = **{best['조합']}** (유의 전이 {best['합계']:.0f}개, 수렴한 조합 중 최다). 유의 전이가 많다 = 품목 사이에 위험이 옮겨 가는 길이 많아 네트워크로 볼 거리가 많음 — "
+                       "여러 조합 중 고른 것이라 t ≥ 1.96 몇 개는 우연일 수 있음.")
+
+            def _apply(c_=tuple(best["_ids"])):
+                st.session_state["mg_bids"] = list(c_)
+                st.session_state["mg_bkind"] = "Full"
+            st.button(f"추천 조합({best['조합']})을 아래 BEKK 품목에 넣기", key="mg_bs_apply", on_click=_apply)
+
+
 def tab_mvgarch():
     import mvgarch as M
     st.subheader("전통 GARCH · DCC · BEKK 변동성 분석")
@@ -1026,10 +1101,13 @@ def tab_mvgarch():
 
     # ---- ③ BEKK ----
     st.markdown("##### ③ BEKK(1,1) — 충격·변동성 전이")
+    _mg_bekk_search(R, ids, ANN)
     st.caption("Hₜ = CC' + A'εₜ₋₁εₜ₋₁'A + B'Hₜ₋₁B.  A[i,j] (i≠j): i 시장의 충격 → j 시장 분산, B[i,j]: i 시장의 변동성 → j 시장 변동성. "
                "Full BEKK는 모수가 2N²+N(N+1)/2 개로 많아 2~4개 품목 권장.")
     b1_, b2_, b3_ = st.columns([2, 1, 1])
-    bids = b1_.multiselect("BEKK 품목 (2~4개 권장)", ids, default=ids[:3], format_func=short, key="mg_bids")
+    if st.session_state.get("mg_bids") and not set(st.session_state["mg_bids"]) <= set(ids):          # 분석 품목이 바뀌어 추천 조합이 목록에 없으면 초기화
+        st.session_state["mg_bids"] = [c for c in st.session_state["mg_bids"] if c in ids]
+    bids = b1_.multiselect("BEKK 품목 (2~4개 권장)", ids, default=None if "mg_bids" in st.session_state else ids[:3], format_func=short, key="mg_bids")
     bkind = b2_.selectbox("유형", ["Full", "Diagonal", "Scalar"], key="mg_bkind")
     if b3_.button("BEKK 추정", type="primary", key="mg_bbtn"):
         if len(bids) < 2:
