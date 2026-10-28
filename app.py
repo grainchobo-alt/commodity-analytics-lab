@@ -9,8 +9,32 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
+from streamlit.delta_generator import DeltaGenerator as _DG
 
 import analytics as A
+
+
+def _esc_tilde(x):
+    """Streamlit 마크다운은 '~'로 감싼 부분을 취소선으로 그림 → 기간 표기(2007~2016) 등 홑 '~'를 이스케이프 ('~~'·이미 이스케이프된 것은 그대로)."""
+    import re
+    if isinstance(x, pd.DataFrame):                       # st.table 칸도 마크다운으로 그려짐
+        return x.map(_esc_tilde).rename(index=_esc_tilde, columns=_esc_tilde)
+    return re.sub(r"(?<![\\~])~(?!~)", r"\\~", x) if isinstance(x, str) else x
+
+
+def _no_strike(name):
+    f = getattr(_DG, name)
+
+    def w(self, body, *a, **k):
+        return f(self, _esc_tilde(body), *a, **k)
+    setattr(_DG, name, w)
+    setattr(st, name, getattr(st._main, name))
+
+
+if not getattr(_DG, "_tilde_patched", False):
+    for _n in ("markdown", "caption", "info", "warning", "success", "error", "expander", "subheader", "table"):
+        _no_strike(_n)
+    _DG._tilde_patched = True
 
 st.set_page_config(page_title="Commodity Analytics Lab", layout="wide", page_icon="📈")
 
@@ -4116,7 +4140,7 @@ def _predict_grid_section():
         import importlib
         EX = importlib.reload(EX)
     st.subheader("전략 백테스트 — 예측 모델 × 설명변수 조합 (19개 품목)")
-    st.caption(f"📌 결과 고정: {PERIOD_LS} (`experiments.predict_grid` · 대안 모델은 `predict_grid_alt`로 미리 계산). 데이터 업데이트를 해도 다시 계산하지 않습니다.")
+    st.caption(f"📌 결과 고정: {PLS_MD} (`experiments.predict_grid` · 대안 모델은 `predict_grid_alt`로 미리 계산). 데이터 업데이트를 해도 다시 계산하지 않습니다.")
     st.caption("공통 틀: 롱숏 탭과 같은 원자재 19개 · 매주 금요일 결정 · 목표 = 4주 뒤 로그수익률 · 품목마다 매년 1월 재학습(그해 이전 자료만, 학습 끝 4주 purge, 2001년부터 확장 창) · "
                "예측 → 두 방식으로 매매: 방향 = 예측 부호 ÷ 품목 변동성(품목마다 롱/숏), 순위 롱숏 = 예측 ÷ 변동성 상위 1/3 롱·하위 1/3 숏(4주 보유, 달러 중립). 편도 5bp · 목표 변동성 10%. "
                "설명변수는 모두 그 시점까지 자료로만 표준화. 표준 모델 = OLS · Ridge · Lasso · Elastic Net · PLS · LightGBM (λ·요인 수는 학습 구간 시계열 교차검증). "
@@ -4255,6 +4279,8 @@ def page_predict():
 FROZEN_END = "2026-10-26"
 FROZEN_LBL = "2026.10.26"
 PERIOD_LS, PERIOD_ALT, PERIOD_MM = f"2007.01~{FROZEN_LBL}", f"2012.07~{FROZEN_LBL}", f"2007.01~{FROZEN_LBL}"
+# 캡션(마크다운)에서는 "~" 두 개가 취소선이 되므로 이스케이프한 판을 씀
+PLS_MD, PALT_MD, PMM_MD = (p_.replace("~", "\\~") for p_ in (PERIOD_LS, PERIOD_ALT, PERIOD_MM))
 
 
 def _frozen(key: str, fn):
@@ -4318,7 +4344,7 @@ def tab_ls():
     import ls_extra as LX
     import procurement as PR
     st.subheader("롱숏 전략 — 상관 · 레짐 · 추세 (헤지펀드 원자재 전략 묶음)")
-    st.caption(f"📌 결과 고정: {PERIOD_LS} 자료 기준으로 한 번 계산해 저장한 값입니다. 데이터 업데이트를 해도 다시 계산하지 않습니다 (계산 시간이 길어서).")
+    st.caption(f"📌 결과 고정: {PLS_MD} 자료 기준으로 한 번 계산해 저장한 값입니다. 데이터 업데이트를 해도 다시 계산하지 않습니다 (계산 시간이 길어서).")
     st.caption("주간 금요일 종가로 결정 → 다음 주 수익률로 손익 (그 시점까지의 정보만 사용) · 비용 = 비중 변화량 × 편도 비용. "
                "① 페어 평균회귀 = 관계가 강한 두 품목의 가격차가 평소보다 벌어지면 되돌림에 베팅 · ② 상관 급등 = 품목들이 한 방향으로 묶이기 시작하면(흡수비율↑) 동반 하락 대비 · "
                "③ 국면 진입 = 다변량 HMM 스트레스 국면 확률 > 0.5 이면 위험 회피 · ④ 시계열 모멘텀 = 품목별 52주 추세 방향 (CTA의 기본 전략) · ⑤ 횡단면 모멘텀 = 강한 품목 롱 · 약한 품목 숏 · "
@@ -4358,14 +4384,10 @@ def tab_ls():
         m_ = LS.metrics(r_)
         T.loc[rn] = {**m_, sp[0]: LS.metrics(r_[r_.index < "2017-01-01"])["Sharpe"], sp[1]: LS.metrics(r_[r_.index >= "2017-01-01"])["Sharpe"],
                      "보유 주 비율": float((r_ != 0).mean()), "바스켓과 상관": float(r_.corr(D.iloc[:, 0])), "t값": m_["Sharpe"] * np.sqrt(len(r_) / 52)}
-    ok = (T["t값"] > 2) & (T[sp].min(1) > 0)
     st.dataframe(T.style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}", sp[0]: "{:+.2f}", sp[1]: "{:+.2f}",
                                  "보유 주 비율": "{:.0%}", "바스켓과 상관": "{:+.2f}", "t값": "{:+.2f}", "위약 95%": "{:+.2f}"}, na_rep="–"),
                  height=min(38 * (len(T) + 1) + 3, 470))
     st.caption(f"전략 {len(T)}개 — 표 안에서 스크롤. ⑩ 혼합 후보 = ⑨ '사전 선택 검증'에서 2016년까지 학습 Sharpe 상위 조합(가치 1위 · 따라잡기 2위 · 칼만 페어 4위, 3위 왜도는 단독 성과가 약해 제외)")
-    st.info(f"평가 {D.index.min():%Y-%m} – {D.index.max():%Y-%m} ({o['n_years']:.0f}년, 전략 {len(T) - 1}개). "
-            f"t값 > 2 이고 두 하위기간 모두 양수: **{', '.join(T.index[ok]) or '없음'}**. "
-            f"전략을 {len(T) - 1}개 시험했으므로 하나쯤 t > 2가 나오는 건 우연으로도 흔함(약 {1 - 0.977 ** (len(T) - 1):.0%}) — 문헌에서 이미 확인된 전략(시계열 모멘텀)인지가 중요.")
     sel = st.multiselect("누적 수익 비교", list(D.columns), [c for c in D.columns if c.startswith(("기준", "④ 시계열 모멘텀 52", "⑥ 혼합 · MinVar 70",
                                                                                              "⑩ 혼합 후보 · MinVar 50 + 모멘텀 25 + 가치", "⑩ 혼합 후보 · MinVar 50 + 모멘텀 25 + 섹터"))], key="ls_sel")
     norm_ = st.checkbox("변동성 10%로 맞춰 비교 (사후 배율 — 모양 비교용)", True, key="ls_norm")
@@ -4439,19 +4461,7 @@ def tab_ls():
     st.caption("※ 같은 '혼합 · MinVar 50 + 모멘텀 25 + 가치 25'가 ⑤ Portfolio Customization에서는 Sharpe 0.89–0.90으로 조금 다르게 나옴 — 계산 주기·재료는 같고, "
                "섞은 뒤 목표 변동성 10%로 맞추는 배율(직전 26주 실현 변동성)의 출발점만 다름. 여기는 2001년부터 이어진 배율을 쓰고, Customization은 고정 재료가 2007년부터라 "
                "2007년 초 약 반년(처음 13주 배율 1, 26주까지 짧은 창)을 새로 계산 → 2007년 중반 이후는 완전히 같음(상관 1.0, 처음 26주를 빼면 둘 다 0.896).")
-    _vt = A.DATA / "voltgt_compare.csv"
-    if _vt.exists():
-        with st.expander("목표 변동성을 10% 대신 5–50%로 하면? (상위 10개 전략 백테스트, 2007–)", expanded=False):
-            VT = pd.read_csv(_vt, encoding="utf-8-sig")
-            vm = st.radio("보기", ["연수익 산술 (%)", "연수익 복리 (%)", "Sharpe", "실현 변동성 (%)", "최대 낙폭 (%)", "최악 1년 (%)"], horizontal=True, key="ls_vt_m")
-            VS = VT.pivot(index="전략", columns="목표 변동성 (%)", values=vm)
-            VS = VS.reindex(VT["전략"].drop_duplicates())
-            VS.columns = [f"목표 {c}%" for c in VS.columns]
-            st.dataframe(VS.style.format("{:.2f}" if vm == "Sharpe" else "{:.1f}", na_rep="–"), use_container_width=True)
-            st.caption("롱숏 탭과 같은 코드(`ls_extra.run_extra`)에서 목표 변동성만 바꿔 다시 계산 — 품목 비중을 직전 26주 실현 변동성으로 조절, 섞은 뒤 다시 조절, 레버리지 상한 4배, 편도 5bp. "
-                       "산술 연수익은 목표에 거의 비례하고 Sharpe는 유지되지만, 복리 수익은 변동성²/2만큼 덜 늘고 최대 낙폭·최악 1년이 빠르게 커짐. "
-                       "52주 모멘텀처럼 레버리지 상한(4배)에 걸리는 전략은 목표를 올려도 실현 변동성이 따라가지 않음(실현 변동성 보기로 확인). "
-                       "연속월물 기준이라 롤 비용 과대평가(ETF 기준 연 약 −3%p)도 레버리지만큼 커짐 — 실제 운용 가능 여부(증거금·마진콜)는 별도 판단.")
+    st.caption("목표 변동성을 10% 대신 5–50%로 바꾼 결과는 ⑤ 포트폴리오 › '목표변동성에 따른 수익율 변화 Backtest' 서브탭.")
     DX = LX_["returns"]
     selx = st.multiselect("누적 수익 비교 (⑨)", list(DX.columns), [c for c in DX.columns if c.startswith(("혼합 · MinVar 70 + 모멘텀 30", "혼합 · MinVar 70 + 칼만",
                                                                                                      "V1", "S2", "K1 칼만 추세 (느림", "혼합 · MinVar 50 + 모멘텀 25 + 가치"))], key="ls_x_sel")
@@ -4603,7 +4613,7 @@ def _alt_ts_section():
                "Prophet은 직전 3년 추세 변곡 + 연간 계절을 매주 다시 적합. "
                "정식 패키지 = prophet(Meta) · neuralforecast(Nixtla: PatchTST · iTransformer · TFT) · torchdiffeq(적응 스텝 ODE-RNN) · torch_geometric(GCN + GRU), "
                "자체 경량 구현 = 같은 구조를 줄여 직접 짠 판(비교용). 결과는 미리 계산(`python experiments.py alt_ts`).")
-    st.caption(f"📌 결과 고정: {PERIOD_ALT} 자료 기준. 데이터 업데이트를 해도 다시 계산하지 않습니다 (신경망 학습 포함 1~2시간).")
+    st.caption(f"📌 결과 고정: {PALT_MD} 자료 기준. 데이터 업데이트를 해도 다시 계산하지 않습니다 (신경망 학습 포함 1–2시간).")
     if "alt_ts" not in EX.EXPERIMENTS:                              # 서버가 예전 experiments 모듈을 들고 있으면 다시 읽음
         import importlib
         EX = importlib.reload(EX)
@@ -4702,7 +4712,7 @@ def _multimodal_section():
         import importlib
         EX = importlib.reload(EX)
     st.markdown("##### 멀티모달 — 뉴스·USDA 원문(FinBERT 감성) · 리포트 수치 · 기상 · 매크로·금융을 수치 전략에 섞으면")
-    st.caption(f"📌 결과 고정: {PERIOD_MM} 자료 기준 (`python experiments.py multimodal`로 미리 계산). 데이터 업데이트를 해도 다시 계산하지 않습니다.")
+    st.caption(f"📌 결과 고정: {PMM_MD} 자료 기준 (`python experiments.py multimodal`로 미리 계산). 데이터 업데이트를 해도 다시 계산하지 않습니다.")
     st.caption("갈래 7개: ① 텍스트 = USDA WASDE 서술 문단(밀·곡물·유지작물·설탕·축산·면화) · EIA STEO 서술(원유·연료·가스) · 연준 베이지북(에너지·금속·농업 문장) 서술을 FinBERT(금융 문장 감성 모델)로 채점 (GDELT 뉴스는 요청 제한으로 수집이 너무 느려 제외), "
                "② 리포트 수치 = WASDE 기말재고·재고율·생산 수정폭, EIA 주간 재고(원유·휘발유·난방유·천연가스, 5년 평년 대비), EIA STEO 3개월 가격 전망 수정폭, LME 구리 재고·금/은 ETF 보유량, USDA NASS 주간 작황 우량 비율, "
                "③ 포지션 = CFTC COT 19개 품목(투기·상업 순포지션, 쏠림, 4주 변화), "
@@ -5002,7 +5012,7 @@ def tab_custom():
     if mode.startswith("품목"):
         tab_portfolio()
         return
-    st.caption(f"재료 = 롱숏 탭 · 대안 시계열 탭 · 멀티모달 탭의 전략별 주간 수익률(편도 5bp 비용 차감, 각각 목표 변동성 10%). 결과가 고정된 탭에서 읽으므로 기간은 최대 {PERIOD_LS}, "
+    st.caption(f"재료 = 롱숏 탭 · 대안 시계열 탭 · 멀티모달 탭의 전략별 주간 수익률(편도 5bp 비용 차감, 각각 목표 변동성 10%). 결과가 고정된 탭에서 읽으므로 기간은 최대 {PLS_MD}, "
                "고른 전략이 모두 있는 구간만 사용(대안 시계열을 넣으면 2012-07~). 합친 뒤 직전 26주 실현 변동성으로 아래에서 고른 목표 변동성(기본 10%)에 맞춤(레버리지 상한 4배 × 목표/10, 롱숏 탭 혼합과 같은 방식).")
     with st.spinner("전략 재료 읽는 중… (처음 한 번만 1–2분, 이후 저장된 결과 사용)"):
         X0, G = _sleeves(ROLL)
@@ -5089,13 +5099,84 @@ def tab_custom():
                "대안 시계열·멀티모달 갈래는 단독 성과가 약하거나 기간이 짧아(2012-07~) 섞을 때 효과가 작음 — 상관이 낮으면 Sharpe가 약해도 혼합 낙폭을 줄일 수는 있음.")
 
 
+def _voltgt_section():
+    """⑤ 포트폴리오 › 목표변동성에 따른 수익율 변화 Backtest — 롱숏 상위 10개 전략을 목표 변동성 5–50% × 레버리지 상한 2·4·8배·없음으로 다시 계산한 고정 결과."""
+    st.subheader("목표변동성에 따른 수익율 변화 Backtest — 같은 전략, 레버리지만 바꾸면?")
+    st.caption(f"📌 결과 고정: {PLS_MD} 자료 기준 (`ls_extra.run_extra`에서 목표 변동성·레버리지 상한만 바꿔 미리 계산). 데이터 업데이트를 해도 다시 계산하지 않습니다.")
+    f_ = A.DATA / "voltgt_compare.csv"
+    if not f_.exists():
+        st.info("결과가 없습니다 — 목표 변동성 백테스트를 먼저 실행해야 합니다.")
+        return
+    VT = pd.read_csv(f_, encoding="utf-8-sig")
+    if "레버리지 상한" not in VT:
+        VT["레버리지 상한"] = "4배"
+    st.caption("공통 틀: 롱숏 탭과 같은 19개 품목 · 주간 결정 · 편도 5bp. 품목 비중에 '목표 ÷ 직전 26주 실현 변동성' 배율을 곱해 목표 수준에 맞추고(배율 상한까지), 혼합은 섞은 뒤 다시 맞춤(혼합 배율 상한 4배). "
+               "기본 = 목표 10% · 상한 4배(롱숏 탭 표와 같음). 2007-01 ~ 2026-10 평가.")
+    k1, k2, k3 = st.columns([1.1, 1.6, 1])
+    caps = [c for c in ["2배", "4배", "8배", "없음"] if c in set(VT["레버리지 상한"])]
+    cap = k1.radio("레버리지 상한 (변동성 맞춤 배율의 최대치)", caps, index=caps.index("4배") if "4배" in caps else 0, horizontal=True, key="vt_cap",
+                   help="원래 비중에 곱하는 배율(목표 ÷ 직전 26주 실현 변동성)의 최대치. 상한이 낮으면 목표를 올려도 실제 변동성이 따라가지 않음(특히 52주 모멘텀). '없음' = 목표를 맞출 때까지 배율을 키움. 실제 명목 노출은 '총 명목 노출' 지표로 확인")
+    mets = ["연수익 산술 (%)", "연수익 복리 (%)", "Sharpe", "실현 변동성 (%)", "최대 낙폭 (%)", "최악 1년 (%)", "최악 1주 (%)", "총 명목 노출 평균 (배)", "필요 증거금 (자본 대비 %)"]
+    met = k2.selectbox("지표", mets, key="vt_met")
+    mrate = k3.slider("거래소 증거금률 가정 (명목 대비 %)", 3, 20, 8, key="vt_mr",
+                      help="원자재 선물 개시 증거금은 대략 명목의 5–12%(품목·변동성에 따라 다름). 필요 증거금 = 총 명목 노출 × 증거금률")
+    D = VT[VT["레버리지 상한"] == cap].copy()
+    D["필요 증거금 (자본 대비 %)"] = D["총 명목 노출 평균 (배)"] * mrate
+    order = list(D["전략"].drop_duplicates())
+    short = {s_: s_.replace(" (사후 선택 주의)", "").replace("혼합 · ", "").replace("기준 · ", "") for s_ in order}
+    PV = D.pivot(index="전략", columns="목표 변동성 (%)", values=met).reindex(order)
+    PV.index = [short[s_] for s_ in PV.index]
+    PV.columns = [f"목표 {c}%" for c in PV.columns]
+    fmt = "{:.2f}" if met in ("Sharpe", "총 명목 노출 평균 (배)") else "{:.1f}"
+    st.dataframe(PV.style.format(fmt, na_rep="–"), use_container_width=True)
+    if met.startswith("총 명목") or met.startswith("필요 증거금"):
+        st.caption("총 명목 노출 = 롱·숏 비중 절댓값의 합(자본 대비 배수), 2007– 주간 평균. 다전략(K2 페어·COT 포함)은 비중을 재구성하지 않아 '–'. "
+                   f"필요 증거금 = 노출 × 증거금률 {mrate}% — 100%를 넘으면 그 계좌로는 운용 불가, 50%를 넘으면 손실 시 마진콜 여유가 거의 없음. 급등락 때 거래소가 증거금률을 올리면 더 필요.")
+    f = go.Figure()
+    for j, s_ in enumerate(order):
+        d_ = D[D["전략"] == s_].sort_values("목표 변동성 (%)")
+        f.add_trace(go.Scatter(x=d_["목표 변동성 (%)"], y=d_[met], name=short[s_], mode="lines+markers",
+                               line=dict(width=2.6 if "가치 25" in s_ else 1.4, color=PAL[j % 8], dash="dot" if j >= 8 else None), marker=dict(size=5)))
+    if met in ("실현 변동성 (%)",):
+        f.add_trace(go.Scatter(x=[5, 50], y=[5, 50], name="목표 = 실현 (45°)", mode="lines", line=dict(color="#898781", dash="dash", width=1)))
+    st.plotly_chart(fig_layout(f, 400, title=f"{met} — 목표 변동성에 따라 (상한 {cap})", hovermode="x unified", xaxis=dict(title="목표 변동성 (%)", dtick=5),
+                               legend=dict(orientation="h", y=-0.25, font=dict(size=10))), key="vt_line")
+    fw = A.DATA / "voltgt_weekly.parquet"
+    if fw.exists():
+        W_ = pd.read_parquet(fw)
+        c1, c2, c3 = st.columns([1.6, 1.6, 0.8])
+        s_pick = c1.selectbox("누적 수익 — 전략", order, format_func=lambda x: short[x], key="vt_s")
+        t_pick = c2.multiselect("목표 변동성", sorted(VT["목표 변동성 (%)"].unique()), [10, 20, 30, 50], key="vt_t")
+        logy = c3.checkbox("로그 축", True, key="vt_log", help="변동성이 큰 경우 낙폭 구간을 같은 비율로 비교하기 쉬움")
+        capn = {"2배": 2, "4배": 4, "8배": 8, "없음": 1000}[cap]
+        f2 = go.Figure()
+        for j, t_ in enumerate(t_pick):
+            col = f"{s_pick}|{t_}|{capn}"
+            if col not in W_:
+                continue
+            eq = (1 + W_[col].fillna(0) / 100).clip(lower=1e-6).cumprod()
+            f2.add_trace(go.Scatter(x=eq.index, y=eq.values, name=f"목표 {t_}%", line=dict(width=2.2 if t_ == 10 else 1.4, color=PAL[j % 8])))
+        st.plotly_chart(shade(fig_layout(f2, 400, title=f"자본 1 → 누적 (복리, {short[s_pick]}, 상한 {cap})", hovermode="x",
+                                         yaxis=dict(type="log" if logy else "linear", title="자본 (배)")), W_.index), key="vt_cum")
+    st.markdown("""
+**읽는 법**
+- **산술 연수익**은 목표에 거의 비례(레버리지만 키운 것이라 Sharpe는 그대로). 하지만 **복리 연수익**(실제 자본이 불어나는 속도)은 변동성²/2만큼 덜 늘어남 — 가치 혼합은 목표 50%에서 산술 45%가 복리 36% 정도.
+- **최대 낙폭·최악 1년**이 목표에 거의 비례해 커짐 → 목표 30% 이상은 −60% 이상 손실 구간을 견뎌야 함.
+- **레버리지 상한**에 걸리는 전략(52주 모멘텀 · 단독 전략들)은 목표를 올려도 실현 변동성과 수익이 멈춤 → '실현 변동성' 보기에서 45° 선 아래로 벗어나는 지점이 상한에 걸린 곳.
+- **필요 증거금**이 크면 수익률 표가 좋아 보여도 실제 계좌로는 운용 불가. 표는 과거 19년 결과이며 미래 낙폭을 보장하지 않음.
+- 모두 연속월물 기준이라 롤 비용 과대평가(ETF 기준 연 약 −3%p, ⑧ FAQ ⑦)도 레버리지만큼 커짐.
+""")
+
+
 def page_portfolio():
-    a, b, c, d = st.tabs(["Portfolio Customization", f"롱숏 전략 (Alpha) Backtest 결과 ({PERIOD_LS})", f"대안 시계열 모델 ({PERIOD_ALT})",
-                          f"멀티모달 (뉴스·리포트·기상) ({PERIOD_MM})"])
+    a, b, v, c, d = st.tabs(["Portfolio Customization", f"롱숏 전략 (Alpha) Backtest 결과 ({PERIOD_LS})", f"목표변동성에 따른 수익율 변화 Backtest ({PERIOD_LS})",
+                             f"대안 시계열 모델 ({PERIOD_ALT})", f"멀티모달 (뉴스·리포트·기상) ({PERIOD_MM})"])
     with a:
         tab_custom()
     with b:
         tab_ls()
+    with v:
+        _voltgt_section()
     with c:
         _alt_ts_section()
     with d:
