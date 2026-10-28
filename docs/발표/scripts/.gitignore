@@ -1,0 +1,7 @@
+img/
+node_modules/
+package-lock.json
+data.json
+nums.json
+*.pdf
+*.pptx
