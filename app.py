@@ -285,6 +285,7 @@ def panel_or_stop(ids, transform="logret"):
 DEF_COMOVE = [i for i in ["yf:ZC=F", "yf:ZS=F", "yf:ZM=F", "yf:ZW=F", "yf:CL=F", "yf:HG=F", "yf:GC=F",
                           "ak:macro_shipping_bdi", "yf:SB=F", "yf:LE=F"] if i in NAME]
 
+st.markdown("<style>[data-testid='stTabPanel'] [data-testid='stTab'] p {font-size:0.8rem !important;}</style>", unsafe_allow_html=True)
 tabs = st.tabs(["★ 구매 의사결정", "◆ 리스크 (VaR·꼬리)", "① 시장 구조·동조성", "①+ 요인 모형", "② 레짐", "③ 변동성·공분산", "④ 수익률 예측", "⑤ 포트폴리오", "⑥ 실험 결과", "⑦ 모델 도감", "⑧ 데이터·방법론"])
 
 # ============================================================================
@@ -978,6 +979,11 @@ def _mg_bekk_search(R: pd.DataFrame, ids: list, ann: int):
         cand = [c for c in ids if c in R]
         if len(cand) < 3:
             st.info("위 '분석 품목'에서 3개 이상 고르세요."); return
+        per = st.radio("찾을 기간", ["전체", "2016년까지", "2017년 이후"], horizontal=True, key="mg_bs_per",
+                       help="시기별로 따로 찾으면 '전이가 많은 품목 묶음' 자체가 바뀌었는지 볼 수 있음 (각 구간 관측치가 충분해야 안정적)")
+        R = R.loc[:"2016-12-31"] if per == "2016년까지" else (R.loc["2017-01-01":] if per == "2017년 이후" else R)
+        if len(R.dropna()) < 150:
+            st.warning(f"선택한 기간의 관측치가 {len(R.dropna())}개뿐이라 추정이 불안정합니다."); return
         s1, s2, s3 = st.columns([1, 1, 2])
         kk = s1.radio("조합 크기", [3, 4, 5], horizontal=True, key="mg_bs_k", help="Full BEKK 모수 = 2N² + N(N+1)/2 → 3개 24 · 4개 42 · 5개 65개. 5개는 추정이 느리고 불안정할 수 있음")
         kk = min(kk, len(cand))
@@ -1003,19 +1009,40 @@ def _mg_bekk_search(R: pd.DataFrame, ids: list, ann: int):
                     bk = M.bekk_fit(R[list(cb)].dropna(), "Full", ann)
                     m_ = ~np.eye(len(cb), dtype=bool)
                     nA, nB = int((np.abs(bk["A_t"].values[m_]) >= 1.96).sum()), int((np.abs(bk["B_t"].values[m_]) >= 1.96).sum())
-                    out.append({"조합": " · ".join(short(c) for c in cb), "유의 충격 전이 A": nA, "유의 변동성 전이 B": nB, "합계": nA + nB,
+                    out.append({"근사 순위": q + 1, "조합": " · ".join(short(c) for c in cb), "유의 충격 전이 A": nA, "유의 변동성 전이 B": nB, "합계": nA + nB,
                                 "가능한 화살표": 2 * len(cb) * (len(cb) - 1), "수렴": "✔" if bk["converged"] else "✖", "BIC": bk["bic"], "_ids": cb})
                 except Exception as ex:
-                    out.append({"조합": " · ".join(short(c) for c in cb), "유의 충격 전이 A": np.nan, "유의 변동성 전이 B": np.nan, "합계": np.nan,
+                    out.append({"근사 순위": q + 1, "조합": " · ".join(short(c) for c in cb), "유의 충격 전이 A": np.nan, "유의 변동성 전이 B": np.nan, "합계": np.nan,
                                 "가능한 화살표": np.nan, "수렴": f"실패: {ex}"[:40], "BIC": np.nan, "_ids": cb})
                 prog.progress((q + 1) / int(nver))
-            st.session_state["mg_bs_out"] = pd.DataFrame(out).sort_values(["합계"], ascending=False, na_position="last").reset_index(drop=True)
+            O_ = pd.DataFrame(out).sort_values(["합계"], ascending=False, na_position="last").reset_index(drop=True)
+            st.session_state["mg_bs_out"] = O_
+            st.session_state["mg_bs_meta"] = (per, kk, f"{R.index.min():%Y-%m}~{R.index.max():%Y-%m}")
+            try:
+                import runlog as RL
+                ok_r = O_[O_["수렴"] == "✔"]
+                rid = RL.record("bekk_search", f"BEKK 조합 자동 찾기 ({per}, {kk}개)",
+                                dict(기간=per, 시작=f"{R.index.min():%Y-%m-%d}", 끝=f"{R.index.max():%Y-%m-%d}", 조합크기=int(kk), 후보품목=[short(c) for c in cand],
+                                     확인수=int(nver), 빈도=str(R.index.freq or pd.infer_freq(R.index[:50]) or "")),
+                                summary={"추천 유의 전이 수": float(ok_r["합계"].iloc[0]) if len(ok_r) else float("nan"), "후보 조합 수": len(S)},
+                                tables={"근사_순위": S.drop(columns="_ids").head(30), "BEKK_확인": O_.drop(columns="_ids")})
+                st.caption(f"실행 기록 저장: `runs/…/{rid}` (⑥ 실험 결과 탭 실행 기록에서 비교)")
+            except Exception as ex:
+                st.caption(f"실행 기록 저장 실패: {ex}")
         O = st.session_state.get("mg_bs_out")
         if O is not None and len(O):
             st.dataframe(O.drop(columns="_ids").style.format({"BIC": "{:.1f}", "유의 충격 전이 A": "{:.0f}", "유의 변동성 전이 B": "{:.0f}", "합계": "{:.0f}",
                                                              "가능한 화살표": "{:.0f}"}, na_rep="–"), hide_index=True, use_container_width=True)
             ok_ = O[O["수렴"] == "✔"]
             best = (ok_ if len(ok_) else O).iloc[0]
+            meta_ = st.session_state.get("mg_bs_meta")
+            vv = O.dropna(subset=["합계"])
+            if len(vv) >= 3:
+                rho = float(vv["근사 순위"].rank().corr(-vv["합계"].rank(), method="spearman"))
+                st.caption(f"근사 순위 ↔ 실제 BEKK 유의 전이 수 순위 상관(Spearman) {rho:+.2f} ({len(vv)}개 조합) — +1에 가까울수록 근사를 믿고 후보를 좁혀도 됨, 0 근처면 근사가 실제와 따로 놂 → 확인 조합 수를 늘릴 것."
+                           + (f" 기간 {meta_[0]} ({meta_[2]}), {meta_[1]}개 조합." if meta_ else ""))
+            elif len(vv):
+                st.caption("근사와 실제의 순위 상관은 확인 조합이 3개 이상일 때 계산." + (f" 기간 {meta_[0]} ({meta_[2]})." if meta_ else ""))
             st.caption(f"추천 = **{best['조합']}** (유의 전이 {best['합계']:.0f}개, 수렴한 조합 중 최다). 유의 전이가 많다 = 품목 사이에 위험이 옮겨 가는 길이 많아 네트워크로 볼 거리가 많음 — "
                        "여러 조합 중 고른 것이라 t ≥ 1.96 몇 개는 우연일 수 있음.")
 
@@ -3254,18 +3281,18 @@ def tab_procure():
     lo = pa.index.max() - pd.DateOffset(years=3)
     pa3, sc3 = pa[pa.index >= lo], sc[sc.index >= lo]
     f = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.45, 0.3, 0.25], vertical_spacing=0.05,
-                      subplot_titles=(f"{PR.BUY_IDS[di]} 가격 ($/t, 근월물) — 초록 = 점수 ≥ 65 (적극 매수), 빨강 = 점수 < 35",
+                      subplot_titles=(f"{PR.BUY_IDS[di]} 가격 ($/t, 근월물) — 초록 = 점수 ≥ τ {tl:.0f} (🟢 적극 매수, 위 판단과 같은 문턱), 빨강 = 점수 < 35 (비싼 편)",
                                       "매수 점수와 구성 요소", f"상대가치 관계: {PR.REL_DEF.get(di, ('–',))[0]}"))
     f.add_trace(go.Scatter(x=pa3.index, y=pa3.values, line=dict(color=PAL[0], width=1.6), name="가격"), 1, 1)
-    hi_, lo_ = sc3[sc3 >= 65].index.intersection(pa3.index), sc3[sc3 < 35].index.intersection(pa3.index)
+    hi_, lo_ = sc3[sc3 >= tl].index.intersection(pa3.index), sc3[sc3 < 35].index.intersection(pa3.index)
     f.add_trace(go.Scatter(x=hi_, y=pa3.reindex(hi_), mode="markers", marker=dict(color=PAL[2], size=5), name="적극 매수 구간"), 1, 1)
-    f.add_trace(go.Scatter(x=lo_, y=pa3.reindex(lo_), mode="markers", marker=dict(color=PAL[1], size=4, opacity=0.6), name="매수 늦춤 구간"), 1, 1)
+    f.add_trace(go.Scatter(x=lo_, y=pa3.reindex(lo_), mode="markers", marker=dict(color=PAL[1], size=4, opacity=0.6), name="비싼 편 (점수 < 35)"), 1, 1)
     f.add_trace(go.Scatter(x=sc3.index, y=sc3.values, line=dict(color=PAL[0], width=2.2), name="매수 점수"), 2, 1)
     show_comp = st.checkbox("점수 구성 요소도 함께 그리기 (선이 많아짐)", False, key="pc_comp")
     for j, c in enumerate([c for c in PR.COMP_LBL if w.get(c, 0) > 0 and show_comp]):
         s_ = sig[c][sig.index >= lo] * 100
         f.add_trace(go.Scatter(x=s_.index, y=s_.values, line=dict(color=PAL[(j + 3) % 8], width=1, dash="dot"), name=PR.COMP_LBL[c]), 2, 1)
-    f.add_hline(y=65, line_dash="dash", line_color=PAL[2], row=2, col=1); f.add_hline(y=35, line_dash="dash", line_color=PAL[1], row=2, col=1)
+    f.add_hline(y=tl, line_dash="dash", line_color=PAL[2], row=2, col=1); f.add_hline(y=35, line_dash="dash", line_color=PAL[1], row=2, col=1)
     rel = inp.get("rel")
     if rel is not None:
         r3 = rel[rel.index >= lo]
@@ -3436,7 +3463,7 @@ def tab_risk():
     rid_, o = st.session_state["rk_o"]
     r, S = o["r"], o["S"]
     ev = S.index >= pd.Timestamp(f"{ev0}-01-01")
-    c, d, e = st.tabs(["VaR · ES 백테스트", "꼬리 위험 (EVT · 스트레스)", "구매·보유 물량 위험"])
+    c, d, e = subtabs(["VaR · ES 백테스트", "꼬리 위험 (EVT · 스트레스)", "구매·보유 물량 위험"])
     with c:
         k1_, k2_, k3_, k4_ = st.columns(4)
         side_l = k1_.radio("포지션", ["매입 예정 물량 (가격 상승 위험)", "보유 재고 (가격 하락 위험)"], key="rk_side")
@@ -4187,7 +4214,7 @@ def tab_experiments():
         if df is None:
             return
         g = lambda k: df[df.구분 == k].dropna(axis=1, how="all")
-        t1, t2, t3, t4, t5, t6, t7 = st.tabs(["방향 (5일)", "변동성 (20일)", "스프레드 (상대가치)", "품목 순위", "구매: 기다릴까", "과적합 판정", "메타 라벨링"])
+        t1, t2, t3, t4, t5, t6, t7 = subtabs(["방향 (5일)", "변동성 (20일)", "스프레드 (상대가치)", "품목 순위", "구매: 기다릴까", "과적합 판정", "메타 라벨링"])
         with t1:
             d = g("direction")
             agg = d.groupby("모델").agg(평균Sharpe=("Sharpe", "mean"), 중앙Sharpe=("Sharpe", "median"), 평균적중률=("적중률", "mean"),
@@ -4457,7 +4484,7 @@ def page_structure():
 
 
 def page_factor():
-    a, b = st.tabs(["주성분 · 스필오버 · TVP-VAR", "FAVAR (요인 충격의 전파)"])
+    a, b = subtabs(["주성분 · 스필오버 · TVP-VAR", "FAVAR (요인 충격의 전파)"])
     with a:
         tab_factor()
     with b:
@@ -4465,7 +4492,7 @@ def page_factor():
 
 
 def page_vol():
-    a, b, c, dd = st.tabs(["단변량 GARCH · 레버리지", "다변량 GARCH (DCC · ADCC · BEKK)", "GARCH-MIDAS (장기·단기 변동성 분해)",
+    a, b, c, dd = subtabs(["단변량 GARCH · 레버리지", "다변량 GARCH (DCC · ADCC · BEKK)", "GARCH-MIDAS (장기·단기 변동성 분해)",
                             "변동성 예측 검증 (QLIKE · DM · MCS · 부호 편향)"])
     with a:
         tab_vol()
@@ -4634,8 +4661,8 @@ def _predict_grid_section():
 
 
 def page_predict():
-    a, b, c, d = st.tabs(["단일 품목 (회귀 · ML · 계량)", "여러 품목 (패널 · 횡단면)", "MIDAS 수익 예측 (혼합 주기)",
-                          f"전략 백테스트 — 모델 × 설명변수 ({PERIOD_LS})"])
+    a, b, c, d = subtabs(["단일 품목 (회귀 · ML · 계량)", "여러 품목 (패널 · 횡단면)", "MIDAS 수익 예측 (혼합 주기)",
+                          f"전략 백테스트 — 모델 × 설명변수 ({PLS_S})"])
     with a:
         tab_ml()
     with b:
@@ -4653,6 +4680,13 @@ FROZEN_LBL = "2026.10.26"
 PERIOD_LS, PERIOD_ALT, PERIOD_MM = f"2007.01~{FROZEN_LBL}", f"2012.07~{FROZEN_LBL}", f"2007.01~{FROZEN_LBL}"
 # 캡션(마크다운)에서는 "~" 두 개가 취소선이 되므로 이스케이프한 판을 씀
 PLS_MD, PALT_MD, PMM_MD = (p_.replace("~", "\\~") for p_ in (PERIOD_LS, PERIOD_ALT, PERIOD_MM))
+# 하위 탭 제목용 짧은 기간 (2007.01~2026.10.26 → '07.01~'26.10.26) — 탭이 한 화면에 들어가도록
+PLS_S, PALT_S, PMM_S = (p_.replace("20", "'", 1).replace("~20", "~'") for p_ in (PERIOD_LS, PERIOD_ALT, PERIOD_MM))
+
+
+def subtabs(labels: list[str]):
+    """하위 탭: 제목 앞에 A. B. C. … 를 붙여 순서를 보이게 함."""
+    return st.tabs([f"{chr(65 + k)}. {l_}" for k, l_ in enumerate(labels)])
 
 
 def _frozen(key: str, fn):
@@ -5585,8 +5619,8 @@ def _voltgt_section():
 
 
 def page_portfolio():
-    a, b, v, c, d = st.tabs(["Portfolio Customization", f"롱숏 전략 (Alpha) Backtest 결과 ({PERIOD_LS})", f"목표변동성에 따른 수익율 변화 Backtest ({PERIOD_LS})",
-                             f"대안 시계열 모델 ({PERIOD_ALT})", f"멀티모달 (뉴스·리포트·기상) ({PERIOD_MM})"])
+    a, b, v, c, d = subtabs(["Portfolio Customization", f"롱숏 전략 (Alpha) Backtest ({PLS_S})", f"목표변동성별 수익율 Backtest ({PLS_S})",
+                             f"대안 시계열 모델 ({PALT_S})", f"멀티모달 (뉴스·리포트·기상) ({PMM_S})"])
     with a:
         tab_custom()
     with b:
@@ -5756,7 +5790,7 @@ def tab_cross():
 
 
 def page_procure():
-    a, b = st.tabs(["구매 타이밍 — 지금 살까, 미룰까", "횡단면 — 품목 비교 · 매력 묶음 (군집)"])
+    a, b = subtabs(["구매 타이밍 — 지금 살까, 미룰까", "횡단면 — 품목 비교 · 매력 묶음 (군집)"])
     with a:
         tab_procure()
     with b:
