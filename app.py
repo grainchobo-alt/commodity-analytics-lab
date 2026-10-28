@@ -286,7 +286,65 @@ DEF_COMOVE = [i for i in ["yf:ZC=F", "yf:ZS=F", "yf:ZM=F", "yf:ZW=F", "yf:CL=F",
                           "ak:macro_shipping_bdi", "yf:SB=F", "yf:LE=F"] if i in NAME]
 
 st.markdown("<style>[data-testid='stTabPanel'] [data-testid='stTab'] p {font-size:0.8rem !important;}</style>", unsafe_allow_html=True)
-tabs = st.tabs(["★ 구매 의사결정", "◆ 리스크 (VaR·꼬리)", "① 시장 구조·동조성", "①+ 요인 모형", "② 레짐", "③ 변동성·공분산", "④ 수익률 예측", "⑤ 포트폴리오", "⑥ 실험 결과", "⑦ 모델 도감", "⑧ 데이터·방법론"])
+
+# 화면 설정 (⑨ 설정 탭) — 배경색. 위젯 값은 다음 실행 때 맨 위에서 읽어 CSS로 적용, data/ui_settings.json에 저장 (git 제외)
+import json
+UI_BG = {"기본 (Streamlit 테마 그대로)": None, "흰색": "#ffffff", "아이보리": "#fbf8f1", "따뜻한 회색": "#f4f3ef", "연회색": "#eef0f3",
+         "연하늘": "#eaf3fb", "연민트": "#e9f6f1", "연라벤더": "#f1eef9", "연베이지": "#f6efe3", "연분홍": "#fbeff2", "연노랑": "#fdf8e1",
+         "짙은 남색 (다크)": "#0f1b2d", "차콜 (다크)": "#1f2125", "짙은 녹색 (다크)": "#10251d", "검정 (다크)": "#0b0b0b", "직접 고르기": "custom"}
+UI_FILE = A.DATA / "ui_settings.json"
+
+
+def _ui_saved() -> dict:
+    d = {"bg": "기본 (Streamlit 테마 그대로)", "bg_custom": "#f4f3ef", "sb": "본문보다 조금 진하게", "sb_custom": "#e8e6e1", "chart": True}
+    try:
+        d.update(json.loads(UI_FILE.read_text(encoding="utf-8")))
+    except Exception:
+        pass
+    return d
+
+
+def _hex_dim(h: str, k: float) -> str:
+    r, g, b = (int(h[i:i + 2], 16) for i in (1, 3, 5))
+    f_ = (lambda v: int(max(0, min(255, v * (1 - k))))) if k > 0 else (lambda v: int(max(0, min(255, v + (255 - v) * -k))))
+    return f"#{f_(r):02x}{f_(g):02x}{f_(b):02x}"
+
+
+def _lum(h: str) -> float:
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _ui_apply():
+    sv = _ui_saved()
+    ss = st.session_state
+    nm = ss.get("ui_bg", sv["bg"]); cu = ss.get("ui_bg_custom", sv["bg_custom"])
+    sbn = ss.get("ui_sb", sv["sb"]); sbc = ss.get("ui_sb_custom", sv["sb_custom"]); ch = ss.get("ui_chart", sv["chart"])
+    now = {"bg": nm, "bg_custom": cu, "sb": sbn, "sb_custom": sbc, "chart": bool(ch)}
+    if now != {k: sv.get(k) for k in now}:
+        try:
+            UI_FILE.write_text(json.dumps(now, ensure_ascii=False, indent=1), encoding="utf-8")
+        except Exception:
+            pass
+    bg = UI_BG.get(nm)
+    bg = cu if bg == "custom" else bg
+    if not bg:
+        return
+    dark_bg = _lum(bg) < 0.45
+    sb = {"본문과 같게": bg, "본문보다 조금 진하게": _hex_dim(bg, 0.06) if not dark_bg else _hex_dim(bg, -0.08), "직접 고르기": sbc}.get(sbn, bg)
+    css = (f".stApp, [data-testid='stHeader'], [data-testid='stBottomBlockContainer'] {{background-color:{bg} !important;}}"
+           f"[data-testid='stSidebar'], [data-testid='stSidebar'] > div:first-child {{background-color:{sb} !important;}}")
+    if dark_bg != DARK:                                                    # 테마와 밝기가 반대인 배경이면 글자색도 뒤집어 읽히게
+        txt = "#ece9e2" if dark_bg else "#1f1f1f"
+        css += (f".stApp, .stApp p, .stApp li, .stApp label, .stApp span, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6, "
+                f".stApp [data-testid='stMarkdownContainer'], .stApp [data-testid='stCaptionContainer'], .stApp [data-testid='stWidgetLabel'] {{color:{txt} !important;}}")
+    if ch:                                                                 # 차트 바탕을 투명하게 → 고른 배경색이 비침
+        css += ".js-plotly-plot .main-svg {background:transparent !important;} .js-plotly-plot .plotly rect.bg {fill:transparent !important;}"
+    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+
+
+_ui_apply()
+tabs = st.tabs(["★ 구매 의사결정", "◆ 리스크 (VaR·꼬리)", "① 시장 구조·동조성", "①+ 요인 모형", "② 레짐", "③ 변동성·공분산", "④ 수익률 예측", "⑤ 포트폴리오", "⑥ 실험 결과", "⑦ 모델 도감", "⑧ 데이터·방법론", "⑨ 설정"])
 
 # ============================================================================
 # ① 동조성
@@ -3431,11 +3489,18 @@ def tab_procure():
                       subplot_titles=(f"{PR.BUY_IDS[di]} 가격 ($/t, 근월물) — 🟢 점수 ≥ {tl:.0f} · 🟠 {yb:.0f}–{tl - 1:.0f} · 🟡 {yb:.0f} 미만 (판단 카드와 같은 문턱)",
                                       "매수 점수와 구성 요소", f"상대가치 관계: {PR.REL_DEF.get(di, ('–',))[0]}"))
     f.add_trace(go.Scatter(x=pa3.index, y=pa3.values, line=dict(color=PAL[0], width=1.6), name="가격"), 1, 1)
-    for m_, nm_, col_, sz_, op_ in [(sc3 >= tl, f"🟢 적극 매수 (≥ {tl:.0f})", "#2ea043", 5, 1.0),
-                                   ((sc3 >= yb) & (sc3 < tl), f"🟠 판단 유보 · 매수 쪽 ({yb:.0f}–{tl - 1:.0f})", "#f0883e", 4, 0.55),
-                                   (sc3 < yb, f"🟡 판단 유보 · 대기 쪽 (< {yb:.0f})", "#d29922", 3.5, 0.35)]:
-        ix_ = sc3[m_].index.intersection(pa3.index)
-        f.add_trace(go.Scatter(x=ix_, y=pa3.reindex(ix_), mode="markers", marker=dict(color=col_, size=sz_, opacity=op_), name=nm_), 1, 1)
+    # 점은 trace 하나 (색만 점마다 다르게) — 색별 trace 3개로 그리면 마우스오버(x unified)가 다른 색 trace의 '가장 가까운 다른 날' 점까지 함께 보여 줌
+    cls_ = [(f"🟢 적극 매수 (점수 ≥ {tl:.0f})", "#2ea043", 5, 1.0), (f"🟠 판단 유보 · 매수 쪽 (점수 {yb:.0f}–{tl - 1:.0f})", "#f0883e", 4, 0.55),
+            (f"🟡 판단 유보 · 대기 쪽 (점수 < {yb:.0f})", "#d29922", 3.5, 0.35)]
+    ix_ = sc3.dropna().index.intersection(pa3.index)
+    s_ix = sc3.reindex(ix_)
+    k_ = np.where(s_ix >= tl, 0, np.where(s_ix >= yb, 1, 2))
+    f.add_trace(go.Scatter(x=ix_, y=pa3.reindex(ix_), mode="markers", showlegend=False, name="판단",
+                           marker=dict(color=[cls_[k][1] for k in k_], size=[cls_[k][2] for k in k_], opacity=[cls_[k][3] for k in k_]),
+                           customdata=np.c_[[cls_[k][0] for k in k_], s_ix.values],
+                           hovertemplate="%{customdata[0]} · 이번 주 점수 %{customdata[1]:.0f}<extra></extra>"), 1, 1)
+    for nm_, col_, sz_, op_ in cls_:                                       # 범례 전용 (데이터 없음)
+        f.add_trace(go.Scatter(x=[None], y=[None], mode="markers", marker=dict(color=col_, size=8, opacity=max(op_, 0.6)), name=nm_, hoverinfo="skip"), 1, 1)
     f.add_trace(go.Scatter(x=sc3.index, y=sc3.values, line=dict(color=PAL[0], width=2.2), name="매수 점수"), 2, 1)
     show_comp = st.checkbox("점수 구성 요소도 함께 그리기 (선이 많아짐)", False, key="pc_comp")
     for j, c in enumerate([c for c in PR.COMP_LBL if w.get(c, 0) > 0 and show_comp]):
@@ -3450,7 +3515,7 @@ def tab_procure():
         for qq, nm_ in [(0.2, "1년 하위 20%"), (0.8, "1년 상위 20%")]:
             b_ = q_.quantile(qq)[rel.index >= lo]
             f.add_trace(go.Scatter(x=b_.index, y=b_.values, line=dict(color="#898781", width=1, dash="dot"), name=nm_, showlegend=False), 3, 1)
-    st.plotly_chart(fig_layout(f, 680), key="pc_detail_fig")
+    st.plotly_chart(fig_layout(f, 680, hoverlabel=dict(namelength=-1)), key="pc_detail_fig")
     st.caption(f"점 색 = 그 주 가격 매력 점수 기준 판단 (🟢 ≥ τ {tl:.0f} · 🟠 τ−10 ~ τ · 🟡 그 아래, 진할수록 매수 쪽). "
                "🔴 매수 보류는 점수뿐 아니라 '미루는 기간 안에 더 쌀 확률 ≥ p*'(AUC 기준 충족 품목)까지 봐야 해서 이 과거 차트에는 표시하지 않음 — 이번 주 🔴 여부는 위 판단 카드·지도에서.")
     if risk != "ewma":
@@ -6067,6 +6132,35 @@ def _cs_cluster1(roll: bool):
     return set(g1), float(X.loc[lab == 1, "score"].mean()) if "score" in X else np.nan, int(cl["k"]), len(X), partners
 
 
+def page_settings():
+    st.subheader("⑨ 설정 — 화면 배경색")
+    sv = _ui_saved()
+    names = list(UI_BG)
+    sw = "".join(f'<span title="{n}" style="display:inline-block;width:26px;height:26px;margin:2px;border-radius:5px;border:1px solid rgba(128,128,128,0.45);'
+                 f'background:{v}"></span>' for n, v in UI_BG.items() if v and v != "custom")
+    st.markdown(f"<div style='margin-bottom:6px'>{sw}</div>", unsafe_allow_html=True)
+    c1, c2 = st.columns([2, 1])
+    nm = c1.selectbox("본문 배경색", names, names.index(sv["bg"]) if sv["bg"] in names else 0, key="ui_bg",
+                      help="'기본'이면 Streamlit 테마(라이트·다크) 색을 그대로 씀. 다크 계열을 라이트 테마에서 고르면 글자색을 자동으로 밝게 바꿈")
+    c2.color_picker("직접 고르기 색", sv["bg_custom"], key="ui_bg_custom", disabled=nm != "직접 고르기")
+    d1, d2 = st.columns([2, 1])
+    sbo = ["본문보다 조금 진하게", "본문과 같게", "직접 고르기"]
+    sbn = d1.selectbox("사이드바 배경색", sbo, sbo.index(sv["sb"]) if sv["sb"] in sbo else 0, key="ui_sb", disabled=UI_BG.get(nm) is None)
+    d2.color_picker("사이드바 직접 고르기 색", sv["sb_custom"], key="ui_sb_custom", disabled=sbn != "직접 고르기" or UI_BG.get(nm) is None)
+    st.checkbox("차트 바탕도 같은 배경색으로 (차트를 투명하게)", sv["chart"], key="ui_chart", disabled=UI_BG.get(nm) is None)
+    if st.button("기본값으로 되돌리기", key="ui_reset"):
+        for k_ in ("ui_bg", "ui_bg_custom", "ui_sb", "ui_sb_custom", "ui_chart"):
+            st.session_state.pop(k_, None)
+        try:
+            UI_FILE.unlink()
+        except Exception:
+            pass
+        st.rerun()
+    st.caption("고르면 바로 적용되고 `data/ui_settings.json`에 저장돼 앱을 다시 켜도 유지됨. 라이트·다크 테마 자체는 오른쪽 위 ⋮ › Settings에서 바꿈. "
+               "표(st.dataframe)는 Streamlit이 캔버스로 그려 테마 색을 따르고, 차트의 선·글자 색은 테마(라이트·다크) 기준으로 정해짐 — "
+               "다크 배경을 라이트 테마에서 쓰면 일부 차트 글자가 어둡게 보일 수 있으니, 다크 계열은 다크 테마와 함께 쓰는 것을 권장.")
+
+
 def page_atlas():
     try:
         import model_atlas
@@ -6075,6 +6169,6 @@ def page_atlas():
         st.info("모델 도감 준비 중")
 
 
-for _t, _fn in zip(tabs, [page_procure, tab_risk, page_structure, page_factor, tab_regime, page_vol, page_predict, page_portfolio, tab_experiments, page_atlas, tab_data]):
+for _t, _fn in zip(tabs, [page_procure, tab_risk, page_structure, page_factor, tab_regime, page_vol, page_predict, page_portfolio, tab_experiments, page_atlas, tab_data, page_settings]):
     with _t:
         _fn()

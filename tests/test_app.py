@@ -55,7 +55,7 @@ assert any(b.key == "data_update" for b in at.sidebar.button)                   
 assert any("거시" in m.value for m in at.markdown)                                         # 거시·금리·해운 표
 assert any("펀더멘털 맥락" in e.label for e in at.expander)                                 # 펀더멘털 표 2개는 펼치기
 at.checkbox(key="pc_comp").check().run(); check(at, "구매 타이밍: 점수 구성 요소 표시"); at.checkbox(key="pc_comp").uncheck().run()
-assert any("t값 > 2" in i.value for i in at.info)                                          # ⑤ 롱숏 전략 표
+assert any(m.key == "ls_sel" for m in at.multiselect)                                      # ⑤ 롱숏 전략 표·누적 수익 (파란 t>2 박스는 v1.37.0에서 제거)
 assert any("비중 결정 방식 비교" in m.value for m in at.markdown)                          # ⑤ ⑦ MinVar·평균-분산 비교
 assert any("⑨ 확장 — 칼만 필터" in m.value for m in at.markdown)                          # ⑨ 칼만·헤지펀드식 확장
 assert any("사전 선택 검증" in e.label for e in at.expander)                               # ⑨ 학습으로 고르고 시험 확인
@@ -189,6 +189,7 @@ at.checkbox(key="vs").uncheck().run(); at.checkbox(key="wf").uncheck().run()
 at.button(key="runml").click().run()
 at.button(key="statbtn").click().run(); check(at, "정상성 진단")
 
+at.radio(key="cu_mode").set_value("품목 단위 평균-분산 최적화 (Newton, 기존 바스켓 포트폴리오)").run()   # v1.34.0부터 Customization 안의 모드
 at.button(key="pf_run").click().run(); check(at, "포트폴리오: 모멘텀·롱온리 (주간)")
 at.selectbox(key="pf_mom").set_value("CTA 혼합 (EWMA 교차 8/24·16/48·32/96일)").run()
 at.selectbox(key="pf_rule").set_value("무거래 구간 (필요할 때만 거래)").run()
