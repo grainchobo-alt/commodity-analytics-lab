@@ -48,7 +48,23 @@ def viz_pca(c):
                                line=dict(color=PAL[k], width=5), name=f"PC{k + 1}: 분산의 {ev[k] / ev.sum():.0%}"))
     _lay(f, 430, title="PCA: 데이터가 가장 넓게 퍼진 방향 = PC1, 그에 직교 = PC2 (화살표 길이 ∝ √분산)",
          xaxis=dict(title="변수 1", scaleanchor="y"), yaxis_title="변수 2")
-    c.plotly_chart(f, key="at_pca_fig")
+    t2, t3 = _tabs23(c)
+    t2.plotly_chart(f, key="at_pca_fig")
+    sd3 = np.sqrt([1.6, 0.7, 0.4])
+    C3 = np.outer(sd3, sd3) * np.array([[1, rho, rho * 0.7], [rho, 1, rho * 0.7], [rho * 0.7, rho * 0.7, 1]])
+    lam3 = np.linalg.eigvalsh(C3)
+    if lam3.min() <= 1e-6:                                             # 상관이 너무 크면 양의 정부호가 깨짐 → 대각을 살짝 키움
+        C3 = C3 + np.eye(3) * (1e-3 - lam3.min())
+    X3 = rng.multivariate_normal([0, 0, 0], C3, n); X3 = X3 - X3.mean(0)
+    e3, V3 = np.linalg.eigh(np.cov(X3.T)); o3 = e3.argsort()[::-1]; e3, V3 = e3[o3], V3[:, o3]
+    f3 = go.Figure(go.Scatter3d(x=X3[:, 0], y=X3[:, 1], z=X3[:, 2], mode="markers", marker=dict(size=2.5, color=GREY, opacity=0.45), name="데이터 (예: 옥수수·대두·밀)"))
+    for k in range(3):
+        L = 2 * np.sqrt(e3[k])
+        f3.add_trace(go.Scatter3d(x=[-V3[0, k] * L, V3[0, k] * L], y=[-V3[1, k] * L, V3[1, k] * L], z=[-V3[2, k] * L, V3[2, k] * L], mode="lines",
+                                  line=dict(color=PAL[k], width=9), name=f"PC{k + 1}: 분산의 {e3[k] / e3.sum():.0%}"))
+    t3.plotly_chart(_scene(f3, 540, "변수 1", "변수 2", "변수 3", aspectmode="data"), key="at_pca_3d")
+    t3.caption("3D는 셋째 변수(다른 두 변수와 상관 = 위 상관 × 0.7)를 더한 판. 점 구름이 길쭉한 럭비공이면 PC1 하나가 대부분을 설명(공통 요인), "
+               "공처럼 둥글면 세 축이 비슷 → 압축할 공통 요인 없음. 상관 슬라이더를 움직이면 럭비공 ↔ 공으로 바뀜.")
     c.caption(f"상관이 클수록 PC1 하나가 분산 대부분을 설명 → '공통 요인'(예: 원자재 전반의 위험선호). 지금 PC1 = {ev[0] / ev.sum():.0%}. "
               "상관 0이면 두 축이 비슷 → 압축할 공통 요인 없음.")
 
@@ -116,9 +132,25 @@ def viz_ridge_lasso(c):
     f3.add_trace(go.Scatter3d(x=bx, y=by, z=np.zeros_like(bx), mode="lines", line=dict(color=PAL[1], width=6), name="허용 영역 경계 (바닥)"))
     f3.add_trace(go.Scatter3d(x=bx, y=by, z=np.minimum(qb, 6.0), mode="lines", line=dict(color=PAL[1], width=4, dash="dash"), name="경계를 손실 그릇에 올린 선"))
     f3.add_trace(go.Scatter3d(x=[bo[0]], y=[bo[1]], z=[0], mode="markers", marker=dict(size=6, color=GREY, symbol="x"), name="OLS 해 (그릇 바닥)"))
+    path_ = []
+    for l_ in np.linspace(0, 3, 61):
+        t_ = max(0.05, 2.5 - l_ * 0.75)
+        if kind.startswith("Lasso"):
+            cx, cy = t_ * np.cos(th) / (np.abs(np.cos(th)) + np.abs(np.sin(th))), t_ * np.sin(th) / (np.abs(np.cos(th)) + np.abs(np.sin(th)))
+        elif kind.startswith("Ridge"):
+            cx, cy = t_ * np.cos(th), t_ * np.sin(th)
+        else:
+            r_ = t_ / (0.5 * (np.abs(np.cos(th)) + np.abs(np.sin(th))) + 0.5); cx, cy = r_ * np.cos(th), r_ * np.sin(th)
+        cd_ = np.stack([cx, cy], 1)
+        s_ = bo if pen(bo) <= t_ + 1e-9 else cd_[np.einsum("ni,ij,nj->n", cd_ - bo, H, cd_ - bo).argmin()]
+        path_.append((s_[0], s_[1], qf(s_)))
+    path_ = np.array(path_)
+    f3.add_trace(go.Scatter3d(x=path_[:, 0], y=path_[:, 1], z=path_[:, 2], mode="lines+markers", line=dict(color=PAL[3], width=6), marker=dict(size=2, color=PAL[3]),
+                              name="해 경로 (λ 0 → 3)"))
     f3.add_trace(go.Scatter3d(x=[sol[0]], y=[sol[1]], z=[qf(sol)], mode="markers", marker=dict(size=7, color=PAL[2]), name=f"규제 해 (손실 {qf(sol):.2f})"))
     t3.plotly_chart(_scene(f3, 540, "β₁", "β₂", "손실", eye=(1.4, -1.6, 1.0)), key="at_rl_3d")
-    t3.caption("그릇 = 손실(낮을수록 좋음), 바닥 선 = 허용 영역. 해 = 경계를 그릇에 올린 점선에서 가장 낮은 곳. λ를 키우면 경계가 줄어 해가 그릇 벽을 타고 올라감(손실 증가 = 편향).")
+    t3.caption("그릇 = 손실(낮을수록 좋음), 바닥 선 = 허용 영역. 해 = 경계를 그릇에 올린 점선에서 가장 낮은 곳. 노란 선 = λ를 0 → 3으로 키울 때 해가 지나가는 길(규제 경로): "
+               "그릇 바닥(OLS)에서 출발해 벽을 타고 원점 쪽으로 올라감(손실 증가 = 편향). Lasso는 경로가 β₂ = 0 축에 붙어 꺾임(변수 선택).")
     c.caption("λ를 키우면 영역이 작아져 두 계수 모두 0쪽으로. Lasso는 β₂가 먼저 정확히 0 → 변수 선택. Ridge는 둘 다 줄지만 0이 되지 않음. "
               "Elastic Net은 그 중간 (꼭짓점이 둥글어 상관된 변수들을 함께 남김).")
 
@@ -144,9 +176,30 @@ def viz_nonconvex(c):
     for j, (nm, yv) in enumerate([("Lasso (soft)", soft), ("SCAD", scad), ("MCP", mcp)]):
         f.add_trace(go.Scatter(x=z, y=yv, name=nm, line=dict(color=PAL[j], width=2.5), showlegend=False), 1, 2)
     f.add_trace(go.Scatter(x=z, y=z, name="축소 없음 (OLS)", line=dict(color=GREY, dash="dot")), 1, 2)
+    c.caption("Lasso는 큰 계수도 λ만큼 계속 깎음(편향). SCAD·MCP는 벌점이 일정 크기 이후 평평 → 작은 계수는 0으로, 큰 계수는 깎지 않음 "
+              "(오라클 성질). Adaptive Lasso는 1차 추정이 큰 변수의 벌점 가중치를 작게 해 비슷한 효과.")
     t2, t3 = _tabs23(c)
     t2.plotly_chart(_lay(f, 400), key="at_nc_fig")
-    pen3 = t3.radio("곡면", ["MCP", "SCAD"], horizontal=True, key="at_nc_3k")
+    v3 = t3.radio("3D 그림", ["목적함수 골짜기 (OLS 추정 z × β)", "벌점 곡면 (β × γ)"], horizontal=True, key="at_nc_3v")
+    pen3 = t3.radio("벌점", ["MCP", "SCAD"], horizontal=True, key="at_nc_3k")
+    if v3.startswith("목적함수"):
+        bb = np.linspace(-4, 4, 161)
+        Zz, Bb = np.meshgrid(z[::4], bb)
+        if pen3 == "MCP":
+            Pb = np.where(np.abs(Bb) <= g_ * lam, lam * np.abs(Bb) - Bb ** 2 / (2 * g_), g_ * lam ** 2 / 2); est = mcp
+        else:
+            Pb = np.where(np.abs(Bb) <= lam, lam * np.abs(Bb), np.where(np.abs(Bb) <= a_ * lam, (2 * a_ * lam * np.abs(Bb) - Bb ** 2 - lam ** 2) / (2 * (a_ - 1)),
+                                                                        (a_ + 1) * lam ** 2 / 2)); est = scad
+        Ob = 0.5 * (Zz - Bb) ** 2 + Pb
+        Ob = Ob - Ob.min(0, keepdims=True)                                       # z마다 최저점을 0으로 맞춰 골짜기 모양만 비교
+        f3 = go.Figure(go.Surface(x=z[::4], y=bb, z=np.minimum(Ob, 4), colorscale="Teal", opacity=0.85, showscale=False))
+        ev = 0.5 * (z - est) ** 2
+        f3.add_trace(go.Scatter3d(x=z, y=est, z=np.zeros_like(z), mode="lines", line=dict(color=PAL[1], width=7), name=f"골짜기 바닥 = 추정치 β̂ ({pen3})"))
+        f3.add_trace(go.Scatter3d(x=z, y=soft, z=np.zeros_like(z), mode="lines", line=dict(color=GREY, width=4, dash="dash"), name="Lasso 추정치 (비교)"))
+        t3.plotly_chart(_scene(f3, 540, "OLS 추정 z", "후보 β", "목적함수 ½(z−β)² + p(β) (z마다 최저 = 0)", eye=(1.6, -1.4, 1.0)), key="at_nc_3d")
+        t3.caption("z(규제 없는 추정치)마다 β를 바꿔 가며 목적함수를 그린 곡면 — 골짜기 바닥(주황)이 그 z에서의 추정치. "
+                   "|z|가 λ 근처일 때 비볼록 벌점은 골짜기가 둘(0과 큰 값)로 갈라졌다가 한쪽으로 넘어감 = 작은 계수는 0, 큰 계수는 거의 안 깎음. γ가 작을수록 골짜기가 급하게 넘어감.")
+        return
     zz, gg = np.linspace(-4, 4, 161), np.linspace(1.5, 6.0, 46)
     Zg, Gg = np.meshgrid(zz, gg)
     if pen3 == "MCP":
@@ -163,8 +216,6 @@ def viz_nonconvex(c):
     f3.add_trace(go.Scatter3d(x=z, y=np.full_like(z, 6.0), z=lam * np.abs(z), mode="lines", line=dict(color=GREY, width=4, dash="dash"), name="Lasso |β| (비교, 뒷벽)"))
     t3.plotly_chart(_scene(f3, 520, "β", "γ (a)", "벌점 p(β)", eye=(1.6, -1.4, 0.8)), key="at_nc_3d")
     t3.caption("γ가 작을수록 벌점이 일찍 평평해짐(큰 계수는 더 이상 깎지 않음), 클수록 Lasso의 V자에 가까워짐. 주황 선 = 슬라이더의 γ.")
-    c.caption("Lasso는 큰 계수도 λ만큼 계속 깎음(편향). SCAD·MCP는 벌점이 일정 크기 이후 평평 → 작은 계수는 0으로, 큰 계수는 깎지 않음 "
-              "(오라클 성질). Adaptive Lasso는 1차 추정이 큰 변수의 벌점 가중치를 작게 해 비슷한 효과.")
 
 
 def viz_factor(c):
@@ -352,8 +403,37 @@ def viz_dcc(c):
                    go.Scatter(y=roll, name="60기 롤링 상관", line=dict(color=PAL[1], width=1.5, dash="dot"))])
     _lay(f, 400, title="DCC: 표준화 잔차의 곱으로 상관행렬을 매 시점 갱신 — Qₜ = (1−a−b)Q̄ + a·zz' + b·Qₜ₋₁",
          yaxis=dict(title="상관", range=[-0.2, 1]), xaxis_title="시점", hovermode="x unified")
+    c.caption("1단계: 품목별 GARCH로 변동성 제거 → 2단계: 남은 표준화 잔차로 상관만 동학 추정. 위기 때 상관 급등(분산투자 효과 소멸)을 롤링보다 빠르게 포착. "
+              "ADCC는 동반 하락 충격에 상관이 더 오르는 비대칭 추가. BEKK는 공분산 전체를 한 식으로 — 충격·변동성의 '전이 방향'까지 추정.")
     t2, t3 = _tabs23(c)
     t2.plotly_chart(f, key="at_dcc_fig")
+    v3 = t3.radio("3D 그림", ["상관 지형 (시간 × 품목 쌍 × 상관)", "상관 뉴스 충격 곡면 (z₁ × z₂ → 다음기 상관)"], horizontal=True, key="at_dcc_3v")
+    if v3.startswith("상관 지형"):
+        nm4 = ["원유", "구리", "옥수수", "금"]
+        base4 = np.array([[1, .35, .2, .1], [.35, 1, .25, .15], [.2, .25, 1, .05], [.1, .15, .05, 1]])
+        crisis = (np.arange(T) > 400) & (np.arange(T) < 520)
+        rng4 = np.random.default_rng(18)
+        z4 = np.empty((T, 4))
+        L0, L1 = np.linalg.cholesky(base4), np.linalg.cholesky(0.25 * base4 + 0.75 * np.full((4, 4), 0.8) + 0.2 * np.eye(4) * 0.25)
+        for t in range(T):
+            z4[t] = (L1 if crisis[t] else L0) @ rng4.standard_normal(4)
+        z4 = z4 / z4.std(0)
+        Qb4 = np.corrcoef(z4.T); Q4 = Qb4.copy(); prs = [(i, j) for i in range(4) for j in range(i + 1, 4)]
+        RR = np.empty((T, len(prs)))
+        for t in range(T):
+            d4 = np.sqrt(np.diag(Q4)); R4 = Q4 / np.outer(d4, d4)
+            RR[t] = [R4[i, j] for i, j in prs]
+            Q4 = (1 - da - db) * Qb4 + da * np.outer(z4[t], z4[t]) + db * Q4
+        lab4 = [f"{nm4[i]}–{nm4[j]}" for i, j in prs]
+        f3 = go.Figure(go.Surface(x=np.arange(T), y=list(range(len(prs))), z=RR.T, colorscale="RdBu_r", cmin=-1, cmax=1, colorbar=dict(title="DCC 상관", thickness=12, len=0.6),
+                                  contours=dict(z=dict(show=True, usecolormap=True, project_z=True))))
+        f3.add_trace(go.Mesh3d(x=[401, 519, 519, 401, 401, 519, 519, 401], y=[0, 0, 5, 5, 0, 0, 5, 5], z=[-0.4] * 4 + [1] * 4, i=[0, 0, 4, 4, 0, 1], j=[1, 2, 5, 6, 4, 5],
+                               k=[2, 3, 6, 7, 1, 2], color=PAL[1], opacity=0.08, hoverinfo="skip", name="위기 구간 (참 상관 급등)", showlegend=True))
+        f3.update_layout(scene=dict(yaxis=dict(tickvals=list(range(len(prs))), ticktext=lab4)))
+        t3.plotly_chart(_scene(f3, 560, "시점", "", "조건부 상관", eye=(0.5, -2.0, 0.9), aspectratio=dict(x=2.2, y=0.9, z=0.6)), key="at_dcc_3d")
+        t3.caption("4개 품목 6쌍의 DCC 상관을 시간 순으로 쌓은 지형(③ 변동성·공분산 탭 'DCC 상관 지형'과 같은 방식, 합성 자료). 주황 상자 = 모든 쌍의 참 상관이 0.8 근처로 오르는 위기 구간. "
+                   "a↑ → 위기 진입 때 능선이 빨리 솟고 평소에도 울퉁불퉁, b↑ → 능선이 오래 남음(천천히 식음). 평소 상관이 다른 쌍들이 위기 때 한꺼번에 붉어지는 것 = 분산투자 효과 소멸.")
+        return
     zg = np.linspace(-3, 3, 49)
     Z1, Z2 = np.meshgrid(zg, zg)
     Q11 = (1 - da - db) * Qbar[0, 0] + da * Z1 ** 2 + db * Qbar[0, 0]
@@ -366,8 +446,6 @@ def viz_dcc(c):
     t3.caption(f"지금 상관이 평소 수준(Q̄ = {Qbar[0, 1]:.2f})일 때, 이번 기 두 품목의 표준화 충격 조합에 따라 다음 기 상관이 어떻게 바뀌나. "
                "같은 방향 큰 충격(오른쪽 위·왼쪽 아래 모서리) → 상관 상승, 반대 방향 → 하락. a↑ → 곡면이 더 휘고, b↑ → 회색 평면(평소)에 붙어 있음. "
                "ADCC는 왼쪽 아래(동반 하락) 모서리만 더 들어 올림.")
-    c.caption("1단계: 품목별 GARCH로 변동성 제거 → 2단계: 남은 표준화 잔차로 상관만 동학 추정. 위기 때 상관 급등(분산투자 효과 소멸)을 롤링보다 빠르게 포착. "
-              "ADCC는 동반 하락 충격에 상관이 더 오르는 비대칭 추가. BEKK는 공분산 전체를 한 식으로 — 충격·변동성의 '전이 방향'까지 추정.")
 
 
 def viz_var_dy(c):
@@ -533,8 +611,12 @@ def viz_newton(c):
     f3 = go.Figure(go.Surface(x=wg, y=wg, z=U3, colorscale="Teal", opacity=0.9, colorbar=dict(title="목적함수 (%)", thickness=12, len=0.6)))
     f3.add_trace(go.Scatter3d(x=[w[0]], y=[w[1]], z=[uo(w)], mode="markers", marker=dict(size=8, color=PAL[1], symbol="diamond"), name="Newton 최적"))
     f3.add_trace(go.Scatter3d(x=[w0[0]], y=[w0[1]], z=[uo(w0)], mode="markers", marker=dict(size=6, color=PAL[0]), name="현재 (1/N)"))
+    pth = info.get("path")
+    if pth is not None and len(pth) > 1:
+        f3.add_trace(go.Scatter3d(x=pth[:, 0], y=pth[:, 1], z=[uo(p_) for p_ in pth], mode="lines+markers", line=dict(color=PAL[3], width=6),
+                                  marker=dict(size=3, color=PAL[3]), name=f"Newton 반복 경로 ({len(pth) - 1}걸음)"))
     t3.plotly_chart(_scene(f3, 540, "원유 비중 w₁", "금 비중 w₂ (구리 = 1 − w₁ − w₂)", "목적함수 μ'w − λ/2·w'Σw − 비용 (%)", eye=(1.5, -1.5, 1.0)), key="at_nt_3d")
-    t3.caption("가능한 모든 롱온리 비중(삼각형) 위의 목적함수 언덕 — Newton은 기울기·곡률로 꼭대기(◆)를 몇 번 만에 찾음. "
+    t3.caption("가능한 모든 롱온리 비중(삼각형) 위의 목적함수 언덕 — Newton은 기울기·곡률로 꼭대기(◆)를 몇 번 만에 찾음(노란 선 = 1/N에서 출발한 실제 반복 경로, 처음 몇 걸음에 거의 도착). "
                "λ를 키우면 언덕이 둥글게 좁아지며 꼭대기가 저위험(금) 쪽으로, 비용을 키우면 1/N 점 주변에 주름(|w−w₀|의 꺾임)이 생겨 꼭대기가 1/N 쪽으로 끌려옴.")
     c.caption("ML이 아니라 수치 최적화: 목적함수의 기울기(1차)와 곡률(2차, 헤시안)로 한 번에 최적점 근처로 점프 → 몇 번 만에 수렴. "
               "λ가 크면 저위험 쪽, 비용이 크면 현재 비중(1/N)에서 덜 움직임(무거래 구간). 입력 μ(예측)·Σ(공분산)의 질이 결과를 좌우.")
@@ -1033,7 +1115,8 @@ def _fm_fan(c, name: str, key: str):
     k1, k2 = c.columns([1, 2])
     i = k1.selectbox("품목", list(data), format_func=lambda x: nm.get(x, x), key=f"{key}_item")
     s, dates, q = data[i]
-    j = k2.slider("결정일 (과거 → 최근)", 0, len(dates) - 1, len(dates) - 30, key=f"{key}_j")
+    dates = dates[:len(q)]                     # 예측은 고정 시점까지만 저장 — 이후 업데이트된 금요일은 예측이 없음
+    j = k2.slider("결정일 (과거 → 최근)", 0, len(dates) - 1, max(0, len(dates) - 30), key=f"{key}_j")
     d0 = dates[j]
     p = s.index.get_loc(d0)
     hist = s.iloc[max(0, p - 120):p + 1]

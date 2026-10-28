@@ -118,6 +118,7 @@ def newton_mv(mu, S, w0, c, lam, mode="long_only", gross=1.0, eps=1e-4, tol=1e-1
     S = np.asarray(S, float)
     w = np.full(n, 1.0 / n) if mode == "long_only" else np.zeros(n)
     total, dec = 0, np.nan
+    path = [w.copy()]                                   # 반복마다 비중 (도감 3D 경로 표시용)
 
     def F(w, tau):
         d = w - w0
@@ -167,12 +168,13 @@ def newton_mv(mu, S, w0, c, lam, mode="long_only", gross=1.0, eps=1e-4, tol=1e-1
                     break
                 t *= 0.5
             w = w + t * dx
+            path.append(w.copy())
         tau *= 0.1
     # KKT 잔차 (배리어 제외 원문제 기울기의 실현가능 방향 성분)
     d = w - w0
     grad = mu - lam * S @ w - c * d / np.sqrt(d * d + eps * eps)
     kkt = float(np.abs(grad - grad.mean()).max()) if mode == "long_only" else float(np.abs(grad).max())
-    return w, dict(iter=total, decrement=dec, kkt=kkt, converged=bool(dec / 2 < 1e-8 or np.isnan(dec)))
+    return w, dict(iter=total, decrement=dec, kkt=kkt, converged=bool(dec / 2 < 1e-8 or np.isnan(dec)), path=np.array(path))
 
 
 def risk_budget_tilt(mu, S, tilt: float = 0.5, mode: str = "long_only", gross: float = 1.0):
