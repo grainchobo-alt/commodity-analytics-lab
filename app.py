@@ -771,7 +771,7 @@ def _yfrac(idx) -> np.ndarray:
     return idx.year + (idx.dayofyear - 1) / 365.25
 
 
-def _mg_dcc_3d(dc: dict, asym_: bool):
+def _mg_dcc_3d(dc: dict, asym_: bool, when: pd.Timestamp | None = None):
     """변동성-공분산 탭 DCC/ADCC 3D: 시간 × 품목 쌍 × 조건부 상관 지형 + 위기 구간 판."""
     st.markdown("##### 3D 보기 — " + ("ADCC" if asym_ else "DCC") + " 상관 지형: 어느 쌍이 언제 같이 움직였나")
     P = dc["pairs"].copy()
@@ -809,7 +809,17 @@ def _mg_dcc_3d(dc: dict, asym_: bool):
     f.update_layout(height=600, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", y=-0.02, font=dict(size=10)),
                     scene=dict(xaxis=dict(title="연도"), yaxis=dict(title="", tickvals=list(range(P.shape[1])), ticktext=ylab),
                                zaxis=dict(title="조건부 상관", range=[-1, 1.1]), aspectratio=dict(x=2.3, y=1.2, z=0.7), camera=dict(eye=dict(x=0.5, y=-2.1, z=1.0))))
+    if when is not None:
+        k_ = int(np.abs(P.index - when).argmin())
+        xw, zw = xs[k_], P.iloc[k_].values
+        f.add_trace(go.Mesh3d(x=[xw] * 4, y=[0, ny, ny, 0], z=[-1, -1, 1, 1], i=[0, 0], j=[1, 2], k=[2, 3], color=PAL[3], opacity=0.16,
+                              name=f"선택 시점 {P.index[k_]:%Y-%m-%d} (위 히트맵과 같은 날)", hoverinfo="name", showlegend=True))
+        f.add_trace(go.Scatter3d(x=[xw] * len(zw), y=list(range(len(zw))), z=zw, mode="lines+markers", showlegend=False,
+                                 line=dict(color=ink, width=6), marker=dict(size=4, color=zw, colorscale=DIV, cmin=-1, cmax=1, line=dict(color=ink, width=1)),
+                                 text=ylab, hovertemplate=f"{P.index[k_]:%Y-%m-%d} · " + "%{text}<br>상관 %{z:+.2f}<extra></extra>"))
     st.plotly_chart(f, key="mg3_dcc")
+    if when is not None:
+        st.caption("노란 판·검은 선 = 위 '상관행렬 시점' 슬라이더로 고른 날의 단면 — 슬라이더를 옮기면 2D 히트맵과 이 단면이 함께 바뀜 (3D는 보여 준 쌍만).")
     msk = np.zeros(len(P), bool)
     for _, a, b in MG_CRISES:
         msk |= (P.index >= a) & (P.index <= b)
@@ -1010,7 +1020,7 @@ def tab_mvgarch():
         ti = dates.get_loc(pd.Timestamp(pick))
         Rm = pd.DataFrame(dc["R"][ti], index=cols, columns=cols)
         st.plotly_chart(heat(Rm, f"DCC 상관행렬 — {pick}  (평균 {dc['avg_corr'].iloc[ti]:.3f})", *range_of(Rm), h=420, nodiag=True), key="mg_dheat")
-        _mg_dcc_3d(dc, asym_)
+        _mg_dcc_3d(dc, asym_, pd.Timestamp(pick))
         with st.expander("DCC 평균 상관 × 레짐 탭 HMM 국면 — 같은 위기 신호를 주나 (교차 확인)", expanded=False):
             _mg_hmm_overlay(dc)
 
