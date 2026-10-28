@@ -572,6 +572,92 @@ def _rv_hmm_3d(X: pd.DataFrame, G: pd.DataFrame, names: dict, tgt: str):
                        "가운데를 가로지르면 국면 전환기.")
 
 
+def _regime_reg_3d(model: str, o: dict, D, tgt: str):
+    """레짐 탭 MS 회귀 · TAR · STAR 3D (이미 추정한 결과만 사용, 새 변수 없음).
+    MS = 국면 확률 지형 + 국면별 계수 기둥 · TAR/STAR = 문턱 변수 × 주요 설명변수 × 예측 Y 반응 곡면(TAR는 γ에서 절벽, STAR는 매끄러운 전이)."""
+    import regime_mv as RM
+    ex = o.get("extra", {}) or {}
+    ink = "#e8e6e1" if DARK else "#0b0b0b"
+    lab_ = lambda c: RM.label(str(c).split(" (")[0])[:22] if ":" in str(c) else str(c)[:22]  # noqa: E731
+    if model.startswith("Markov"):
+        G, B = ex.get("probs"), ex.get("state_betas")
+        if not isinstance(G, pd.DataFrame):
+            return
+        st.markdown("##### 3D 보기 — Markov-switching: 국면 확률 지형 · 국면별 계수")
+        t1, t2 = st.tabs(["국면 확률 지형 (시간 × 국면 × 확률)", "국면별 계수 기둥 (국면 × 변수 × β)"])
+        with t1:
+            f = go.Figure(go.Surface(x=G.index, y=list(range(G.shape[1])), z=G.T.values, colorscale=SEQ, cmin=0, cmax=1, colorbar=dict(title="확률", thickness=12, len=0.6),
+                                     contours=dict(z=dict(show=True, usecolormap=True, project_z=True)), hovertemplate="%{x|%Y-%m-%d} · 국면 %{y}<br>확률 %{z:.0%}<extra></extra>"))
+            f.update_layout(height=500, margin=dict(l=0, r=0, t=10, b=0),
+                            scene=dict(xaxis_title="", yaxis=dict(title="국면", tickvals=list(range(G.shape[1])), ticktext=[str(c) for c in G.columns]),
+                                       zaxis=dict(title="확률", range=[0, 1]), aspectratio=dict(x=2.2, y=0.8, z=0.6), camera=dict(eye=dict(x=0.4, y=-2.0, z=1.0))))
+            st.plotly_chart(f, key="rg3_ms_surf")
+            st.caption("능선 = 그 국면일 확률이 높았던 시기(필터 확률). 능선이 길게 이어지면 국면 지속성이 큼.")
+        with t2:
+            if isinstance(B, pd.DataFrame) and B.size:
+                f = go.Figure()
+                vm = float(np.abs(B.values).max()) or 1.0
+                for i_, r_ in enumerate(B.index):
+                    for j_, c_ in enumerate(B.columns):
+                        v = float(B.loc[r_, c_])
+                        f.add_trace(go.Scatter3d(x=[j_, j_], y=[i_, i_], z=[0, v], mode="lines", showlegend=False,
+                                                 line=dict(color="#e34948" if v > 0 else "#2a78d6", width=10),
+                                                 hovertemplate=f"{r_} · {lab_(c_)}<br>β {v:+.3f}<extra></extra>"))
+                        f.add_trace(go.Scatter3d(x=[j_], y=[i_], z=[v], mode="markers", showlegend=False, marker=dict(size=4, color=ink), hoverinfo="skip"))
+                f.update_layout(height=500, margin=dict(l=0, r=0, t=10, b=0),
+                                scene=dict(xaxis=dict(title="", tickvals=list(range(B.shape[1])), ticktext=[lab_(c) for c in B.columns]),
+                                           yaxis=dict(title="", tickvals=list(range(B.shape[0])), ticktext=[str(r) for r in B.index]),
+                                           zaxis=dict(title="β", range=[-vm * 1.1, vm * 1.1]), aspectratio=dict(x=1.6, y=0.9, z=0.7), camera=dict(eye=dict(x=1.4, y=-1.6, z=0.9))))
+                st.plotly_chart(f, key="rg3_ms_beta")
+                st.caption("기둥 높이 = 그 국면에서의 계수(빨강 +, 파랑 −). 같은 변수의 기둥이 국면마다 크게 다르면 관계가 국면에 따라 바뀐다는 뜻 "
+                           "(설명변수는 주성분으로 줄여 추정하므로 원 변수 계수로 되돌린 값).")
+        return
+    rc = ex.get("regime_coef"); thr = ex.get("thr_name")
+    if not isinstance(rc, pd.DataFrame) or thr not in list(D.names):
+        return
+    j = list(D.names).index(thr)
+    b_lo, b_hi = rc.iloc[:, 0].values, rc.iloc[:, 1].values
+    cand = [k for k in range(len(D.names)) if k != j]
+    if not cand:
+        return
+    dflt = max(cand, key=lambda k: abs(b_hi[k + 1] - b_lo[k + 1]))
+    st.markdown(f"##### 3D 보기 — {'TAR' if model.startswith('Threshold') else 'STAR'} 반응 곡면: 문턱 변수에 따라 관계가 어떻게 바뀌나")
+    kx = st.selectbox("y축 설명변수 (기본 = 두 국면 계수 차이가 가장 큰 변수)", cand, cand.index(dflt), format_func=lambda k: lab_(D.names[k]), key="rg3_kx")
+    Xa = np.vstack([D.X_tr, D.X_te]); ya = np.concatenate([D.y_tr, D.y_te])
+    qo = Xa[:, j] * D.sd[j] + D.mu[j]
+    qg = np.linspace(np.quantile(qo, 0.02), np.quantile(qo, 0.98), 60)
+    xg = np.linspace(np.quantile(Xa[:, kx], 0.02), np.quantile(Xa[:, kx], 0.98), 40)
+    QQ, XX = np.meshgrid(qg, xg)
+    Z = np.zeros((len(xg), len(qg), len(D.names)))
+    Z[:, :, j] = (QQ - D.mu[j]) / D.sd[j]; Z[:, :, kx] = XX
+    Xc = np.concatenate([np.ones(Z.shape[:2] + (1,)), Z], axis=2)
+    if model.startswith("Threshold"):
+        gam = float(ex["gamma"])
+        Y = np.where(QQ <= gam, Xc @ b_lo, Xc @ b_hi)
+        reg_pt = qo > gam
+        sub = f"γ = {gam:.3g} (하위 레짐 {ex.get('share_low', np.nan):.0%})"
+    else:
+        tr = ex.get("transition")
+        Gq = np.interp(QQ, tr.index.values, tr.values) if isinstance(tr, pd.Series) else np.full(QQ.shape, 0.5)
+        Y = Xc @ b_lo + Gq * (Xc @ (b_hi - b_lo))
+        reg_pt = (np.interp(qo, tr.index.values, tr.values) if isinstance(tr, pd.Series) else np.full(len(qo), 0.5)) > 0.5
+        sub = f"전이 중심 c = {ex.get('c', np.nan):.3g}, 기울기 γ = {ex.get('gamma', np.nan):.2f}"
+    f = go.Figure(go.Surface(x=qg, y=xg, z=Y, colorscale=DIV, cmid=0, opacity=0.9, colorbar=dict(title="예측 Y", thickness=12, len=0.6),
+                             hovertemplate=f"{lab_(thr)} %{{x:.3g}}<br>{lab_(D.names[kx])} (z) %{{y:.2f}}<br>예측 Y %{{z:+.3f}}<extra></extra>"))
+    for m_, nm_, col_ in [(~reg_pt, "하위 레짐 관측치", "#2a78d6"), (reg_pt, "상위 레짐 관측치", "#e34948")]:
+        if m_.any():
+            f.add_trace(go.Scatter3d(x=qo[m_], y=Xa[m_, kx], z=ya[m_], mode="markers", name=nm_, marker=dict(size=2, color=col_, opacity=0.35), hoverinfo="skip"))
+    zq = np.quantile(ya, [0.02, 0.98])
+    f.update_layout(height=580, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", y=-0.02, font=dict(size=10)),
+                    scene=dict(xaxis_title=f"문턱 변수: {lab_(thr)} (원 단위)", yaxis_title=f"{lab_(D.names[kx])} (표준화)", zaxis=dict(title=f"Y: {RM.label(tgt)[:16]}", range=[min(zq[0], Y.min()), max(zq[1], Y.max())]),
+                               aspectratio=dict(x=1.5, y=1.2, z=0.8), camera=dict(eye=dict(x=1.5, y=-1.6, z=0.8))))
+    st.plotly_chart(f, key="rg3_thr_surf")
+    st.caption(f"{sub}. 곡면 = 다른 설명변수를 평균(0)에 두고 문턱 변수(x)와 고른 변수(y)만 바꿨을 때의 모델 예측 Y. "
+               + ("TAR는 문턱 γ에서 곡면이 '절벽'처럼 끊기며 기울기가 바뀜 — 절벽 양쪽 기울기 차이가 클수록 국면에 따라 관계가 크게 다름. "
+                  if model.startswith("Threshold") else "STAR는 문턱 근처에서 곡면이 매끄럽게 휘어짐 — 휘는 구간이 좁을수록(γ 큼) TAR처럼 급격한 전환. ")
+               + "점 = 실제 관측치(파랑 하위·빨강 상위 레짐).")
+
+
 def _kalman_3d(B: pd.DataFrame, Bf: pd.DataFrame | None, tgt: str):
     """레짐 탭 Kalman TVP 3D: 설명변수 × 시간 × 시변 β 곡면 (이미 추정한 β만 사용)."""
     import regime_mv as RM
@@ -729,6 +815,8 @@ def _rv_reg(X, tgt, model, K, F):
         ex_ = out_[model].get("extra", {})
         if model.startswith("Kalman") and isinstance(ex_.get("beta_smoothed"), pd.DataFrame):
             _kalman_3d(ex_["beta_smoothed"], ex_.get("beta_filtered"), tgt_)
+        elif model.startswith(("Markov", "Threshold", "STAR")):
+            _regime_reg_3d(model, out_[model], D, tgt_)
         st.caption("설명 모드 = 같은 시점 관계(국면별 베타·헤지 비율), 예측 모드 = 다음 기간 수익률 (학습 70% / 테스트 30%). "
                    "Markov-switching은 설명변수를 주성분 3개로 줄여 추정 (국면마다 모수가 늘어나기 때문).")
 
@@ -981,6 +1069,7 @@ def _mg_bekk_search(R: pd.DataFrame, ids: list, ann: int):
             st.info("위 '분석 품목'에서 3개 이상 고르세요."); return
         per = st.radio("찾을 기간", ["전체", "2016년까지", "2017년 이후"], horizontal=True, key="mg_bs_per",
                        help="시기별로 따로 찾으면 '전이가 많은 품목 묶음' 자체가 바뀌었는지 볼 수 있음 (각 구간 관측치가 충분해야 안정적)")
+        R_all = R
         R = R.loc[:"2016-12-31"] if per == "2016년까지" else (R.loc["2017-01-01":] if per == "2017년 이후" else R)
         if len(R.dropna()) < 150:
             st.warning(f"선택한 기간의 관측치가 {len(R.dropna())}개뿐이라 추정이 불안정합니다."); return
@@ -1050,6 +1139,52 @@ def _mg_bekk_search(R: pd.DataFrame, ids: list, ann: int):
                 st.session_state["mg_bids"] = list(c_)
                 st.session_state["mg_bkind"] = "Full"
             st.button(f"추천 조합({best['조합']})을 아래 BEKK 품목에 넣기", key="mg_bs_apply", on_click=_apply)
+        st.markdown("---")
+        if st.button(f"세 기간 한 번에 찾기 — 전체 · 2016년까지 · 2017년 이후 (기간마다 근사 상위 {int(nver)}개를 Full BEKK로 확인, {kk}개 조합)", key="mg_bs_all_btn"):
+            res_ = []
+            prog2 = st.progress(0.0)
+            pers = ["전체", "2016년까지", "2017년 이후"]
+            for pi_, per_ in enumerate(pers):
+                Rp = R_all.loc[:"2016-12-31"] if per_ == "2016년까지" else (R_all.loc["2017-01-01":] if per_ == "2017년 이후" else R_all)
+                Rp = Rp[cand].dropna()
+                row = {"기간": per_, "자료": f"{Rp.index.min():%Y-%m}~{Rp.index.max():%Y-%m} ({len(Rp)}개)" if len(Rp) else "–"}
+                if len(Rp) < 150:
+                    res_.append({**row, "추천 조합": "관측치 부족"}); continue
+                Tp = _spill_proxy(Rp)
+                rk = []
+                for cb in itertools.combinations(cand, kk):
+                    off = Tp.loc[list(cb), list(cb)].values[~np.eye(kk, dtype=bool)]
+                    rk.append(((np.abs(off) >= 1.96).sum(), float(np.nansum(np.abs(off))), cb))
+                rk.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                fits = []
+                for _, _, cb in rk[:int(nver)]:
+                    try:
+                        bk_ = M.bekk_fit(Rp[list(cb)], "Full", ann)
+                        m_ = ~np.eye(kk, dtype=bool)
+                        fits.append((int((np.abs(bk_["A_t"].values[m_]) >= 1.96).sum()), int((np.abs(bk_["B_t"].values[m_]) >= 1.96).sum()), bool(bk_["converged"]), cb))
+                    except Exception:
+                        continue
+                fits.sort(key=lambda x: (x[2], x[0] + x[1]), reverse=True)
+                if fits:
+                    a1, b1, cv1, cb1 = fits[0]
+                    row.update({"추천 조합": " · ".join(short(c) for c in cb1), "유의 충격 전이 A": a1, "유의 변동성 전이 B": b1, "합계": a1 + b1,
+                                "수렴": "✔" if cv1 else "✖", "2위": (" · ".join(short(c) for c in fits[1][3]) + f" ({fits[1][0] + fits[1][1]})") if len(fits) > 1 else "–",
+                                "_ids": cb1})
+                else:
+                    row["추천 조합"] = "추정 실패"
+                res_.append(row)
+                prog2.progress((pi_ + 1) / len(pers))
+            st.session_state["mg_bs_all"] = (kk, pd.DataFrame(res_))
+        AL = st.session_state.get("mg_bs_all")
+        if AL is not None:
+            kk_, A_ = AL
+            st.markdown(f"**기간별 추천 조합 ({kk_}개)**")
+            st.dataframe(A_.drop(columns=[c for c in ["_ids"] if c in A_]), hide_index=True, use_container_width=True)
+            sets_ = [set(x) for x in A_.get("_ids", pd.Series(dtype=object)).dropna()]
+            if len(sets_) >= 2:
+                common_ = set.intersection(*sets_)
+                st.caption("세 기간 공통 품목: " + (", ".join(short(c) for c in common_) if common_ else "없음") +
+                           " — 기간마다 추천 묶음이 다르면 위험이 옮겨 다니는 품목 구성이 시기에 따라 바뀐 것. 각 구간은 표본이 짧아 계수가 불안정할 수 있음(수렴 표시 확인).")
 
 
 def tab_mvgarch():
@@ -2778,6 +2913,18 @@ K2 칼만 동적 헤지 페어(회귀계수 β가 매주 변하는 페어의 예
 **전략 우위 경고 (리스크 탭 상단)** → 가치 혼합·기존 70/30의 2년 롤링 알파(바스켓 대비)가 0 아래면 ⚠️ 경고, 그 전 4년 평균의 절반 아래면 ℹ️ 주의, 그 외 ✅. 롤링 창 1·2·3년 선택은 롱숏 탭 그림에서(경고는 2년 고정).
 
 **캐리(기간구조)** → Yahoo는 만기 지난 개별 월물이 없어 미국 곡물·금속 과거 캐리 불가 → 미국 에너지(EIA, 2024-04까지)·중국(Sina 2018–)로 검증했으나 견고하지 않아 화면 제외 (`collect_carry.py` 보존).
+
+**BEKK는 공분산(변동성) 모형인데 왜 '충격 전이 · 변동성 전이'가 나오나? VAR 아닌가?** → VAR가 아니라 다변량 GARCH가 맞음. 다만 BEKK는 Hₜ = CC' + A'εₜ₋₁εₜ₋₁'A + B'Hₜ₋₁B 로
+**다른 품목의 지난 충격·분산이 이 품목의 분산에 들어가도록** 허용함. A의 비대각 = i 품목의 지난주 뜻밖의 가격 변화(충격)가 j 품목의 이번 주 분산을 키우는 정도('충격 → 분산 전이', ARCH 전이),
+B의 비대각 = i 품목의 높은 분산이 j 품목 분산으로 이어지는 정도('분산 → 분산 전이', GARCH 전이). 즉 **수익률(평균)이 옮겨 가는 것(VAR의 영역)이 아니라 위험(2차 모멘트)이 옮겨 가는 것** — 문헌의 'volatility spillover'.
+
+**목표변동성 서브탭의 3D 투자선 수익률이 같은 화면의 목표 50% 표 수익률보다 훨씬 낮은 이유?** → 점 구름·투자선은 재료 전략을 **섞기만 한 상태**(레버리지를 다시 맞추기 전)이기 때문.
+섞으면 손실이 서로 상쇄돼 변동성이 목표보다 낮아지고 수익도 그만큼 낮게 찍힘. 성과표의 가치 혼합은 섞은 뒤 **다시 목표 변동성까지 레버리지를 키운** 결과 → 3D·2D의 ☆ 점이 표와 같은 위치.
+또 배율 상한(예: 4배)에 걸린 재료(52주 모멘텀 등)는 목표를 올려도 단독 수익이 덜 늘어 구름 전체가 아래에 머묾.
+
+**연수익 '산술'과 '복리'의 차이?** → 산술 = 주간 수익률 평균 × 52 (평균적으로 한 해에 버는 몫), 복리(CAGR) = 실제 자본이 불어난 속도 ((최종 자본 / 처음)^(1/년수) − 1).
+변동이 있으면 복리가 항상 낮음 — 대략 복리 ≈ 산술 − 변동성²/2. 예: +50% 다음 −50%면 산술 평균 0%지만 자본은 1 → 0.75(복리 연 −13%).
+가치 혼합 목표 10%: 산술 9.6% · 복리 9.4% (차이 작음) / 목표 50%: 산술 45% · 복리 36% (변동성 54%라 차이 큼) → 레버리지를 키울수록 '실제로 남는 수익'은 산술보다 덜 늘어남.
 """)
     with st.expander("⑦ 선물 이음새(롤오버) · 롤 비용 · 차입·거래비용 — 19개 품목 처리 현황"):
         st.markdown("""
@@ -3281,18 +3428,20 @@ def tab_procure():
     lo = pa.index.max() - pd.DateOffset(years=3)
     pa3, sc3 = pa[pa.index >= lo], sc[sc.index >= lo]
     f = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.45, 0.3, 0.25], vertical_spacing=0.05,
-                      subplot_titles=(f"{PR.BUY_IDS[di]} 가격 ($/t, 근월물) — 초록 = 점수 ≥ τ {tl:.0f} (🟢 적극 매수, 위 판단과 같은 문턱), 빨강 = 점수 < 35 (비싼 편)",
+                      subplot_titles=(f"{PR.BUY_IDS[di]} 가격 ($/t, 근월물) — 🟢 점수 ≥ {tl:.0f} · 🟠 {yb:.0f}–{tl - 1:.0f} · 🟡 {yb:.0f} 미만 (판단 카드와 같은 문턱)",
                                       "매수 점수와 구성 요소", f"상대가치 관계: {PR.REL_DEF.get(di, ('–',))[0]}"))
     f.add_trace(go.Scatter(x=pa3.index, y=pa3.values, line=dict(color=PAL[0], width=1.6), name="가격"), 1, 1)
-    hi_, lo_ = sc3[sc3 >= tl].index.intersection(pa3.index), sc3[sc3 < 35].index.intersection(pa3.index)
-    f.add_trace(go.Scatter(x=hi_, y=pa3.reindex(hi_), mode="markers", marker=dict(color=PAL[2], size=5), name="적극 매수 구간"), 1, 1)
-    f.add_trace(go.Scatter(x=lo_, y=pa3.reindex(lo_), mode="markers", marker=dict(color=PAL[1], size=4, opacity=0.6), name="비싼 편 (점수 < 35)"), 1, 1)
+    for m_, nm_, col_, sz_, op_ in [(sc3 >= tl, f"🟢 적극 매수 (≥ {tl:.0f})", "#2ea043", 5, 1.0),
+                                   ((sc3 >= yb) & (sc3 < tl), f"🟠 판단 유보 · 매수 쪽 ({yb:.0f}–{tl - 1:.0f})", "#f0883e", 4, 0.55),
+                                   (sc3 < yb, f"🟡 판단 유보 · 대기 쪽 (< {yb:.0f})", "#d29922", 3.5, 0.35)]:
+        ix_ = sc3[m_].index.intersection(pa3.index)
+        f.add_trace(go.Scatter(x=ix_, y=pa3.reindex(ix_), mode="markers", marker=dict(color=col_, size=sz_, opacity=op_), name=nm_), 1, 1)
     f.add_trace(go.Scatter(x=sc3.index, y=sc3.values, line=dict(color=PAL[0], width=2.2), name="매수 점수"), 2, 1)
     show_comp = st.checkbox("점수 구성 요소도 함께 그리기 (선이 많아짐)", False, key="pc_comp")
     for j, c in enumerate([c for c in PR.COMP_LBL if w.get(c, 0) > 0 and show_comp]):
         s_ = sig[c][sig.index >= lo] * 100
         f.add_trace(go.Scatter(x=s_.index, y=s_.values, line=dict(color=PAL[(j + 3) % 8], width=1, dash="dot"), name=PR.COMP_LBL[c]), 2, 1)
-    f.add_hline(y=tl, line_dash="dash", line_color=PAL[2], row=2, col=1); f.add_hline(y=35, line_dash="dash", line_color=PAL[1], row=2, col=1)
+    f.add_hline(y=tl, line_dash="dash", line_color="#2ea043", row=2, col=1); f.add_hline(y=yb, line_dash="dot", line_color="#f0883e", row=2, col=1)
     rel = inp.get("rel")
     if rel is not None:
         r3 = rel[rel.index >= lo]
@@ -3302,6 +3451,8 @@ def tab_procure():
             b_ = q_.quantile(qq)[rel.index >= lo]
             f.add_trace(go.Scatter(x=b_.index, y=b_.values, line=dict(color="#898781", width=1, dash="dot"), name=nm_, showlegend=False), 3, 1)
     st.plotly_chart(fig_layout(f, 680), key="pc_detail_fig")
+    st.caption(f"점 색 = 그 주 가격 매력 점수 기준 판단 (🟢 ≥ τ {tl:.0f} · 🟠 τ−10 ~ τ · 🟡 그 아래, 진할수록 매수 쪽). "
+               "🔴 매수 보류는 점수뿐 아니라 '미루는 기간 안에 더 쌀 확률 ≥ p*'(AUC 기준 충족 품목)까지 봐야 해서 이 과거 차트에는 표시하지 않음 — 이번 주 🔴 여부는 위 판단 카드·지도에서.")
     if risk != "ewma":
         rs_ = sig["risk"][sig.index >= lo] * 100
         f = go.Figure(go.Scatter(x=rs_.index, y=rs_.values, fill="tozeroy", line=dict(color=PAL[1], width=1)))
@@ -3795,11 +3946,17 @@ def ex_runs():
     if R.empty:
         st.info("아직 기록이 없습니다 — ④ 수익률 예측에서 ▶ 모델 실행을 누르면 자동으로 기록됩니다.")
         return
-    f1, f2, f3 = st.columns([1.2, 1.2, 2])
+    KIND = {"bekk_search": "BEKK 조합 찾기", "payoff": "구매 진입 손익비", "ml": "④ 단일 품목 모델", "panel": "④ 여러 품목", "midas": "④ MIDAS"}
+    kinds = sorted(R["kind"].dropna().unique()) if "kind" in R else []
+    f0, f1, f2, f3 = st.columns([1.4, 1.2, 1.0, 1.8])
+    ksel = f0.multiselect("종류", kinds, kinds, format_func=lambda k: KIND.get(k, k), key="rn_kind",
+                          help="BEKK 조합 찾기 = ③ 변동성·공분산 › 다변량 GARCH의 자동 찾기 결과(기간·조합 크기는 제목, 근사 순위·BEKK 확인 표는 아래 실행 상세)")
     vsel = f1.multiselect("판정", list(RL.VERDICTS), list(RL.VERDICTS), format_func=RL.VERDICTS.get, key="rn_v")
     wfo = f2.checkbox("walk-forward 실행만", False, key="rn_wf")
     q = f3.text_input("제목 검색 (품목·모델 등)", "", key="rn_q")
     V = R[R.verdict.isin(vsel)]
+    if kinds:
+        V = V[V["kind"].isin(ksel)]
     if wfo and "WF Sharpe(비용 후)" in V:
         V = V[V["WF Sharpe(비용 후)"].notna()]
     if q:
@@ -5355,7 +5512,8 @@ def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series, tgt: 
             f3.add_trace(go.Scatter3d(x=fx, y=fy, z=np.full(len(fx), smin), mode="lines", name="투자선 그림자", showlegend=False,
                                       line=dict(color=PAL[1], width=3, dash="dot"), opacity=0.5, hoverinfo="skip"))
         for nm, (vx, vy), sym, col in [(f"최대 Sharpe {tag}", F["tan"], "diamond", PAL[3]), ("최소분산", F["gmv"], "circle", PAL[6]),
-                                       ("★ 내 포트폴리오 (섞기만)", (u_vol, u_ret), "diamond", PAL[2])]:
+                                       ("★ 내 포트폴리오 (섞기만)", (u_vol, u_ret), "diamond", PAL[2]),
+                                       (f"☆ 목표 변동성 {tgt:g}%로 다시 맞춘 실제", (c_vol, c_ret), "diamond-open", PAL[2])]:
             f3.add_trace(go.Scatter3d(x=[vx], y=[vy], z=[vy / vx], mode="markers+text", text=[nm], textposition="top center", name=nm,
                                       marker=dict(size=9, symbol=sym, color=col, line=dict(color=ink, width=1)), textfont=dict(size=11)))
         f3.add_trace(go.Scatter3d(x=dv, y=dr, z=dr / dv, mode="markers+text", text=short, textposition="bottom center", name="재료 전략 (단독)",
@@ -5364,7 +5522,8 @@ def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series, tgt: 
                          scene=dict(xaxis_title="연 변동성 (%)", yaxis_title="연 수익률 (%)", zaxis_title="Sharpe", aspectmode="manual",
                                     aspectratio=dict(x=1.15, y=1, z=0.7), camera=dict(eye=dict(x=1.55, y=-1.55, z=0.85))))
         st.plotly_chart(f3, key=f"{kp}_ef3d")
-        st.caption("마우스로 돌려 보기 · 휠로 확대. 높이(z) = Sharpe라 높이 솟은 곳일수록 같은 위험에서 수익이 많은 조합. 주황 선 = 효율적 투자선, 바닥 점선 = 그 그림자.")
+        st.caption("마우스로 돌려 보기 · 휠로 확대. 높이(z) = Sharpe라 높이 솟은 곳일수록 같은 위험에서 수익이 많은 조합. 주황 선 = 효율적 투자선, 바닥 점선 = 그 그림자. "
+                   "점 구름·투자선은 재료를 섞기만 한 조합(레버리지 다시 맞추기 전)이라 변동성·수익이 목표보다 낮게 모여 있음 → ☆ = 섞은 뒤 목표 변동성으로 다시 키운 실제 위치(성과표의 수익률과 같은 점).")
     with t2:
         f2 = go.Figure()
         f2.add_trace(go.Scatter(x=F["vol"], y=F["ret"], mode="markers", name="무작위 비중 4,000개",
