@@ -4441,18 +4441,17 @@ def tab_ls():
                "2007년 초 약 반년(처음 13주 배율 1, 26주까지 짧은 창)을 새로 계산 → 2007년 중반 이후는 완전히 같음(상관 1.0, 처음 26주를 빼면 둘 다 0.896).")
     _vt = A.DATA / "voltgt_compare.csv"
     if _vt.exists():
-        with st.expander("목표 변동성 10% → 15 · 20 · 25 · 30%로 올리면? (상위 10개 전략, 낙폭 −30% 이내 최대 목표 변동성)", expanded=False):
-            VT = pd.read_csv(_vt, encoding="utf-8-sig").set_index("전략")
-            vm = st.radio("보기", ["Sharpe", "연수익", "복리", "최대낙폭"], horizontal=True, key="ls_vt_m",
-                          format_func=lambda x: {"연수익": "연수익 (산술, %)", "복리": "연수익 (복리, %)", "최대낙폭": "최대 낙폭 (%)"}.get(x, x))
-            cols_ = [f"{t}% {vm}" for t in (10, 15, 20, 25, 30)]
-            VS = VT[cols_ + ["낙폭 −30% 이내 최대 목표 변동성", "그때 연수익(근사)"]].copy()
-            VS.columns = [f"목표 {t}%" for t in (10, 15, 20, 25, 30)] + ["낙폭 −30% 이내 최대 목표 변동성 (%)", "그때 연수익 (%, 근사)"]
-            st.dataframe(VS.style.format("{:.2f}" if vm == "Sharpe" else "{:.1f}", na_rep="10% 미만 불가").format(
-                {"낙폭 −30% 이내 최대 목표 변동성 (%)": "{:.1f}", "그때 연수익 (%, 근사)": "{:.1f}"}, na_rep="5%에서도 초과"), use_container_width=True)
-            st.caption("같은 전략에 레버리지만 바꿔 다시 계산(2007–, 편도 5bp, 레버리지 최대 4배). 혼합 전략은 수익이 목표에 거의 비례하고 Sharpe는 유지되지만 낙폭이 빠르게 커짐 — "
-                       "복리 수익은 변동성²/2만큼 덜 늘어남. '낙폭 −30% 이내 최대 목표 변동성' = 목표 5 · 7.5 · 10 · 12.5 · 15 · 20 · 25 · 30% 결과 사이를 선형 보간해 최대 낙폭이 −30%에 닿는 지점(과거 19년 최악 기준, 미래 낙폭 보장 아님). "
-                       "52주 모멘텀은 15%를 넘기면 레버리지 상한(4배)에 걸려 실제 변동성이 15% 근처에 머묾. 연속월물 기준이라 롤 비용 과대평가(ETF 기준 연 약 −3%p)도 레버리지만큼 커짐.")
+        with st.expander("목표 변동성을 10% 대신 5–50%로 하면? (상위 10개 전략 백테스트, 2007–)", expanded=False):
+            VT = pd.read_csv(_vt, encoding="utf-8-sig")
+            vm = st.radio("보기", ["연수익 산술 (%)", "연수익 복리 (%)", "Sharpe", "실현 변동성 (%)", "최대 낙폭 (%)", "최악 1년 (%)"], horizontal=True, key="ls_vt_m")
+            VS = VT.pivot(index="전략", columns="목표 변동성 (%)", values=vm)
+            VS = VS.reindex(VT["전략"].drop_duplicates())
+            VS.columns = [f"목표 {c}%" for c in VS.columns]
+            st.dataframe(VS.style.format("{:.2f}" if vm == "Sharpe" else "{:.1f}", na_rep="–"), use_container_width=True)
+            st.caption("롱숏 탭과 같은 코드(`ls_extra.run_extra`)에서 목표 변동성만 바꿔 다시 계산 — 품목 비중을 직전 26주 실현 변동성으로 조절, 섞은 뒤 다시 조절, 레버리지 상한 4배, 편도 5bp. "
+                       "산술 연수익은 목표에 거의 비례하고 Sharpe는 유지되지만, 복리 수익은 변동성²/2만큼 덜 늘고 최대 낙폭·최악 1년이 빠르게 커짐. "
+                       "52주 모멘텀처럼 레버리지 상한(4배)에 걸리는 전략은 목표를 올려도 실현 변동성이 따라가지 않음(실현 변동성 보기로 확인). "
+                       "연속월물 기준이라 롤 비용 과대평가(ETF 기준 연 약 −3%p)도 레버리지만큼 커짐 — 실제 운용 가능 여부(증거금·마진콜)는 별도 판단.")
     DX = LX_["returns"]
     selx = st.multiselect("누적 수익 비교 (⑨)", list(DX.columns), [c for c in DX.columns if c.startswith(("혼합 · MinVar 70 + 모멘텀 30", "혼합 · MinVar 70 + 칼만",
                                                                                                      "V1", "S2", "K1 칼만 추세 (느림", "혼합 · MinVar 50 + 모멘텀 25 + 가치"))], key="ls_x_sel")
@@ -4840,8 +4839,9 @@ def _sleeves(roll: bool) -> tuple[pd.DataFrame, dict]:
     return pd.DataFrame(S).sort_index(), G
 
 
-def _combine(X: pd.DataFrame, method: str, w_user: pd.Series, reb: int = 4) -> tuple[pd.Series, pd.DataFrame]:
-    """전략 비중: 직접·동일은 고정, 나머지는 4주마다 그 전 주까지 자료로만 다시 계산(미래 정보 없음) → 합친 뒤 사전 목표 변동성 10%."""
+def _combine(X: pd.DataFrame, method: str, w_user: pd.Series, reb: int = 4, tgt: float = 10.0) -> tuple[pd.Series, pd.DataFrame]:
+    """전략 비중: 직접·동일은 고정, 나머지는 4주마다 그 전 주까지 자료로만 다시 계산(미래 정보 없음) → 합친 뒤 사전 목표 변동성 tgt%.
+    레버리지 상한 = 4배 × tgt/10 (재료가 10% 기준이라, 재료를 tgt로 키운 뒤 롱숏 탭처럼 4배 상한을 거는 것과 같음)."""
     from scipy.optimize import minimize
     from sklearn.covariance import LedoitWolf
     k = X.shape[1]
@@ -4868,7 +4868,7 @@ def _combine(X: pd.DataFrame, method: str, w_user: pd.Series, reb: int = 4) -> t
         W = W.ffill()
     m = (W * X).sum(1, min_count=1).dropna()
     pv = m.rolling(26, min_periods=13).std().shift(1) * np.sqrt(52)
-    return m * (10.0 / pv).clip(upper=4.0).fillna(1.0), W.loc[m.index]
+    return m * (tgt / pv).clip(upper=4.0 * tgt / 10.0).fillna(tgt / 10.0), W.loc[m.index]
 
 
 @st.cache_data(show_spinner=False)
@@ -4896,7 +4896,7 @@ def _frontier_calc(X: pd.DataFrame, n_rand: int = 4000) -> dict:
     return dict(mu=mu, S=S, vol=vol, ret=ret, front=np.array(fr), gmv=pt(gmv), tan=pt(tan), w_tan=tan, w_gmv=gmv, names=list(X.columns))
 
 
-def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series):
+def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series, tgt: float = 10.0):
     """Portfolio Customization: 고른 전략으로 만들 수 있는 위험-수익 조합(구름) · 효율적 투자선 · 내 포트폴리오 위치 (3D · 2D)."""
     st.markdown("##### 효율적 투자선 — 고른 전략들로 만들 수 있는 위험·수익 조합과 내 포트폴리오의 위치")
     ends = [d_ for d_ in pd.date_range(X.index[0] + pd.DateOffset(years=5), X.index[-1], freq="YE")]
@@ -4967,7 +4967,7 @@ def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series):
                                 marker=dict(size=10, symbol="square", color="#b4b2a9", line=dict(color=ink, width=0.6))))
         for nm, (vx, vy), sym, col, sz in [("최소분산", F["gmv"], "circle", PAL[6], 13), (f"최대 Sharpe {tag}", F["tan"], "diamond", PAL[3], 15),
                                            ("★ 내 포트폴리오 (섞기만)", (u_vol, u_ret), "star", PAL[2], 20),
-                                           ("☆ 내 포트폴리오 (목표 변동성 10% 적용 후, 실제)", (c_vol, c_ret), "star-open", PAL[2], 20)]:
+                                           (f"☆ 내 포트폴리오 (목표 변동성 {tgt:g}% 적용 후, 실제)", (c_vol, c_ret), "star-open", PAL[2], 20)]:
             f2.add_trace(go.Scatter(x=[vx], y=[vy], mode="markers", name=nm, marker=dict(size=sz, symbol=sym, color=col, line=dict(color=ink, width=1.2)),
                                     hovertemplate=nm + "<br>변동성 %{x:.1f}% · 수익 %{y:.1f}%<extra></extra>"))
         if nxt:
@@ -4986,8 +4986,8 @@ def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series):
 - **점 구름** = 고른 전략 {len(short)}개를 무작위 비율(롱만, 합 100%)로 섞은 4,000개 포트폴리오. 색이 밝을수록(노랑·빨강) Sharpe가 높음.
 - **효율적 투자선 (주황)** = 같은 변동성에서 가장 높은 수익을 내는 조합들의 경계. 이 선 아래쪽 조합은 같은 위험에 수익이 덜함.
 - **최소분산 (●)** = 변동성이 가장 낮은 조합 ({F['gmv'][0]:.1f}% · 수익 {F['gmv'][1]:.1f}%). **최대 Sharpe (◆)** = 위험 1단위당 수익이 가장 큰 조합 ({F['tan'][0]:.1f}% · {F['tan'][1]:.1f}%, Sharpe {F['tan'][1] / F['tan'][0]:.2f}).
-- **★ 내 포트폴리오 (섞기만)** = 지금 비중으로 섞은 위치 ({u_vol:.1f}% · {u_ret:.1f}%, Sharpe {u_ret / u_vol:.2f}). 섞으면 손실이 서로 상쇄돼 변동성이 10%보다 낮아짐 →
-  실제 운용은 **목표 변동성 10%로 다시 키움 (☆, 화살표)** — 레버리지선(초록 점선)을 따라 오른쪽 위로 이동, Sharpe는 거의 그대로 ({c_vol:.1f}% · {c_ret:.1f}%).
+- **★ 내 포트폴리오 (섞기만)** = 지금 비중으로 섞은 위치 ({u_vol:.1f}% · {u_ret:.1f}%, Sharpe {u_ret / u_vol:.2f}). 섞으면 손실이 서로 상쇄돼 변동성이 재료(각 10%)보다 낮아짐 →
+  실제 운용은 **목표 변동성 {tgt:g}%로 다시 맞춤 (☆, 화살표)** — 레버리지선(초록 점선)을 따라 오른쪽 위로 이동, Sharpe는 거의 그대로 ({c_vol:.1f}% · {c_ret:.1f}%).
 - **자본시장선 (노랑 점선)** = 최대 Sharpe 조합에 레버리지를 걸 때의 위험-수익. 내 레버리지선이 이 선에 가까울수록 고른 비중이 효율적.
 - ⚠ 평균·공분산을 **평가 기간 전체로 계산한 사후 그림** — 최대 Sharpe 조합은 그때 미리 알 수 없었음. 비중을 고르는 근거로 쓰려면 위 표의 '~2016 / 2017~' 하위 기간 Sharpe로 확인.
 """)
@@ -5003,7 +5003,7 @@ def tab_custom():
         tab_portfolio()
         return
     st.caption(f"재료 = 롱숏 탭 · 대안 시계열 탭 · 멀티모달 탭의 전략별 주간 수익률(편도 5bp 비용 차감, 각각 목표 변동성 10%). 결과가 고정된 탭에서 읽으므로 기간은 최대 {PERIOD_LS}, "
-               "고른 전략이 모두 있는 구간만 사용(대안 시계열을 넣으면 2012-07~). 합친 뒤 직전 26주 실현 변동성으로 다시 10%에 맞춤(최대 4배, 롱숏 탭 혼합과 같은 방식).")
+               "고른 전략이 모두 있는 구간만 사용(대안 시계열을 넣으면 2012-07~). 합친 뒤 직전 26주 실현 변동성으로 아래에서 고른 목표 변동성(기본 10%)에 맞춤(레버리지 상한 4배 × 목표/10, 롱숏 탭 혼합과 같은 방식).")
     with st.spinner("전략 재료 읽는 중… (처음 한 번만 1–2분, 이후 저장된 결과 사용)"):
         X0, G = _sleeves(ROLL)
     groups = {"수치 전략": "수치 전략 (롱숏 탭: MinVar · 모멘텀 · 가치 · 칼만 · COT …)", "대안 시계열": "대안 시계열 (모델 예측 → 방향 / 순위 롱숏)",
@@ -5016,6 +5016,8 @@ def tab_custom():
     if not sel:
         st.info("전략을 하나 이상 고르세요.")
         return
+    tgt_v = st.selectbox("목표 변동성 (연, %) — 섞은 뒤 이 수준에 맞춰 레버리지 조절", list(range(5, 55, 5)), index=1, key="cu_tgt",
+                         help="기본 10% = 롱숏 탭과 같음. 직전 26주 실현 변동성으로 배율을 정함(미래 정보 없음). 레버리지 상한 = 4배 × 목표/10 — 수익은 목표에 거의 비례하지만 낙폭도 같이 커지고, 복리 수익은 변동성²/2만큼 덜 늘어남")
     c1, c2 = st.columns([1, 2])
     method = c1.selectbox("비중 결정", ["직접 입력", "동일 비중", "역변동성 (직전 52주)", "최소분산 (직전 104주 공분산)", "과거 Sharpe 비례 (직전 156주, 음수 = 0)"],
                           key="cu_method", help="직접·동일 = 기간 내내 고정 비중. 나머지 = 4주마다 그 시점 이전 자료로만 다시 계산 (미래 정보 없음)")
@@ -5033,9 +5035,12 @@ def tab_custom():
     if len(X) < 104:
         st.warning(f"고른 전략이 함께 있는 기간이 {len(X)}주뿐이라 평가하기 어렵습니다.")
         return
-    combo, W = _combine(X, method, w_user)
-    base = X0["혼합 · MinVar 70 + 모멘텀 30 (기존)"].reindex(combo.index).fillna(0)
-    series = {"★ 내 포트폴리오": combo, "기준 · MinVar 70 + 모멘텀 30 (롱숏 탭 기존)": base, **{s_: X[s_].reindex(combo.index) for s_ in sel}}
+    combo, W = _combine(X, method, w_user, tgt=float(tgt_v))
+    k_ = float(tgt_v) / 10.0                                  # 비교 대상(기존 70/30·재료, 모두 10% 기준)도 같은 목표 변동성으로 비례 조정
+    base = X0["혼합 · MinVar 70 + 모멘텀 30 (기존)"].reindex(combo.index).fillna(0) * k_
+    series = {"★ 내 포트폴리오": combo, "기준 · MinVar 70 + 모멘텀 30 (롱숏 탭 기존)": base, **{s_: X[s_].reindex(combo.index) * k_ for s_ in sel}}
+    if tgt_v != 10:
+        st.caption(f"목표 변동성 {tgt_v}%: 내 포트폴리오는 그 수준으로 다시 계산, 비교 대상(기존 70/30 · 재료 전략)은 10% 결과를 ×{k_:g}로 비례 조정해 같은 위험에서 비교.")
     rows = []
     for nm, r in series.items():
         r = r.fillna(0)
@@ -5079,7 +5084,7 @@ def tab_custom():
         k2.plotly_chart(fig_layout(fw, 160 + 32 * max(len(sel), 3), title="비중 (%, 고정)", hovermode="y"), key="cu_w_fig")
     if len(sel) > 1:
         w_eff = (w_user / w_user.sum()) if method == "직접 입력" else (pd.Series(1.0 / len(sel), sel) if method == "동일 비중" else W.mean())
-        _frontier_section(X, w_eff, combo)
+        _frontier_section(X, w_eff, combo, float(tgt_v))
     st.caption("읽는 법: 각 재료는 이미 목표 변동성 10%로 맞춘 전략이라, 비중은 '위험을 얼마씩 나눠 주나'에 가까움. 기본값(MinVar 50 + 모멘텀 25 + 가치 25)이 롱숏 탭의 0.89 근처면 정상. "
                "대안 시계열·멀티모달 갈래는 단독 성과가 약하거나 기간이 짧아(2012-07~) 섞을 때 효과가 작음 — 상관이 낮으면 Sharpe가 약해도 혼합 낙폭을 줄일 수는 있음.")
 
