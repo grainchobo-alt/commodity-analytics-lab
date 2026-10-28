@@ -2420,7 +2420,37 @@ K2 칼만 동적 헤지 페어(회귀계수 β가 매주 변하는 페어의 예
 ② 가치 V1 단독이 영향 최대(연 +1.9%p) — 천연가스 0 처리 시 0.42 → 0.30으로 떨어진 이유와 일치. ③ 모멘텀은 하락 추세에 숏이 많아 오히려 −0.6%p(보정하면 이득).
 ④ 0 처리 테스트(−0.3%p)와 직접 기여(+0.8%p)가 다른 이유 = 천연가스 가격을 보정하면 신호도 바뀜(모멘텀 숏 증가, 가치 롱 확대) → 일부 상쇄.
 정리: 천연가스 비중 자체는 작지만 가치 혼합 수익 중 연 0.3–0.8%p(약 3–8%)는 천연가스 롤 갭 덕분 — Sharpe로 0.03–0.07, 결론 불변이라 재계산하지 않음.
+
+**롤 시점 추정은 맞나? (규칙 날짜 검증)** → 각 품목의 규칙 롤 날짜를 앞뒤 ±5거래일 옮겨 가며 '롤 날 |수익률| ÷ 평상일' 비율이 가장 큰 위치를 찾음 — 0이면 규칙 날짜가 Yahoo의 실제 갈아끼우는 날과 맞는다는 뜻.
+
+| 결과 | 품목 |
+|---|---|
+| 규칙 날짜(0일)에서 비율 최대 = 맞음 | 옥수수 · 소맥 · 대두 · 대두박 · 대두유 · 설탕 · 커피 · 면화 · 생우 · 돈육 · 휘발유 · 난방유 · 천연가스 · 원유 (14개) |
+| ±1일 차이 (비율 차이 0.04–0.09, 사실상 맞음) | 금 · 은 · 구리 (+1일) · 백금 (−1일, 1.73이지만 방향 없음 t −0.3) |
+| 확인 불가 | 코코아 — 어느 위치에서도 비율 1.09–1.11로 튀는 날이 없어 날짜를 검증할 수 없음 |
+
+보정(0 처리)을 적용한 9개 품목은 모두 규칙 날짜가 정확히 맞음 → 지금의 0 처리가 엉뚱한 날을 지운 것은 아님.
+
+**보정 안 된 10개 품목의 롤 날이 대표 전략에 준 손익 (2007–, 연 %p)** — 롤 날 Yahoo 수익률(①가짜 점프 + ②진짜 움직임) × 그 주 비중
+
+| 품목 | 롤 날 평균 | MinVar 롱 | 52주 모멘텀 | 가치 V1 | 기존 70/30 | 가치 혼합 50/25/25 |
+|---|---|---|---|---|---|---|
+| 천연가스 | +1.22% | +0.22 | −0.57 | **+1.97** | −0.01 | **+0.81** |
+| 코코아 | +0.48% | +0.14 | +0.03 | +0.08 | +0.16 | +0.18 |
+| 커피 | +0.54% | +0.10 | −0.08 | +0.19 | +0.04 | +0.10 |
+| 원유 | +0.14% | −0.04 | −0.11 | +0.39 | −0.07 | +0.09 |
+| 대두유 | −0.06% | +0.18 | −0.11 | +0.26 | +0.15 | +0.22 |
+| 금 · 은 · 구리 · 백금 · 면화 | +0.03–0.33% | +0.07 | −0.09 | +0.04 | +0.13 | +0.10 |
+| **합계 (10개)** | | **+0.69** | **−0.94** | **+2.94** | **+0.40** | **+1.51** |
+
+읽는 법: 가치 혼합 연 9.6% 중 약 1.5%p가 보정 안 된 품목의 롤 날에서 나옴(절반 이상이 천연가스). 단 롤 날 수익률엔 진짜 움직임(②)도 섞여 있고, 가격을 보정하면 신호도 바뀌어
+실제 효과는 더 작을 수 있음(천연가스 0 처리 실험: −0.3%p). 모멘텀은 숏이 많아 오히려 손해(−0.9%p) → 보정하면 이득. 가치 V1 단독이 가장 민감(+2.9%p).
 """)
+        from pathlib import Path
+        _cal = Path(__file__).parent / "docs" / "롤_이음새_달력_19품목.csv"
+        if _cal.exists():
+            st.download_button("⬇ 19개 품목 롤(이음새) 날짜 목록 내려받기 (CSV, 2000–2026)", _cal.read_bytes(), file_name=_cal.name, mime="text/csv", key="dl_rollcal",
+                               help="품목 · 롤 날짜 · 요일 · 롤 규칙 · 롤 당일 Yahoo 수익률 · 평상일 |수익률| 평균 · 현재 처리(0 처리 / 원자료)")
 
 
 # ============================================================================
@@ -4824,6 +4854,112 @@ def _combine(X: pd.DataFrame, method: str, w_user: pd.Series, reb: int = 4) -> t
     return m * (10.0 / pv).clip(upper=4.0).fillna(1.0), W.loc[m.index]
 
 
+@st.cache_data(show_spinner=False)
+def _frontier_calc(X: pd.DataFrame, n_rand: int = 4000) -> dict:
+    """고른 전략(재료)들의 효율적 투자선: 연율 평균·공분산(전체 평가 기간, 사후) → 무작위 비중 구름 · 투자선 · 최소분산 · 최대 Sharpe. 롱온리, 합 100%."""
+    from scipy.optimize import minimize
+    mu = X.mean().values * 52
+    S = X.cov().values * 52
+    k = len(mu)
+    rng = np.random.default_rng(0)
+    Wr = np.vstack([rng.dirichlet(np.full(k, 0.6), n_rand), np.eye(k)])
+    vol = np.sqrt(np.einsum("ij,jk,ik->i", Wr, S, Wr))
+    ret = Wr @ mu
+    cons = [{"type": "eq", "fun": lambda w: w.sum() - 1}]
+    bnd = [(0, 1)] * k
+    w0 = np.full(k, 1 / k)
+    gmv = minimize(lambda w: w @ S @ w, w0, bounds=bnd, constraints=cons, method="SLSQP").x
+    tan = minimize(lambda w: -(w @ mu) / np.sqrt(w @ S @ w), w0, bounds=bnd, constraints=cons, method="SLSQP").x
+    fr = []
+    for t in np.linspace(gmv @ mu, mu.max(), 40):
+        r_ = minimize(lambda w: w @ S @ w, w0, bounds=bnd, constraints=cons + [{"type": "eq", "fun": lambda w, t=t: w @ mu - t}], method="SLSQP")
+        if r_.success:
+            fr.append((float(np.sqrt(r_.x @ S @ r_.x)), float(r_.x @ mu)))
+    pt = lambda w: (float(np.sqrt(w @ S @ w)), float(w @ mu))  # noqa: E731
+    return dict(mu=mu, S=S, vol=vol, ret=ret, front=np.array(fr), gmv=pt(gmv), tan=pt(tan), w_tan=tan, w_gmv=gmv, names=list(X.columns))
+
+
+def _frontier_section(X: pd.DataFrame, w_eff: pd.Series, combo: pd.Series):
+    """Portfolio Customization: 고른 전략으로 만들 수 있는 위험-수익 조합(구름) · 효율적 투자선 · 내 포트폴리오 위치 (3D · 2D)."""
+    st.markdown("##### 효율적 투자선 — 고른 전략들로 만들 수 있는 위험·수익 조합과 내 포트폴리오의 위치")
+    F = _frontier_calc(X)
+    w = (w_eff / w_eff.sum()).reindex(F["names"]).fillna(0).values
+    u_vol, u_ret = float(np.sqrt(w @ F["S"] @ w)), float(w @ F["mu"])
+    c_vol, c_ret = float(combo.std() * np.sqrt(52)), float(combo.mean() * 52)
+    sh = F["ret"] / F["vol"]
+    smin, smax = float(np.nanpercentile(sh, 1)), float(np.nanmax(sh))
+    short = [n[:22] for n in F["names"]]
+    ink = "#e8e6e1" if DARK else "#0b0b0b"
+    xmax = max(float(F["vol"].max()), c_vol, u_vol) * 1.12
+    dv, dr = np.sqrt(np.diag(F["S"])), F["mu"]
+    t3, t2 = st.tabs(["3D 보기 (위험 × 수익 × Sharpe)", "2D 보기 (평면 · 레버리지선)"])
+    with t3:
+        f3 = go.Figure()
+        f3.add_trace(go.Mesh3d(x=F["vol"], y=F["ret"], z=sh, alphahull=0, opacity=0.13, color=PAL[0], hoverinfo="skip", name="가능 영역 (껍질)",
+                               lighting=dict(ambient=0.55, diffuse=0.8, specular=0.25, roughness=0.6)))
+        f3.add_trace(go.Scatter3d(x=F["vol"], y=F["ret"], z=sh, mode="markers", name="무작위 비중 4,000개",
+                                  marker=dict(size=2.2, color=sh, colorscale=SEQ, cmin=smin, cmax=smax, opacity=0.75,
+                                              colorbar=dict(title="Sharpe", thickness=12, len=0.6)),
+                                  hovertemplate="변동성 %{x:.1f}% · 수익 %{y:.1f}% · Sharpe %{z:.2f}<extra></extra>"))
+        if len(F["front"]):
+            fx, fy = F["front"][:, 0], F["front"][:, 1]
+            f3.add_trace(go.Scatter3d(x=fx, y=fy, z=fy / fx, mode="lines", name="효율적 투자선", line=dict(color=PAL[1], width=7),
+                                      hovertemplate="투자선 · 변동성 %{x:.1f}% · 수익 %{y:.1f}%<extra></extra>"))
+            f3.add_trace(go.Scatter3d(x=fx, y=fy, z=np.full(len(fx), smin), mode="lines", name="투자선 그림자", showlegend=False,
+                                      line=dict(color=PAL[1], width=3, dash="dot"), opacity=0.5, hoverinfo="skip"))
+        for nm, (vx, vy), sym, col in [("최대 Sharpe (사후)", F["tan"], "diamond", PAL[3]), ("최소분산", F["gmv"], "circle", PAL[6]),
+                                       ("★ 내 포트폴리오 (섞기만)", (u_vol, u_ret), "diamond", PAL[2])]:
+            f3.add_trace(go.Scatter3d(x=[vx], y=[vy], z=[vy / vx], mode="markers+text", text=[nm], textposition="top center", name=nm,
+                                      marker=dict(size=9, symbol=sym, color=col, line=dict(color=ink, width=1)), textfont=dict(size=11)))
+        f3.add_trace(go.Scatter3d(x=dv, y=dr, z=dr / dv, mode="markers+text", text=short, textposition="bottom center", name="재료 전략 (단독)",
+                                  marker=dict(size=5, color="#b4b2a9", symbol="square", line=dict(color=ink, width=0.5)), textfont=dict(size=10)))
+        f3.update_layout(height=560, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", y=-0.02, font=dict(size=10)),
+                         scene=dict(xaxis_title="연 변동성 (%)", yaxis_title="연 수익률 (%)", zaxis_title="Sharpe", aspectmode="manual",
+                                    aspectratio=dict(x=1.15, y=1, z=0.7), camera=dict(eye=dict(x=1.55, y=-1.55, z=0.85))))
+        st.plotly_chart(f3, key="cu_ef3d")
+        st.caption("마우스로 돌려 보기 · 휠로 확대. 높이(z) = Sharpe라 높이 솟은 곳일수록 같은 위험에서 수익이 많은 조합. 주황 선 = 효율적 투자선, 바닥 점선 = 그 그림자.")
+    with t2:
+        f2 = go.Figure()
+        f2.add_trace(go.Scatter(x=F["vol"], y=F["ret"], mode="markers", name="무작위 비중 4,000개",
+                                marker=dict(size=6, color=sh, colorscale=SEQ, cmin=smin, cmax=smax, opacity=0.35, line=dict(width=0),
+                                            colorbar=dict(title="Sharpe", thickness=12, len=0.7)),
+                                hovertemplate="변동성 %{x:.1f}% · 수익 %{y:.1f}%<extra></extra>"))
+        if len(F["front"]):
+            fx, fy = F["front"][:, 0], F["front"][:, 1]
+            f2.add_trace(go.Scatter(x=fx, y=fy, mode="lines", line=dict(color=PAL[1], width=14), opacity=0.18, hoverinfo="skip", showlegend=False))
+            f2.add_trace(go.Scatter(x=fx, y=fy, mode="lines", name="효율적 투자선", line=dict(color=PAL[1], width=3)))
+        tv, tr = F["tan"]
+        f2.add_trace(go.Scatter(x=[0, xmax], y=[0, tr / tv * xmax], mode="lines", name="최대 Sharpe 레버리지선 (자본시장선)",
+                                line=dict(color=PAL[3], width=1.6, dash="dot")))
+        f2.add_trace(go.Scatter(x=[0, xmax], y=[0, u_ret / u_vol * xmax], mode="lines", name="내 포트폴리오 레버리지선", line=dict(color=PAL[2], width=1.6, dash="dash")))
+        f2.add_trace(go.Scatter(x=dv, y=dr, mode="markers+text", text=short, textposition="top center", name="재료 전략 (단독)", textfont=dict(size=10),
+                                marker=dict(size=10, symbol="square", color="#b4b2a9", line=dict(color=ink, width=0.6))))
+        for nm, (vx, vy), sym, col, sz in [("최소분산", F["gmv"], "circle", PAL[6], 13), ("최대 Sharpe (사후)", F["tan"], "diamond", PAL[3], 15),
+                                           ("★ 내 포트폴리오 (섞기만)", (u_vol, u_ret), "star", PAL[2], 20),
+                                           ("☆ 내 포트폴리오 (목표 변동성 10% 적용 후, 실제)", (c_vol, c_ret), "star-open", PAL[2], 20)]:
+            f2.add_trace(go.Scatter(x=[vx], y=[vy], mode="markers", name=nm, marker=dict(size=sz, symbol=sym, color=col, line=dict(color=ink, width=1.2)),
+                                    hovertemplate=nm + "<br>변동성 %{x:.1f}% · 수익 %{y:.1f}%<extra></extra>"))
+        f2.add_annotation(x=c_vol, y=c_ret, ax=u_vol, ay=u_ret, xref="x", yref="y", axref="x", ayref="y", showarrow=True, arrowhead=3, arrowwidth=1.5,
+                          arrowcolor=PAL[2], text="")
+        ymin = min(0.0, float(F["ret"].min()), float(dr.min())) - 1
+        ymax = max(float(F["ret"].max()), c_ret, float(dr.max())) * 1.25 + 1
+        st.plotly_chart(fig_layout(f2, 520, hovermode="closest", xaxis=dict(title="연 변동성 (%)", range=[0, xmax], zeroline=False),
+                                   yaxis=dict(title="연 수익률 (%, 산술 평균)", range=[ymin, ymax]), legend=dict(orientation="h", y=-0.18, font=dict(size=10))),
+                        key="cu_ef2d")
+    wt = pd.DataFrame({"최대 Sharpe (사후) 비중": F["w_tan"], "최소분산 비중": F["w_gmv"], "내 비중": w}, index=short) * 100
+    with st.expander("그래프 읽는 법 · 최대 Sharpe·최소분산 조합의 비중", expanded=False):
+        st.markdown(f"""
+- **점 구름** = 고른 전략 {len(short)}개를 무작위 비율(롱만, 합 100%)로 섞은 4,000개 포트폴리오. 색이 밝을수록(노랑·빨강) Sharpe가 높음.
+- **효율적 투자선 (주황)** = 같은 변동성에서 가장 높은 수익을 내는 조합들의 경계. 이 선 아래쪽 조합은 같은 위험에 수익이 덜함.
+- **최소분산 (●)** = 변동성이 가장 낮은 조합 ({F['gmv'][0]:.1f}% · 수익 {F['gmv'][1]:.1f}%). **최대 Sharpe (◆)** = 위험 1단위당 수익이 가장 큰 조합 ({F['tan'][0]:.1f}% · {F['tan'][1]:.1f}%, Sharpe {F['tan'][1] / F['tan'][0]:.2f}).
+- **★ 내 포트폴리오 (섞기만)** = 지금 비중으로 섞은 위치 ({u_vol:.1f}% · {u_ret:.1f}%, Sharpe {u_ret / u_vol:.2f}). 섞으면 손실이 서로 상쇄돼 변동성이 10%보다 낮아짐 →
+  실제 운용은 **목표 변동성 10%로 다시 키움 (☆, 화살표)** — 레버리지선(초록 점선)을 따라 오른쪽 위로 이동, Sharpe는 거의 그대로 ({c_vol:.1f}% · {c_ret:.1f}%).
+- **자본시장선 (노랑 점선)** = 최대 Sharpe 조합에 레버리지를 걸 때의 위험-수익. 내 레버리지선이 이 선에 가까울수록 고른 비중이 효율적.
+- ⚠ 평균·공분산을 **평가 기간 전체로 계산한 사후 그림** — 최대 Sharpe 조합은 그때 미리 알 수 없었음. 비중을 고르는 근거로 쓰려면 위 표의 '~2016 / 2017~' 하위 기간 Sharpe로 확인.
+""")
+        st.dataframe(wt.style.format("{:.0f}%"), use_container_width=True)
+
+
 def tab_custom():
     import ls_strategies as LS
     st.subheader("Portfolio Customization — 전략·모델·데이터 갈래를 골라 나만의 포트폴리오 만들기")
@@ -4904,6 +5040,9 @@ def tab_custom():
         fw = go.Figure(go.Bar(x=wv.values, y=[s_[:28] for s_ in wv.index], orientation="h", marker_color=PAL[2], text=[f"{v:.0f}%" for v in wv.values],
                               textposition="outside"))
         k2.plotly_chart(fig_layout(fw, 160 + 32 * max(len(sel), 3), title="비중 (%, 고정)", hovermode="y"), key="cu_w_fig")
+    if len(sel) > 1:
+        w_eff = (w_user / w_user.sum()) if method == "직접 입력" else (pd.Series(1.0 / len(sel), sel) if method == "동일 비중" else W.mean())
+        _frontier_section(X, w_eff, combo)
     st.caption("읽는 법: 각 재료는 이미 목표 변동성 10%로 맞춘 전략이라, 비중은 '위험을 얼마씩 나눠 주나'에 가까움. 기본값(MinVar 50 + 모멘텀 25 + 가치 25)이 롱숏 탭의 0.89 근처면 정상. "
                "대안 시계열·멀티모달 갈래는 단독 성과가 약하거나 기간이 짧아(2012-07~) 섞을 때 효과가 작음 — 상관이 낮으면 Sharpe가 약해도 혼합 낙폭을 줄일 수는 있음.")
 
