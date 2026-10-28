@@ -5167,6 +5167,109 @@ def tab_ls():
                    "혼합 비율 = 두 전략(각 변동성 10%)에 주는 비중, 섞은 뒤 다시 10%로 배율.")
 
 
+SPAN_BASE = ["기준 · MinVar 롱 (⑥)", "기준 · 52주 모멘텀 (④)", "V1 가치 (5년 평균 대비 싼 품목 롱)"]
+
+
+def _spanning_section(grp: str, kp: str, dflt: list[str], why: str):
+    """대안 시계열 · 멀티모달 서브탭: '기존 3종(MinVar·모멘텀·가치)만' vs '기존 3종 + 이 서브탭 전략' 효율적 투자선(평균-분산 스패닝) +
+    학습 구간(~2016) 최대 Sharpe 비중을 2017년 이후에 그대로 적용한 실제 점(사후 선택 점검) + Huberman-Kandel 알파 회귀."""
+    import statsmodels.api as sm
+    st.markdown("---")
+    st.markdown(f"#### 효율적 투자선 — 기존 3종에 {grp} 전략을 더하면 투자선이 바깥으로 밀려나나 (스패닝)")
+    with st.spinner("전략 재료 읽는 중…"):
+        X0, G = _sleeves(ROLL)
+    base = [b for b in SPAN_BASE if b in X0]
+    cand = [c for c in X0 if G.get(c) == grp]
+    if len(base) < 2 or not cand:
+        st.info("재료가 없습니다.")
+        return
+    add = st.multiselect(f"더할 {grp} 전략 (기본 = {why})", cand, [d for d in dflt if d in cand][:6] or cand[:2],
+                         format_func=lambda x: x[:60], key=f"{kp}_sp_add")
+    if not add:
+        st.info("더할 전략을 1개 이상 고르세요.")
+        return
+    X = X0[base + add].loc["2007-01-01":].dropna()
+    tr, te = X.loc[:"2016-12-31"], X.loc["2017-01-01":]
+    if len(tr) < 104 or len(te) < 104:
+        st.warning(f"함께 있는 기간이 짧습니다 (학습 {len(tr)}주 · 시험 {len(te)}주 — 각 104주 이상 필요).")
+        return
+    per = st.radio("투자선 기간", [f"전체 {X.index[0]:%Y-%m}~ (사후)", "시험 2017~ (사후) + 학습 비중의 실제 점"], index=1, horizontal=True, key=f"{kp}_sp_per")
+    Xp = X if per.startswith("전체") else te
+    Fb, Fa = _frontier_calc(Xp[base]), _frontier_calc(Xp)
+    Tb, Ta = _frontier_calc(tr[base]), _frontier_calc(tr)
+    nb, na_ = "기존 3종", f"기존 3종 + {grp}"
+    oos = {}
+    for nm_, T_, cols_ in [(nb, Tb, base), (na_, Ta, base + add)]:
+        r_ = te[cols_] @ T_["w_tan"]
+        oos[nm_] = (float(r_.std() * np.sqrt(52)), float(r_.mean() * 52), float(r_.mean() / r_.std() * np.sqrt(52)))
+    ink = "#e8e6e1" if DARK else "#0b0b0b"
+    gry = "#898781"
+    sb, sa = Fb["ret"] / Fb["vol"], Fa["ret"] / Fa["vol"]
+    t3, t2 = st.tabs(["3D 보기 (위험 × 수익 × Sharpe)", "2D 보기"])
+    with t3:
+        f3 = go.Figure()
+        f3.add_trace(go.Scatter3d(x=Fa["vol"], y=Fa["ret"], z=sa, mode="markers", name=f"{na_} (무작위 비중)",
+                                  marker=dict(size=2, color=sa, colorscale=SEQ, opacity=0.55, colorbar=dict(title="Sharpe", thickness=12, len=0.6))))
+        f3.add_trace(go.Scatter3d(x=Fb["vol"], y=Fb["ret"], z=sb, mode="markers", name=f"{nb}만 (무작위 비중)", marker=dict(size=2, color=gry, opacity=0.6)))
+        for F_, nm_, col_ in [(Fb, f"투자선 · {nb}", gry), (Fa, f"투자선 · + {grp}", PAL[1])]:
+            fr = F_["front"]
+            if len(fr):
+                f3.add_trace(go.Scatter3d(x=fr[:, 0], y=fr[:, 1], z=fr[:, 1] / fr[:, 0], mode="lines", name=nm_, line=dict(color=col_, width=7)))
+        if not per.startswith("전체"):
+            for (nm_, (v_, r_, s_)), col_ in zip(oos.items(), [gry, PAL[1]]):
+                f3.add_trace(go.Scatter3d(x=[v_], y=[r_], z=[s_], mode="markers", name=f"◇ {nm_}: 학습 비중의 시험 실제",
+                                          marker=dict(size=7, symbol="diamond", color=col_, line=dict(color=ink, width=2))))
+        f3.update_layout(height=540, margin=dict(l=0, r=0, t=10, b=0), legend=dict(orientation="h", y=-0.02, font=dict(size=10)),
+                         scene=dict(xaxis_title="연 변동성 (%)", yaxis_title="연 수익 (%)", zaxis_title="Sharpe", camera=dict(eye=dict(x=1.5, y=-1.5, z=0.9))))
+        st.plotly_chart(f3, key=f"{kp}_sp_3d")
+    with t2:
+        f2 = go.Figure()
+        f2.add_trace(go.Scatter(x=Fa["vol"], y=Fa["ret"], mode="markers", name=f"+ {grp} (무작위 비중)", marker=dict(size=3, color=PAL[1], opacity=0.18), hoverinfo="skip"))
+        f2.add_trace(go.Scatter(x=Fb["vol"], y=Fb["ret"], mode="markers", name=f"{nb} (무작위 비중)", marker=dict(size=3, color=gry, opacity=0.25), hoverinfo="skip"))
+        for F_, nm_, col_ in [(Fb, nb, gry), (Fa, f"+ {grp}", PAL[1])]:
+            fr = F_["front"]
+            if len(fr):
+                f2.add_trace(go.Scatter(x=fr[:, 0], y=fr[:, 1], mode="lines", name=f"투자선 · {nm_}", line=dict(color=col_, width=3)))
+            f2.add_trace(go.Scatter(x=[F_["tan"][0]], y=[F_["tan"][1]], mode="markers", name=f"★ 최대 Sharpe ({nm_}, 사후)",
+                                    marker=dict(size=12, symbol="star", color=col_, line=dict(color=ink, width=1))))
+        for j_, n_ in enumerate(Fa["names"]):
+            f2.add_trace(go.Scatter(x=[np.sqrt(Fa["S"][j_, j_])], y=[Fa["mu"][j_]], mode="markers+text", text=[n_[:14]], textposition="top center", showlegend=False,
+                                    textfont=dict(size=9), marker=dict(size=6, color=gry if n_ in base else PAL[1])))
+        if not per.startswith("전체"):
+            for (nm_, (v_, r_, s_)), col_ in zip(oos.items(), [gry, PAL[1]]):
+                f2.add_trace(go.Scatter(x=[v_], y=[r_], mode="markers", name=f"◇ {nm_}: 학습 비중의 시험 실제 (Sharpe {s_:+.2f})",
+                                        marker=dict(size=13, symbol="diamond", color=col_, line=dict(color=ink, width=2))))
+        st.plotly_chart(fig_layout(f2, 460, title=f"효율적 투자선 ({per.split(' (')[0]}) — 회색 = {nb}, 주황 = {na_}", xaxis=dict(title="연 변동성 (%)"),
+                                   yaxis=dict(title="연 수익 (%)"), legend=dict(orientation="h", y=-0.22, font=dict(size=10))), key=f"{kp}_sp_2d")
+    shs = lambda F_: float(F_["tan"][1] / F_["tan"][0])  # noqa: E731
+    Fte_b, Fte_a = _frontier_calc(te[base]), _frontier_calc(te)
+    S_ = pd.DataFrame({"학습 최대 Sharpe (~2016, 사후)": [shs(Tb), shs(Ta)], "시험 실제 Sharpe (학습 비중 고정, 2017~)": [oos[nb][2], oos[na_][2]],
+                       "시험 최대 Sharpe (2017~, 사후)": [shs(Fte_b), shs(Fte_a)]}, index=[nb, na_])
+    S_.loc["차이 (더한 효과)"] = S_.iloc[1] - S_.iloc[0]
+    st.dataframe(S_.style.format("{:+.2f}"), use_container_width=True)
+    wt = pd.Series(Ta["w_tan"], Ta["names"])
+    d_in, d_oos = float(S_.iloc[2, 0]), float(S_.iloc[2, 1])
+    w_add = float(wt.reindex(add).fillna(0).sum())
+    verdict = (f" → 학습 최대 Sharpe 조합이 더한 전략에 비중을 거의 주지 않음({w_add:.0%}) — 기존 3종으로 이미 충분, 투자선이 거의 그대로." if w_add < 0.02 else
+               " → 학습에서 본 개선이 시험에서 사라짐: 사후 선택 몫이 큼." if d_oos <= 0 < d_in else
+               " → 학습 비중을 고정해도 시험에서 개선이 남음." if d_oos > 0 else ".")
+    st.caption(f"학습 {tr.index[0]:%Y-%m}~2016 ({len(tr)}주) · 시험 2017~{te.index[-1]:%Y-%m} ({len(te)}주). 학습 최대 Sharpe 비중(+ {grp}): "
+               + " · ".join(f"{k.split(' (')[0][:22]} {v:.0%}" for k, v in wt.sort_values(ascending=False).items() if v >= 0.01) + ". "
+               "'학습 최대 Sharpe' 차이는 늘 0 이상(재료가 많을수록 사후 최적은 좋아짐) — 그 개선이 '시험 실제'에서도 남아야 진짜 정보. "
+               f"시험 실제 차이 {d_oos:+.2f}{verdict} 시험 Sharpe 95% 구간은 약 ±{1.96 / np.sqrt(len(te) / 52):.2f}라 그보다 작은 차이는 우연과 구별 어려움. "
+               "점·투자선은 섞기만 한 상태(목표 변동성으로 다시 맞추기 전).")
+    rows = []
+    Xb = sm.add_constant(X[base])
+    for a_ in add:
+        res = sm.OLS(X[a_], Xb).fit(cov_type="HAC", cov_kwds={"maxlags": 4})
+        rows.append({"전략": a_[:60], "연 알파 (%)": float(res.params["const"] * 52), "알파 t값": float(res.tvalues["const"]),
+                     **{f"β {b[:10]}": float(res.params[b]) for b in base}, "R²": float(res.rsquared)})
+    st.markdown("**스패닝 회귀 (Huberman-Kandel) — 더한 전략 = α + β × 기존 3종 + 오차**")
+    st.dataframe(pd.DataFrame(rows).set_index("전략").style.format("{:+.2f}"), use_container_width=True)
+    st.caption(f"전체 {X.index[0]:%Y-%m}~ 주간, Newey-West(4주) 표준오차. α = 기존 3종으로 복제하고 남는 연 수익 — |t| ≥ 2이면 그 전략이 투자선을 바깥으로 밀어낼 정보가 있다는 근거. "
+               "α가 0 근처면 기존 3종 조합으로 같은 위험·수익을 이미 만들 수 있음(투자선이 거의 안 움직임). β = 기존 3종에 얼마나 닮았나.")
+
+
 def _alt_ts_section():
     import experiments as EX
     st.markdown("##### 대안 시계열 모델 — Prophet · Chronos · TimesFM · PatchTST · iTransformer · TFT · Neural ODE · 시공간 GNN")
@@ -5210,6 +5313,9 @@ def _alt_ts_section():
                "Sharpe 95% 구간은 14년 기준 약 ±0.53이라 |Sharpe| 0.5 미만은 우연과 구별하기 어려움. "
                f"계산 시각 {meta.get('run_at', '?')}.")
     _alt_ts_extra(EX)
+    ic_f = EX.DATA / "alt_ts_mix_ic_compare.csv"
+    pre = list(pd.read_csv(ic_f, encoding="utf-8-sig").query("`후보 포함` == True")["모델"]) if ic_f.exists() else []
+    _spanning_section("대안 시계열", "alt", [f"{m_} → 순위 롱숏" for m_ in pre], "학습 구간 IC > 0.02 모델의 순위 롱숏판 — 시험 기간을 보지 않고 고른 후보")
 
 
 def _alt_ts_extra(EX):
@@ -5326,6 +5432,7 @@ def _multimodal_section():
         st.caption("IC = 그 주 신호 순위와 이후 4주 실제 수익률 순위의 상관(+면 신호 높은 품목이 더 오름). 4주 겹침을 감안해 t값은 표본 수를 1/4로 계산. "
                    "|t| ≥ 2가 아니면 우연과 구별 어려움. 매매에서는 이 부호를 그때까지 자료로만 정해 곱함.")
     _mm_model_section(EX)
+    _spanning_section("멀티모달", "mm", ["멀티모달 단독 (고정 부호)", "멀티모달 단독 (모든 갈래 평균)"], "갈래를 고르지 않은 전체 평균 2종 — 사후 선택 없음")
 
 
 def _mm_model_section(EX):
@@ -5696,7 +5803,8 @@ def _voltgt_section():
     caps = [c for c in ["2배", "4배", "8배", "없음"] if c in set(VT["레버리지 상한"])]
     cap = k1.radio("레버리지 상한 (변동성 맞춤 배율의 최대치)", caps, index=caps.index("4배") if "4배" in caps else 0, horizontal=True, key="vt_cap",
                    help="원래 비중에 곱하는 배율(목표 ÷ 직전 26주 실현 변동성)의 최대치. 상한이 낮으면 목표를 올려도 실제 변동성이 따라가지 않음(특히 52주 모멘텀). '없음' = 목표를 맞출 때까지 배율을 키움. 실제 명목 노출은 '총 명목 노출' 지표로 확인")
-    mets = ["연수익 산술 (%)", "연수익 복리 (%)", "Sharpe", "실현 변동성 (%)", "최대 낙폭 (%)", "최악 1년 (%)", "최악 1주 (%)", "총 명목 노출 평균 (배)", "필요 증거금 (자본 대비 %)"]
+    mets = ["연수익 산술 (%)", "연수익 복리 (%)", "Sharpe", "실현 변동성 (%)", "최대 낙폭 (%)", "최악 1년 (%)", "최악 1주 (%)", "총 명목 노출 평균 (배)", "필요 증거금 (자본 대비 %)", "재료 상한 걸린 주 (%)", "혼합 4배 상한 걸린 주 (%)"]
+    mets = [m_ for m_ in mets if m_ in VT or m_.startswith("필요 증거금")]
     met = k2.selectbox("그래프 지표 (아래 선 그래프)", mets, key="vt_met")
     mrate = k3.slider("거래소 증거금률 가정 (명목 대비 %)", 3, 20, 8, key="vt_mr",
                       help="원자재 선물 개시 증거금은 대략 명목의 5–12%(품목·변동성에 따라 다름). 필요 증거금 = 총 명목 노출 × 증거금률")
@@ -5705,6 +5813,8 @@ def _voltgt_section():
     order = list(D["전략"].drop_duplicates())
     short = {s_: s_.replace(" (사후 선택 주의)", "").replace("혼합 · ", "").replace("기준 · ", "") for s_ in order}
     rows3 = [("연수익 산술 (%)", "① 연수익 (%)"), ("실현 변동성 (%)", "② 연 변동성 (%)"), ("최대 낙폭 (%)", "③ 최대 낙폭 MDD (%)")]
+    if "재료 상한 걸린 주 (%)" in D:
+        rows3.append(("재료 상한 걸린 주 (%)", "④ 상한 걸린 주 (%)"))
     parts = []
     for col_, lab_ in rows3:
         pv_ = D.pivot(index="전략", columns="목표 변동성 (%)", values=col_).reindex(order)
@@ -5713,10 +5823,14 @@ def _voltgt_section():
     PV = pd.concat(parts)
     PV = PV.reindex(pd.MultiIndex.from_tuples([(short[s_], lab_) for s_ in order for _, lab_ in rows3], names=["전략", "지표"]))
     PV.columns = [f"목표 {c}%" for c in PV.columns]
-    st.markdown(f"##### 전략별 연수익 · 연 변동성 · 최대 낙폭 (레버리지 배율 상한 {cap})")
+    st.markdown(f"##### 전략별 연수익 · 연 변동성 · 최대 낙폭 · 상한 걸린 주 (레버리지 배율 상한 {cap})")
     _merged_table(PV, "{:.1f}")
     st.caption("행마다 3줄: ① 산술 연수익(주간 수익률 평균 × 52) · ② 실제로 나온 연 변동성(목표와 다르면 배율 상한에 걸린 것) · ③ 최대 낙폭(고점 대비 최대 손실, 복리 자본 기준). "
-               "같은 전략이면 ①·②·③이 목표에 거의 비례해 함께 커짐 — 수익만 커지는 게 아님. 복리 수익·Sharpe·노출·증거금은 아래 '지표'에서 선택.")
+               "같은 전략이면 ①·②·③이 목표에 거의 비례해 함께 커짐 — 수익만 커지는 게 아님. "
+               "④ = 2007– 주 중 재료 전략의 변동성 맞춤 배율(목표 ÷ 직전 26주 실현 변동성)이 상한에 닿은 주의 비율(혼합은 재료 비중으로 가중). "
+               "④가 크면 목표를 올려도 ①·②가 덜 늘고, Portfolio Customization(10% 결과를 '목표 ÷ 10'배로 키움, 재료 상한 없음)과 결과가 갈림 — 예: 52주 모멘텀은 목표 15%에서 이미 63%. "
+               "섞은 뒤 다시 맞추는 혼합 배율(4배 상한)은 목표 50%에서도 거의 걸리지 않음(0–3%, 지표 '혼합 4배 상한 걸린 주'). 다전략은 비중을 재구성하지 않아 '–'. "
+               "복리 수익·Sharpe·노출·증거금은 아래 '지표'에서 선택.")
     if met.startswith("총 명목") or met.startswith("필요 증거금"):
         st.caption("총 명목 노출 = 롱·숏 비중 절댓값의 합(자본 대비 배수), 2007– 주간 평균. 다전략(K2 페어·COT 포함)은 비중을 재구성하지 않아 '–'. "
                    f"필요 증거금 = 노출 × 증거금률 {mrate}% — 100%를 넘으면 그 계좌로는 운용 불가, 50%를 넘으면 손실 시 마진콜 여유가 거의 없음. 급등락 때 거래소가 증거금률을 올리면 더 필요.")
