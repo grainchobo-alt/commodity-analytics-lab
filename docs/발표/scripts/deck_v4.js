@@ -1,4 +1,4 @@
-// 발표 자료 v4: v3 + 퀀트 학문 지도 정밀판 · AI 카드별 3D 그림 8개 · 연도별 효율적 투자선(겹침 제거) · 품목군 기준 확장 비전 (본문 17장 + 별첨 1장)
+// 발표 자료 v4: v3 + 퀀트 학문 지도 정밀판 · AI 카드별 3D 그림 8개 · 연도별 효율적 투자선(겹침 제거) · 품목군 기준 확장 비전 (본문 18장 + 별첨 1장)
 const pptxgen = require("pptxgenjs");
 const fs = require("fs");
 const path = require("path");
@@ -267,6 +267,54 @@ function mcards(s, ms) {
   s.addText([{ text: `세 전략을 섞으면 Sharpe ${SH["가치 혼합"]}   `, options: { bold: true, color: RED, fontSize: 16 } }, { text: "최소분산 50% + 모멘텀 25% + 가치 25% — 각 전략 단독(0.4~0.6)보다 위험 대비 성과가 크게 개선 (한 전략이 부진할 때 다른 전략이 보완)", options: { fontSize: 12.5, color: INK } }],
     { x: 0.85, y: 5.75, w: 11.8, h: 1.1, fontFace: F, valign: "middle", margin: 0 });
   foot(s, "Sharpe = 연 수익 ÷ 연 변동성(위험 1단위당 수익, 1에 가까우면 우수). 각 목표 변동성 10%, 편도 거래비용 5bp 차감, 연속월물 기준.");
+}
+
+// ════════════════ 혼합 전략은 매주 이렇게 계산 (3대 전략 다음 장)
+{
+  const s = base();
+  header(s, "Ⅲ", "혼합 전략은 매주 이렇게 계산 — 최소분산 50 · 모멘텀 25 · 가치 25", "세 전략이 각자 정한 품목별 비중을 50:25:25로 합쳐 '순 비중' 하나로 주문 — 매주 반복");
+  const steps = [["① 전략별 비중", "세 전략이 따로 품목별 비중을 정함\n각 전략 단독으로 연 10% 위험이 되게 크기 맞춤", BLUE],
+    ["② 50:25:25 가중합", "품목마다 세 비중을 섞는 비율로 더함\n반대 방향 포지션은 서로 상쇄", G],
+    ["③ 전체 위험 다시 맞춤", "섞은 전체를 연 10% 위험으로 조정\n(직전 26주 기준, 배율 상한 4배)", GOLD],
+    ["④ 다음 주 반복", "매주 다시 50:25:25로 되돌림\n(잘된 전략이 커지지 않게)", RED]];
+  steps.forEach(([t, b, col], i) => { const x = 0.6 + i * 3.1;
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 1.65, w: 2.8, h: 1.5, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.08 });
+    s.addShape(pres.shapes.RECTANGLE, { x, y: 1.65, w: 2.8, h: 0.08, fill: { color: col }, line: { color: col } });
+    s.addText(t, { x: x + 0.18, y: 1.8, w: 2.5, h: 0.4, fontFace: F, fontSize: 14, bold: true, color: col, margin: 0, valign: "middle" });
+    s.addText(b, { x: x + 0.18, y: 2.22, w: 2.5, h: 0.85, fontFace: F, fontSize: 10.5, color: INK, margin: 0, valign: "top" });
+    if (i < 3) arrow(s, x + 2.83, 2.4, x + 3.07, 2.4, MUTED); });
+
+  // 옥수수 한 품목 예시: 전략별 비중 × 섞는 비율 = 기여 → 순 비중
+  s.addText("예시 — 이번 주 옥수수 한 품목", { x: 0.6, y: 3.4, w: 7.4, h: 0.38, fontFace: F, fontSize: 13.5, bold: true, color: G, margin: 0 });
+  const hdr = [["전략", 0.6, 1.7], ["전략이 정한 옥수수 비중", 2.3, 3.2], ["섞는 비율", 5.55, 0.9], ["기여", 6.5, 1.5]];
+  hdr.forEach(([t, x, w]) => s.addText(t, { x, y: 3.8, w, h: 0.3, fontFace: F, fontSize: 9.5, color: MUTED, margin: 0, align: x > 5 ? "center" : "left" }));
+  const Z = 3.65, K = 0.032;                                   // 0% 기준선 위치, 1%p당 길이
+  const rows = [["최소분산", "함께 덜 움직여 롱", 20, 0.5, BLUE], ["모멘텀", "1년간 내려 숏", -30, 0.25, G], ["가치", "5년 평균보다 싸서 롱", 40, 0.25, GOLD]];
+  rows.forEach(([nm, why, v, w, col], i) => { const y = 4.15 + i * 0.62;
+    s.addText([{ text: nm, options: { bold: true, fontSize: 12, color: INK, breakLine: true } }, { text: why, options: { fontSize: 8.5, color: MUTED } }], { x: 0.6, y, w: 1.7, h: 0.52, fontFace: F, margin: 0, valign: "middle" });
+    const bx = v >= 0 ? Z : Z + v * K;
+    s.addShape(pres.shapes.RECTANGLE, { x: bx, y: y + 0.11, w: Math.abs(v) * K, h: 0.3, fill: { color: col }, line: { color: col } });
+    s.addText((v > 0 ? "+" : "−") + Math.abs(v) + "%", { x: v >= 0 ? Z + v * K + 0.05 : Z + v * K - 0.65, y, w: 0.6, h: 0.52, fontFace: F, fontSize: 11, bold: true, color: col, margin: 0, valign: "middle", align: v >= 0 ? "left" : "right" });
+    s.addText("× " + w.toFixed(2), { x: 5.55, y, w: 0.9, h: 0.52, fontFace: F, fontSize: 12, color: INK, margin: 0, valign: "middle", align: "center" });
+    const c = v * w;
+    s.addText("= " + (c > 0 ? "+" : "−") + Math.abs(c).toFixed(1) + "%p", { x: 6.5, y, w: 1.5, h: 0.52, fontFace: F, fontSize: 12.5, bold: true, color: c >= 0 ? G : RED, margin: 0, valign: "middle", align: "center" }); });
+  s.addShape(pres.shapes.LINE, { x: Z, y: 4.15, w: 0, h: 1.86, line: { color: "999999", width: 1, dashType: "dash" } });
+  s.addShape(pres.shapes.LINE, { x: 0.6, y: 6.08, w: 7.4, h: 0, line: { color: G, width: 1.25 } });
+  s.addText([{ text: "순 비중 (실제 주문)", options: { bold: true, fontSize: 12, color: G, breakLine: true } }, { text: "세 기여를 더함", options: { fontSize: 8.5, color: MUTED } }], { x: 0.6, y: 6.13, w: 1.7, h: 0.55, fontFace: F, margin: 0, valign: "middle" });
+  s.addShape(pres.shapes.RECTANGLE, { x: Z, y: 6.25, w: 12.5 * K, h: 0.3, fill: { color: RED }, line: { color: RED } });
+  s.addText("+12.5% 롱", { x: Z + 12.5 * K + 0.08, y: 6.13, w: 1.4, h: 0.55, fontFace: F, fontSize: 13, bold: true, color: RED, margin: 0, valign: "middle" });
+  s.addText("10.0 − 7.5 + 10.0", { x: 5.55, y: 6.13, w: 2.45, h: 0.55, fontFace: F, fontSize: 11, color: INK, margin: 0, valign: "middle", align: "center" });
+
+  // 왜 효과가 있나: 세 전략의 상관
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 8.45, y: 3.4, w: 4.4, h: 3.35, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.08 });
+  s.addText("왜 섞으면 좋아지나", { x: 8.65, y: 3.5, w: 4.0, h: 0.4, fontFace: F, fontSize: 13.5, bold: true, color: G, margin: 0, valign: "middle" });
+  table(s, [["함께 움직이는 정도", "최소분산", "모멘텀"], ["모멘텀", "0.20", ""], ["가치", "−0.06", "−0.44"]],
+    { x: 8.65, y: 3.95, w: 4.0, colW: [1.6, 1.2, 1.2], rowH: 0.3, fontSize: 10.5, align: "center", boldFirst: true });
+  s.addText([{ text: "• 서로 거의 따로 움직임 (1 = 똑같이, 0 = 무관, − = 반대)", options: { breakLine: true } },
+    { text: "• 추세가 꺾일 때 모멘텀은 잃고 가치는 버는 경향 → 손실이 서로 메워짐", options: { breakLine: true } },
+    { text: "• 그래서 같은 10% 위험에서 수익이 커짐: 단독 0.4–0.6 → 혼합 0.88", options: { bold: true, color: G } }],
+    { x: 8.65, y: 4.95, w: 4.05, h: 1.75, fontFace: F, fontSize: 10.5, color: INK, margin: 0, valign: "top", paraSpaceAfter: 4 });
+  foot(s, "이번 주 수익 = (0.5 × 최소분산 + 0.25 × 모멘텀 + 0.25 × 가치) × 배율. 옥수수 비중은 설명용 예시 수치. 상관 = 각 전략 주간 수익률, 2007–2026.");
 }
 
 // ════════════════ 9 섞은 결과 · 목표 위험

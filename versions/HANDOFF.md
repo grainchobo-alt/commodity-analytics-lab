@@ -2,7 +2,7 @@
 
 > 새 세션은 이 문서를 먼저 읽고 시작한다. 세션을 마칠 때는 **현재 상태 · 남은 과제 · 최근 결정**을 갱신하고 `CHANGELOG.md`에 버전을 추가한다.
 
-- **최종 갱신**: 2026-10-29 · **현재 버전**: v1.38.3 (git 태그) · 발표 PPT `docs/발표/원자재_퀀트_MI_발표_v1.pptx`(46장 상세)·`_v2`(10분판 14장)·`_v3`(18장)·`_v4`(18장, 최신), git 제외, 다시 만들기 = `docs/발표/scripts/build.py v4` · push 전 `push_check.py` — 확정 후 HTML 변환 예정
+- **최종 갱신**: 2026-10-29 · **현재 버전**: v1.38.3 (git 태그) · 발표 PPT `docs/발표/원자재_퀀트_MI_발표_v1.pptx`(46장 상세)·`_v2`(10분판 14장)·`_v3`(18장)·`_v4`(19장, 최신), git 제외, 다시 만들기 = `docs/발표/scripts/build.py v4` · push 전 `push_check.py` — 확정 후 HTML 변환 예정
 - **사용자**: 곡물·에너지·금속·운임을 다루는 **중간 트레이더**(직접 사용 X, 매입 후 재판매). 실무 의사결정 = **"언제, 얼마나 살까"** (숏 아님).
 - **저장소**: https://github.com/grainchobo-alt/commodity-analytics-lab (private, `main`) · 협업자 `seokhwan33`(write, 초대 발송)
 - **작업 폴더**: `C:\Users\user\Desktop\Commodity` (구 폴더 `Desktop\261013`에는 다른 프로젝트 공존 — 삭제 금지)
