@@ -21,9 +21,9 @@ html, body { background:#fff; }
 .tb table td { line-height:1.25; }
 .pl { background:#fff; border-radius:calc(var(--u)*0.04); }
 .pl .plot { position:absolute; inset:0; }
-/* 등장 효과: 장이 보이면 요소가 만든 순서대로 차례로 들어옴 */
-.reveal .slides section .el { opacity:0; }
-.reveal .slides section.present .el { animation:var(--an) .62s cubic-bezier(.2,.75,.25,1) both; animation-delay:calc(var(--i) * 55ms + 120ms); }
+/* 등장 효과: 장이 보이면 요소가 만든 순서대로 차례로 들어옴. 스크립트가 준비된 뒤(html.anim)에만 숨겼다가 등장 → 스크립트가 막혀도 내용은 보임 */
+.anim .reveal .slides section .el { opacity:0; }
+.anim .reveal .slides section.present .el { animation:var(--an) .62s cubic-bezier(.2,.75,.25,1) both; animation-delay:calc(var(--i) * 55ms + 120ms); }
 .a-up   { --an:aUp; }   .a-left { --an:aLeft; }  .a-zoom { --an:aZoom; }  .a-fade { --an:aFade; }  .a-draw { --an:aDraw; }
 @keyframes aUp   { from { opacity:0; transform:translateY(calc(var(--u)*0.22)); } to { opacity:1; transform:none; } }
 @keyframes aLeft { from { opacity:0; transform:translateX(calc(var(--u)*-0.45)); } to { opacity:1; transform:none; } }
@@ -43,8 +43,10 @@ html, body { background:#fff; }
 .hx-tsv { box-shadow:inset 0 0 0 calc(var(--u)*0.025) var(--blue); }
 .hx-csv { box-shadow:inset 0 0 0 calc(var(--u)*0.025) var(--gold); }
 .hx-tsv.hx-csv { box-shadow:inset 0 0 0 calc(var(--u)*0.03) #6a5a2a; }
-.reveal .slides section .hx-v { opacity:0; }
-.reveal .slides section.present .hx-v { animation:aPop .45s cubic-bezier(.3,1.4,.5,1) both; animation-delay:calc(var(--k) * 38ms + 500ms); }
+.anim .reveal .slides section .hx-v { opacity:0; }
+/* 안전장치: 장이 보인 지 3초 뒤(section.done)에는 효과가 멈춰 있어도 무조건 보이게 (절전·백그라운드 탭 등에서 애니메이션이 안 돌 때) */
+.anim .reveal .slides section.done .el, .anim .reveal .slides section.done .hx-v { animation:none !important; opacity:1 !important; }
+.anim .reveal .slides section.present .hx-v { animation:aPop .45s cubic-bezier(.3,1.4,.5,1) both; animation-delay:calc(var(--k) * 38ms + 500ms); }
 @keyframes aPop { from { opacity:0; transform:scale(.4); } to { opacity:1; transform:none; } }
 .hx-leg { display:flex; align-items:center; gap:calc(var(--u)*0.1); font-size:calc(var(--u)*0.12); color:var(--muted); }
 .hx-leg i { display:inline-block; width:calc(var(--u)*1.6); height:calc(var(--u)*0.1); border-radius:4px; background:linear-gradient(90deg,#cd4a32,#f8f7f2,#2e7d52); }
@@ -56,6 +58,14 @@ html, body { background:#fff; }
 .ey-ctl button { border:none; background:var(--g); color:#fff; border-radius:50%; width:calc(var(--u)*0.26); height:calc(var(--u)*0.26); cursor:pointer; font-size:calc(var(--u)*0.11); }
 .ey-lab { color:var(--g); font-size:calc(var(--u)*0.17); min-width:calc(var(--u)*0.45); }
 .ey-gap { color:var(--muted); }
+/* 여는 중 화면: 스크립트 해석(수 초) 동안 빈 화면 대신 표시, 8초 넘게 남아 있으면 원인 안내 (CSS만으로 동작) */
+#boot { position:fixed; inset:0; z-index:50; background:#1E3A2F; color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; font:20px "Malgun Gothic",sans-serif; }
+#boot .bar { width:220px; height:4px; background:rgba(255,255,255,.2); border-radius:2px; overflow:hidden; }
+#boot .bar i { display:block; width:40%; height:100%; background:#C8A24A; animation:boot 1.1s ease-in-out infinite; }
+@keyframes boot { from { transform:translateX(-100%); } to { transform:translateX(250%); } }
+#boot .help { max-width:640px; font-size:14px; line-height:1.6; color:#DCE3DE; opacity:0; animation:show .4s 8s forwards; text-align:center; }
+@keyframes show { to { opacity:1; } }
+#boot.gone { opacity:0; pointer-events:none; transition:opacity .35s; }
 #stamp { position:fixed; right:14px; top:6px; z-index:30; font:12px "Malgun Gothic",sans-serif; color:var(--muted); background:rgba(255,255,255,.85); padding:2px 8px; border-radius:10px; }
 #stamp.stale { color:#fff; background:var(--red); font-weight:700; }
 .reveal .controls { color:var(--gold); }
@@ -64,6 +74,10 @@ html, body { background:#fff; }
 </style>
 </head>
 <body>
+<div id="boot"><b>원자재 퀀트 MI 발표</b><div class="bar"><i></i></div><span style="font-size:14px;color:#AFC0B5">여는 중… (보통 3–5초)</span>
+  <div class="help">이 화면이 계속되면 브라우저가 스크립트를 막은 경우입니다.<br>
+  · 메일·메신저·사내 문서함 <b>미리보기</b>가 아니라, 파일을 저장한 뒤 <b>Chrome 또는 Edge</b>로 직접 여세요 (Internet Explorer·IE 모드는 불가)<br>
+  · zip으로 받았다면 <b>압축을 먼저 푼 뒤</b> index.html을 여세요 (zip 안에서 바로 열면 그림·차트 파일을 못 찾음)</div></div>
 <div class="reveal"><div class="slides">
 <!--@SLIDES-->
 </div></div>

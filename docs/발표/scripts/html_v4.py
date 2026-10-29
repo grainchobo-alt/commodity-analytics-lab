@@ -33,6 +33,9 @@ import ls_strategies as LS  # noqa: E402
 
 NM = HERE / "node_modules"
 OUT = HERE.parent / "원자재_퀀트_MI_발표_v4.html"
+WEB = HERE.parent / "MI_quant_v4_web"                           # 폴더판 (index.html + assets/). zip 안 이름은 영문(압축 도구별 한글 깨짐 방지)
+ZIP = HERE.parent / "원자재_퀀트_MI_발표_v4_web"                 # → 원자재_퀀트_MI_발표_v4_web.zip
+IMGS = {}                                                        # 장에 쓰인 그림 이름 → 경로
 PLOTS = {"c47a_lasso3d": "lasso", "c47b_pca3d": "pca", "c47c_rf3d": "rf", "c47d_lstm3d": "lstm",
          "c48a_chronos3d": "chronos", "c48b_finbert3d": "finbert", "c48c_garch3d": "garch", "c48d_hmm3d": "hmm",
          "c49a_frontier_grid": "ef3d", "c49b_frontier_ribbon": "efyear"}
@@ -313,8 +316,8 @@ def slide_html(n, s, D):
                     extra = '<div class="ey-ctl"><button class="ey-play">▶</button><input class="ey-yr" type="range"><b class="ey-lab"></b><span class="ey-gap"></span></div>'
                 h_ = plot_item(o, key, extra)
             else:
-                b64 = base64.b64encode(Path(o["path"]).read_bytes()).decode()
-                h_ = f'<div class="el im" style="{box_style(o)}"><img src="data:image/png;base64,{b64}" alt=""></div>'
+                IMGS[Path(o["path"]).name] = Path(o["path"])                # 폴더판은 파일로, 한 파일판은 base64로 (main에서 치환)
+                h_ = f'<div class="el im" style="{box_style(o)}"><img src="@IMG:{Path(o["path"]).name}" alt=""></div>'
         els.append(h_.replace('class="el ', f'class="el {a} ', 1).replace('style="', f'style="{style_i};', 1))
     note = f'<aside class="notes">{H.escape(s.get("notes", ""))}</aside>'
     bg = ' data-background-color="#1E3A2F"' if dark else ""
@@ -329,14 +332,39 @@ def main():
     subprocess.run([shutil.which("node"), "deck_capture.js", "4", str(cap)], cwd=HERE, check=True, capture_output=True)
     S = json.loads(cap.read_text(encoding="utf-8"))["slides"]
     secs = [slide_html(n, s, D) for n, s in enumerate(S, 1)]
-    rd = lambda p: (NM / p).read_text(encoding="utf-8").replace("</script", "<\\/script")      # noqa: E731  인라인 스크립트 안의 </script 차단
-    tpl = (HERE / "html_v4_template.html").read_text(encoding="utf-8")
-    html = (tpl.replace("/*@REVEAL_CSS*/", rd("reveal.js/dist/reveal.css")).replace("/*@REVEAL_JS*/", rd("reveal.js/dist/reveal.js"))
-            .replace("/*@NOTES_JS*/", rd("reveal.js/plugin/notes/notes.js")).replace("/*@PLOTLY_JS*/", rd("plotly.js-dist-min/plotly.min.js"))
-            .replace("/*@DATA*/", "const D = " + json.dumps(D, ensure_ascii=False).replace("</", "<\\/") + ";")
-            .replace("/*@APP_JS*/", (HERE / "html_v4_app.js").read_text(encoding="utf-8")).replace("<!--@SLIDES-->", "\n".join(secs)))
-    OUT.write_text(html, encoding="utf-8")
-    print(f"완료: {OUT}  ({OUT.stat().st_size / 1e6:.1f} MB, {len(S)}장, 자료 기준일 {D['asof']})")
+    tpl = (HERE / "html_v4_template.html").read_text(encoding="utf-8").replace("<!--@SLIDES-->", "\n".join(secs))
+    src = {"REVEAL_CSS": NM / "reveal.js/dist/reveal.css", "REVEAL_JS": NM / "reveal.js/dist/reveal.js", "NOTES_JS": NM / "reveal.js/plugin/notes/notes.js",
+           "PLOTLY_JS": NM / "plotly.js-dist-min/plotly.min.js", "APP_JS": HERE / "html_v4_app.js"}
+    data_js = "const D = " + json.dumps(D, ensure_ascii=False) + ";"
+    # ① 한 파일판: 모두 인라인 (파일 하나로 전달할 때)
+    rd = lambda k: src[k].read_text(encoding="utf-8").replace("</script", "<\\/script")     # noqa: E731  인라인 스크립트 안의 </script 차단
+    one = tpl
+    for k in ("REVEAL_CSS", "REVEAL_JS", "NOTES_JS", "PLOTLY_JS", "APP_JS"):
+        one = one.replace(f"/*@{k}*/", rd(k))
+    one = one.replace("/*@DATA*/", data_js.replace("</", "<\\/"))
+    for nm, p in IMGS.items():
+        one = one.replace(f"@IMG:{nm}", "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode())
+    OUT.write_text(one, encoding="utf-8")
+    # ② 폴더판: index.html(작음) + assets/ → zip으로 전달, 받은 쪽은 압축을 푼 뒤 index.html을 염 (file://에서도 동작: fetch 없이 <script src>만 사용)
+    if WEB.exists():
+        shutil.rmtree(WEB)
+    (WEB / "assets" / "img").mkdir(parents=True)
+    page = tpl.replace("<style>/*@REVEAL_CSS*/</style>", '<link rel="stylesheet" href="assets/reveal.css">')
+    for k, fn in (("REVEAL_JS", "reveal.js"), ("NOTES_JS", "notes.js"), ("PLOTLY_JS", "plotly.min.js")):
+        page = page.replace(f"<script>/*@{k}*/</script>", f'<script src="assets/{fn}"></script>')
+    page = page.replace("<script>\n/*@DATA*/\n/*@APP_JS*/\n</script>", '<script src="assets/data.js"></script>\n<script src="assets/app.js"></script>')
+    assert "/*@" not in page, "템플릿 자리표시자 치환 누락"
+    for nm, p in IMGS.items():
+        page = page.replace(f"@IMG:{nm}", f"assets/img/{nm}"); shutil.copy(p, WEB / "assets" / "img" / nm)
+    (WEB / "index.html").write_text(page, encoding="utf-8")
+    for k, fn in (("REVEAL_CSS", "reveal.css"), ("REVEAL_JS", "reveal.js"), ("NOTES_JS", "notes.js"), ("PLOTLY_JS", "plotly.min.js"), ("APP_JS", "app.js")):
+        shutil.copy(src[k], WEB / "assets" / fn)
+    (WEB / "assets" / "data.js").write_text(data_js, encoding="utf-8")
+    (WEB / "README.txt").write_text("원자재 퀀트 MI 발표 v4 (인터랙티브 HTML)\n\n1) zip 압축을 먼저 푸세요 (zip 안에서 바로 열면 그림·차트를 못 찾음)\n2) index.html을 Chrome 또는 Edge로 여세요 (메일·메신저 미리보기, Internet Explorer 불가)\n"
+                                                 "3) 방향키 = 장 넘김, F = 전체 화면, S = 발표자 보기(대본·타이머)\n", encoding="utf-8")
+    z = shutil.make_archive(str(ZIP), "zip", root_dir=WEB.parent, base_dir=WEB.name)
+    print(f"완료 ① 한 파일: {OUT}  ({OUT.stat().st_size / 1e6:.1f} MB)")
+    print(f"완료 ② 폴더+zip: {z}  ({Path(z).stat().st_size / 1e6:.1f} MB, index.html {(WEB / 'index.html').stat().st_size / 1e6:.2f} MB) · {len(S)}장 · 자료 기준일 {D['asof']}")
 
 
 if __name__ == "__main__":

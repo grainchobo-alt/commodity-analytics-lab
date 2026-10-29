@@ -43,3 +43,6 @@ desktop.ini
 
 # ---- 발표 HTML (내부 수치 포함, html_v4.py로 재생성)
 docs/발표/*.html
+docs/발표/*_web/
+docs/발표/MI_quant_v4_web/
+docs/발표/*.zip

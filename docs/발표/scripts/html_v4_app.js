@@ -169,12 +169,19 @@ function countUp(sl) {
     setTimeout(() => requestAnimationFrame(step), 300);
   });
 }
+let doneT;
 function show(sl) {
   if (!sl) return;
+  document.querySelectorAll("section.done").forEach((x) => x.classList.remove("done"));      // 다시 오면 등장 효과 재생
+  clearTimeout(doneT); doneT = setTimeout(() => sl.classList.add("done"), 3000);
   sl.querySelectorAll(".plot").forEach((el) => { if (!el.dataset.done) { el.dataset.done = 1; setTimeout(() => draw(el), 250); } else Plotly.Plots.resize(el); });
   countUp(sl);
 }
 Reveal.initialize({ hash: true, width: "100%", height: "100%", margin: 0, minScale: 1, maxScale: 1, center: false, transition: "slide", transitionSpeed: "default",
-  backgroundTransition: "fade", slideNumber: false, controls: true, progress: true, plugins: [RevealNotes] }).then(() => { show(Reveal.getCurrentSlide()); requestAnimationFrame(spin); });
+  backgroundTransition: "fade", slideNumber: false, controls: true, progress: true, plugins: [RevealNotes] }).then(() => {
+  document.documentElement.classList.add("anim");                             // 준비된 뒤에만 등장 효과 → 첫 장도 바로 들어옴
+  const b = document.getElementById("boot"); b.classList.add("gone"); setTimeout(() => b.remove(), 400);
+  show(Reveal.getCurrentSlide()); requestAnimationFrame(spin);
+});
 Reveal.on("slidechanged", (e) => show(e.currentSlide));
 addEventListener("resize", () => { fit(); const cur = Reveal.getCurrentSlide(); cur && cur.querySelectorAll(".plot[data-done]").forEach((el) => draw(el, true)); });
