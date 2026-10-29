@@ -46,6 +46,31 @@ def build_data():
     print("data.json:", ", ".join(nums))
 
 
+def script_md(v: int, node: str):
+    """발표자 노트에 [초, 대본]이 있으면(v4~) 시간 배분표 + 장별 대본을 docs/발표/발표대본_v{N}.md로 저장."""
+    js = f"const n=require('./notes_v{v}.js');console.log(JSON.stringify(n.timed||null))"
+    timed = json.loads(subprocess.run([node, "-e", js], cwd=HERE, capture_output=True, text=True, encoding="utf-8", check=True).stdout)
+    if not timed:
+        return
+    deck = (HERE / f"deck_v{v}.js").read_text(encoding="utf-8")
+    titles = ["표지"] + re.findall(r'header\(s, "[^"]*", "([^"]*)"', deck)
+    lines = [f"# 발표 대본 v{v} — 10분", "", f"`deck_v{v}.js`·`notes_v{v}.js`에서 자동 생성 (`build.py`). PowerPoint에서는 같은 내용이 슬라이드 노트·발표자 보기에 들어 있음.", "",
+             "| 장 | 제목 | 시간 | 누적 |", "|---|---|---|---|"]
+    acc = 0
+    for i, (sec, _) in enumerate(timed):
+        acc += sec
+        lines.append(f"| {i + 1} | {titles[i] if i < len(titles) else ''} | {sec}초 | {acc // 60}:{acc % 60:02d} |" if sec else f"| {i + 1} | {titles[i] if i < len(titles) else ''} | 질의응답용 | |")
+    lines += ["", "---", ""]
+    acc = 0
+    for i, (sec, txt) in enumerate(timed):
+        acc += sec
+        head = f"## {i + 1}. {titles[i] if i < len(titles) else ''}"
+        lines += [head + (f"  ·  {sec}초 (누적 {acc // 60}:{acc % 60:02d})" if sec else "  ·  질의응답용"), "", txt, ""]
+    out = HERE.parent / f"발표대본_v{v}.md"
+    out.write_text("\n".join(lines), encoding="utf-8")
+    print("대본:", out)
+
+
 def main():
     sys.stdout.reconfigure(errors="replace")      # Windows 콘솔(cp949)에서 특수문자 출력 오류 방지
     args = sys.argv[1:]
@@ -73,6 +98,7 @@ def main():
     if not (HERE / "node_modules" / "pptxgenjs").exists():
         sys.exit(f"pptxgenjs 미설치 — 한 번만: cd \"{HERE}\" && npm install")
     subprocess.run([node, f"deck_v{v}.js", str(out)], cwd=HERE, check=True)
+    script_md(v, node)
     print(f"\n완료: {out}")
     print({1: "※ 발표 전 확인: 29번 장(횡단면 군집)·30번 장(이번 주 판단 카드)은 deck_v1.js에 직접 적은 값 -> 앱 화면 기준으로 갱신",
            2: "※ 발표 전 확인: 10번 장(이번 주 판단)·11번 장(물량 위험 금액)·2번 장 요약 숫자는 deck_v2.js에 직접 적은 값 -> 앱 화면 기준으로 갱신",

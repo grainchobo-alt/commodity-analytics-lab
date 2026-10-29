@@ -11,7 +11,7 @@
 | `charts_v4.py` | v4 차트: 퀀트 학문 지도(정밀판), AI 카드별 3D 8개(실제: PCA·FinBERT·GARCH·HMM), 연도별 효율적 투자선 4×4 + 3D 리본 |
 | `deck_v{N}.js` | pptxgenjs로 슬라이드 조립 (`data.json`, `img/`, `notes_v{N}.js` 사용) |
 | `build.py` | 위 단계를 순서대로 한 번에 실행 + `data.json` 생성 |
-| `notes_v{N}.js` | 장별 발표자 노트(장 순서와 1:1, 개수가 다르면 경고) |
+| `notes_v{N}.js` | 장별 발표자 노트(장 순서와 1:1, 개수가 다르면 경고). v4부터 `[초, 대본]` → `build.py`가 `docs/발표/발표대본_v{N}.md`(시간 배분표 + 대본)도 생성 |
 
 ## 버전
 | 버전 | 대상 | 분량 | 특징 |

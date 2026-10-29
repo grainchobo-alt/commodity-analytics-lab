@@ -237,3 +237,31 @@ ax.set_yticks(sel); ax.tick_params(labelsize=7.5, pad=0)
 ax.set_xlabel("연 변동성 (%)", fontsize=8.5, labelpad=2); ax.set_zlabel("연 수익 (%)", fontsize=8.5, labelpad=0)
 ax.set_box_aspect((1.2, 2.0, 0.9)); ax.view_init(elev=24, azim=-68)
 save(f, "c49b_frontier_ribbon")
+
+# ════════ 50 시계열 vs 횡단면 3D: 품목 × 월 수익률 막대 + 칸마다 수치 (최근 12개월)
+KX = {"yf:ZC=F": "옥수수", "yf:ZW=F": "밀", "yf:ZS=F": "대두", "yf:ZM=F": "대두박", "yf:ZL=F": "대두유", "yf:CL=F": "원유", "yf:NG=F": "천연가스",
+      "yf:GC=F": "금", "yf:HG=F": "구리", "yf:KC=F": "커피", "yf:SB=F": "원당", "yf:CT=F": "면화"}
+PX = LS.weekly(adj, list(KX), "2020-01-01")[list(KX)].rename(columns=KX)
+MX = (np.log(PX).resample("ME").last().diff().loc["2025-11":"2026-10"] * 100)
+nm_, ni_ = MX.shape                                                         # 월 수, 품목 수
+vmax = float(np.nanpercentile(np.abs(MX.values), 95)); cmr = matplotlib.colormaps["RdYlGn"]
+f = plt.figure(figsize=(11, 7.2)); ax = f.add_subplot(projection="3d"); ax.computed_zorder = False   # 그린 순서 = 앞뒤 순서
+for a_ in (ax.xaxis, ax.yaxis, ax.zaxis): a_.pane.set_facecolor((0.97, 0.97, 0.96, 1)); a_.pane.set_edgecolor("#dddddd")
+HS = 0.4                                                                   # 막대 높이 = 수익률 × HS (±20%에서 자름, 수치는 실제 값)
+order = sorted(((j, t) for j in range(ni_) for t in range(nm_)), key=lambda q: (-q[0], q[1]))   # 먼 칸부터 그려 앞 칸이 덮도록
+for j, t in order:
+    v = float(MX.iat[t, j]); h = np.clip(v, -20, 20) * HS; hl = j == 0 or t == nm_ - 1
+    ec = BLUE if j == 0 else (GOLD if t == nm_ - 1 else (0, 0, 0, 0.18))
+    ax.bar3d(t - 0.42, j - 0.4, min(h, 0), 0.84, 0.8, max(abs(h), 0.08), color=cmr(0.5 + 0.5 * np.clip(v / vmax, -1, 1)),
+             edgecolor=ec, linewidth=1.3 if hl else 0.3, shade=True)
+for j, t in order:                                                          # 수치는 막대를 다 그린 뒤 맨 위에
+    v = float(MX.iat[t, j]); h = np.clip(v, -20, 20) * HS; hl = j == 0 or t == nm_ - 1
+    ax.text(t, j, max(h, 0) + 0.4, "0" if round(v) == 0 else f"{v:+.0f}", fontsize=7.2 if hl else 6.4, ha="center", va="bottom",
+            color=(BLUE if j == 0 else "#7a5d10") if hl else "#1a1a1a", fontweight="bold", bbox=dict(fc="white", ec="none", alpha=0.55, pad=0.4))
+ax.set_xticks(range(nm_)); ax.set_xticklabels([d.strftime("%y.%m") for d in MX.index], fontsize=7.5, rotation=0)
+ax.set_yticks(range(ni_)); ax.set_yticklabels(MX.columns, fontsize=8.5)
+ax.set_zlabel("월 수익률 (%)", fontsize=9, labelpad=2); ax.tick_params(axis="z", labelsize=7.5)
+ax.set_zlim(-20 * HS, 20 * HS); ax.set_zticks([-10 * HS, 0, 10 * HS]); ax.set_zticklabels(["-10", "0", "+10"])
+ax.set_box_aspect((2.3, 2.0, 0.5)); ax.view_init(elev=50, azim=-60)
+ax.set_title("품목 × 월 수익률 (%, 칸 위 숫자)  ·  파랑 = 시계열(옥수수 12개월)  ·  금색 = 횡단면(2026년 10월)", loc="left", fontsize=11.5, fontweight="bold", color=G)
+save(f, "c50_xs_ts3d", pad=0.02)
