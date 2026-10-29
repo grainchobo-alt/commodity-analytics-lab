@@ -1830,7 +1830,7 @@ def tab_ml():
         D = A.build_design(R3, tgt, feats, md, int(lags), int(hor), own, trf, extra=F, vol_scale=vsw, xlag=xlag)
         D.cost = cost_bp / 100.0     # bp -> % (수익률이 % 단위)
         D.band = float(band_c)
-        out, prog = {}, st.progress(0.0, "모델 추정 중")
+        out, wf_zs, prog = {}, {}, st.progress(0.0, "모델 추정 중")
         allm = list(models) + list(alt_m)
         for j, mname in enumerate(allm):
             prog.progress(j / len(allm), f"{mname} 추정 중...")
@@ -1838,7 +1838,10 @@ def tab_ml():
                 if mname in PL.ALT_SINGLE:
                     if md != "predict":
                         st.warning(f"{mname}: 대안 시계열 모델은 '예측' 모드에서만 실행됩니다."); continue
-                    out[mname] = PL.run_alt_single(mname, D, ANN, R3[tgt], R3[tgt].rolling(vsw).std() if vsw else None)
+                    sc_ = R3[tgt].rolling(vsw).std() if vsw else None
+                    if wf and mname in PL.ZERO_SHOT:     # 학습 없는 모델: walk-forward 구간을 먼저 예측 → 단일 분할은 같은 날짜 값을 캐시에서 가져옴
+                        wf_zs[mname] = PL.alt_walk_forward(mname, D, ANN, R3[tgt], sc_)
+                    out[mname] = PL.run_alt_single(mname, D, ANN, R3[tgt], sc_)
                 else:
                     out[mname] = A.run_model(mname, D, ANN, **hp)
             except Exception as ex:
@@ -1852,7 +1855,7 @@ def tab_ml():
                                        metrics=A._metrics(D.y_tr, ptr, D.y_te, pte, ANN, D.horizon, D))
         wfres = {}
         if wf and md == "predict":
-            wm = [m for m in models if m not in ("LSTM", "분위수 회귀")]          # 대안 시계열 모델은 재학습 비용이 커서 walk-forward 제외
+            wm = [m for m in models if m not in ("LSTM", "분위수 회귀")]          # 학습형 대안 모델·LSTM은 재학습 비용이 커서 제외, zero-shot은 위에서 계산
             prog = st.progress(0.0, "Walk-forward 검증 중")
             for j, mname in enumerate(wm):
                 prog.progress(j / max(1, len(wm)), f"Walk-forward: {mname}")
@@ -1861,8 +1864,10 @@ def tab_ml():
                 except Exception as ex:
                     st.error(f"Walk-forward {mname} 실패: {ex}")
             prog.empty()
-            if "LSTM" in models or alt_m:
-                st.info("LSTM·대안 시계열 모델은 재학습 비용이 커서 walk-forward에서 제외했습니다.")
+            wfres.update({k: v for k, v in wf_zs.items() if k in out})
+            if "LSTM" in models or set(alt_m) - set(PL.ZERO_SHOT):
+                st.info("LSTM·학습형 대안 시계열 모델(Prophet·PatchTST·iTransformer·TFT)은 재학습할 때마다 가중치가 달라져 매번 다시 학습해야 하므로 "
+                        "walk-forward에서 제외했습니다. zero-shot 모델(Chronos·TimesFM)은 학습이 없어 재학습 없이 같은 예측을 walk-forward에 그대로 씁니다.")
         elif wf:
             st.info("Walk-forward는 '예측' 모드에서만 의미가 있습니다.")
         st.session_state["ml"] = (D, out, tgt, md)
@@ -2916,8 +2921,10 @@ Ledoit-Wolf(2004)는 **Σ̂ = δ·F + (1−δ)·S** — S = 표본 공분산, F 
 **④ 예측 탭에서 멀티모달 자료를 설명변수로 넣으면 어떻게 처리되나?** → 포트폴리오 › 멀티모달 서브탭과 같은 품목별 주간 특성(54개, 발표 이후 값)을 2026-10-26 기준으로 저장해 씀.
 단일 품목 탭: 품목별 과거 자료로만 표준화하고 자료가 없는 구간은 0(평균), 분석 주기가 일간이면 그 날까지 나온 마지막 주간 값. 여러 품목 탭: 매 시점 품목 간 순위로 변환(19개 품목 밖은 중간 순위). MIDAS 탭: 일간 계단식 시계열로 Beta 가중(최대 3개).
 
-**대안 시계열 모델(Prophet·TFT 등)은 ④ 탭에서 어떻게 학습하나?** → 단일 품목: 같은 학습/테스트 분할에서 학습 구간으로 한 번 학습, 테스트 구간 각 시점까지 자료로 예측(walk-forward 제외). Prophet은 목표를 '추세 + 연간 계절 + 설명변수 선형'으로,
+**대안 시계열 모델(Prophet·TFT 등)은 ④ 탭에서 어떻게 학습하나?** → 단일 품목: 같은 학습/테스트 분할에서 학습 구간으로 한 번 학습, 테스트 구간 각 시점까지 자료로 예측. walk-forward는 학습형(Prophet·PatchTST·iTransformer·TFT·LSTM)은 제외, zero-shot(Chronos·TimesFM)만 포함 — 학습이 없어 재학습해도 값이 같으므로 날짜별 예측을 한 번 계산해 단일 분할과 공유. Prophet은 목표를 '추세 + 연간 계절 + 설명변수 선형'으로,
 TFT는 설명변수를 과거 변수로, iTransformer는 설명변수(상관 상위 15개)를 토큰으로, Chronos-2는 상위 8개를 공변량으로. PatchTST·Chronos-Bolt·TimesFM은 구조상 자기 시계열만. 여러 품목: 19개 품목으로 미리 계산한 예측을 순위 신호로. MIDAS: 월말마다 자기 가격으로 다음 달 예측.
+
+**walk-forward를 해도 결과가 같은 모델이 있나? 그럼 다시 계산할 필요가 없지 않나?** → 같은 모델은 **학습이 없는 zero-shot(Chronos-Bolt·TimesFM·Chronos-2)뿐**. 시점 t의 예측이 t까지의 가격에만 의존하므로 '언제 재학습하나'가 의미가 없음 → 날짜별 예측을 한 번 계산해 저장하고 단일 분할·walk-forward·재실행이 가져다 씀(Chronos-2는 공변량 고르는 구간만 달라 따로 계산). LSTM·Prophet·PatchTST·iTransformer·TFT는 재학습하면 가중치(신경망 숫자)가 새 자료로 바뀌어 예측도 달라짐 → walk-forward = 시점마다 새로 학습해야 해서 비용이 큼(그래서 제외). 이 모델들의 '매년 재학습' 결과는 ⑤ 대안 시계열 탭(19개 품목, 주간·4주 앞)에 미리 계산되어 있음.
 
 **전략 백테스트(모델 × 설명변수)에서 '위약'은?** → '전부' 묶음과 같은 설명변수지만 자기 정보 외 변수의 시간 순서를 13주 블록으로 섞어 정보만 없앤 판. 실제 묶음이 같은 모델의 위약보다 확실히 높지 않으면 그 설명변수는 우연과 구별되지 않음.
 전략 수가 많을수록(85개+) 예측력이 없어도 최댓값 Sharpe가 높게 나옴 — 표준오차 0.22 × √(2 ln N) ≈ 0.67까지는 운으로 가능.
@@ -3757,18 +3764,21 @@ def tab_risk():
                               format_func=lambda i: PR.BUY_IDS[i], key="rk_pids")
         dirl = st.radio("물량 성격", ["매입 예정 (아직 안 산 물량 → 가격 상승이 손실)", "보유 재고 (가격 하락이 손실)"], horizontal=True, key="rk_dir")
         sg = -1.0 if dirl.startswith("매입") else 1.0
-        u1_, u2_ = st.columns(2)
+        u1_, u2_, u3_ = st.columns(3)
         alpha_p = u1_.selectbox("신뢰수준", [0.95, 0.99], 1, format_func=lambda x: f"{x:.0%}", key="rk_palpha")
         hp = u2_.selectbox("기간 (영업일)", [5, 10, 20, 60], 2, key="rk_ph")
+        vm_p = u3_.selectbox("σ 모형", ["GARCH(1,1)", "EWMA 품목별 λ (확장)"], 0, key="rk_pvm",
+                             help="기본 GARCH(1,1) = ◆ 리스크 단일 품목 VaR와 같은 σ (변동성 모형 경주에서 1일 분산 예측 최상). "
+                                  "EWMA = 이전 버전(v1.37 이전) 기준 — 잔잔한 시기엔 GARCH보다 σ가 낮게 나옴(장기 평균으로 돌아가는 성질이 없음)")
         Lr_ = _levels(extra_bytes, False)
         qc = st.columns(max(len(pids), 1))
         qty = {i: qc[j].number_input(f"{PR.BUY_IDS[i]} ({'온스' if PR.unit_of(i) == '$/oz' else '톤'})", 0.0, 1e8, 30000.0, 1000.0, key=f"rk_qty_{i}") for j, i in enumerate(pids)}
         if len(pids) >= 1 and sum(qty.values()) > 0:
             px = {i: float(PR.usd_t(Lr_, i).dropna().iloc[-1]) for i in pids}
             expo = pd.Series({i: sg * qty[i] * px[i] for i in pids})
-            OO = {i: _risk_vm(i, ("EWMA 품목별 λ (확장)",), ROLL, extra_bytes) for i in pids}
+            OO = {i: _risk_vm(i, (vm_p,), ROLL, extra_bytes) for i in pids}
             Rp = pd.DataFrame({i: OO[i]["r"] for i in pids}).dropna()
-            Sp = pd.DataFrame({i: OO[i]["S"]["EWMA 품목별 λ (확장)"] for i in pids}).reindex(Rp.index).dropna()
+            Sp = pd.DataFrame({i: OO[i]["S"][vm_p] for i in pids}).reindex(Rp.index).dropna()
             PRk = RK.position_risk(Rp.loc[Sp.index], Sp, expo, alpha_p, int(hp))
             w1_, w2_, w3_, w4_ = st.columns(4)
             w1_.metric("총 노출", f"${expo.abs().sum():,.0f}")
@@ -3777,7 +3787,7 @@ def tab_risk():
             w4_.metric("분산 효과", f"${PRk['undiversified'] - PRk['var_normal']:,.0f}", f"단순 합 ${PRk['undiversified']:,.0f}", delta_color="off")
             st.dataframe(PRk["table"].rename(index=lambda i: PR.BUY_IDS[i]).style.format(
                 {"노출 ($)": "{:,.0f}", "일 σ (%)": "{:.2f}", f"{hp}일 σ ($)": "{:,.0f}", "VaR 기여 ($, 정규)": "{:,.0f}", "기여 비중": "{:.0%}"}))
-            st.caption("σ = 품목별 EWMA λ (walk-forward), 상관 = 직전 500일 표준화 잔차. 다변량 FHS = 과거 표준화 잔차 '벡터'(같은 날 동시 충격)를 현재 σ로 "
+            st.caption(f"σ = {vm_p} (walk-forward, 매년 1월 재추정), 상관 = 직전 500일 표준화 잔차. 다변량 FHS = 과거 표준화 잔차 '벡터'(같은 날 동시 충격)를 현재 σ로 "
                        "다시 키운 연속 h일 시나리오 → 꼬리 동조까지 반영. 기여도 합 = 정규 VaR (오일러 분해) — 위험을 가장 많이 만드는 물량부터 헤지·선매입 검토.")
             f = go.Figure(go.Histogram(x=PRk["sims"], nbinsx=60, marker_color=PAL[0], opacity=0.8))
             f.add_vline(x=PRk["var_fhs"], line_color=PAL[7], annotation_text="FHS VaR")

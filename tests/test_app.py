@@ -185,7 +185,12 @@ assert set(at.multiselect(key="feats").value) == set(RL.load_run(rid0)["settings
 at.selectbox(key="mlsel").set_value("Ridge").run(); check(at, "  상세: Ridge (특성 포함, 잔차 진단)")
 at.checkbox(key="vs").check().run()
 at.button(key="runml").click().run(); check(at, "목표 변동성 표준화")
-at.checkbox(key="vs").uncheck().run(); at.checkbox(key="wf").uncheck().run()
+at.checkbox(key="vs").uncheck().run()
+zs = next(k for k in at.multiselect(key="alt_models").options if k.startswith("Chronos-Bolt"))
+at.multiselect(key="alt_models").set_value([zs]).run()
+at.button(key="runml").click().run(); check(at, "zero-shot 대안 모델 + Walk-forward (재학습 없이 같은 예측 재사용)")
+assert zs in at.session_state["ml_wf"], "zero-shot 모델이 walk-forward 결과에 없음"
+at.multiselect(key="alt_models").set_value([]).run(); at.checkbox(key="wf").uncheck().run()
 at.button(key="runml").click().run()
 at.button(key="statbtn").click().run(); check(at, "정상성 진단")
 
@@ -229,5 +234,14 @@ at.button(key="favbtn").click().run(); check(at, "FAVAR")
 # 빈도 변경 (월간) 후 전체 재렌더
 at.sidebar.radio[0].set_value("월간").run(); check(at, "월간 빈도 재렌더")
 at.button(key="favbtn").click().run(); check(at, "FAVAR (월간)")
+# ⑨ 설정: 배경색 바꿔도 오류 없음 (사용자 설정 파일은 테스트 후 원래대로 복원)
+ui_f = ROOT / "data" / "ui_settings.json"; ui_bak = ui_f.read_bytes() if ui_f.exists() else None
+at.selectbox(key="ui_bg").set_value("짙은 남색 (다크)").run(); check(at, "⑨ 설정: 다크 배경")
+at.selectbox(key="ui_bg").set_value("직접 고르기").run(); check(at, "⑨ 설정: 직접 고르기")
+at.button(key="ui_reset").click().run(); check(at, "⑨ 설정: 기본값 되돌리기")
+if ui_bak is None:
+    ui_f.unlink(missing_ok=True)
+else:
+    ui_f.write_bytes(ui_bak)
 _record("APP TEST PASSED")
 print("APP TEST PASSED")

@@ -102,7 +102,67 @@ ALT_SINGLE = {
     "TimesFM-2.5 (zero-shot · 자기 시계열만)": "TimesFM-2.5",
     "Chronos-2 (zero-shot · 설명변수 공변량)": "Chronos-2",
 }
+ZERO_SHOT = [k for k, v in ALT_SINGLE.items() if v in ("Chronos-Bolt-small", "TimesFM-2.5", "Chronos-2")]
 _PIPE = {}
+# 자기 가격만 보는 zero-shot(Chronos-Bolt·TimesFM)은 학습이 없고 시점 t 예측이 t까지의 가격에만 의존
+# → (모델, h, 품목, 날짜)별로 저장해 단일 분할·walk-forward·재실행이 같은 값을 다시 계산하지 않고 가져다 씀
+_ZS_CACHE = {}
+
+
+def _calc_pos(pos, step: int) -> np.ndarray:
+    """예측을 실제로 계산할 위치 — 전체 표본 기준 step 간격(+ 첫 위치)이라 단일 분할과 walk-forward가 같은 시점을 계산(캐시 공유)."""
+    pos = np.asarray(pos)
+    return pos[(pos % step == 0) | (pos == pos[0])]
+
+
+def _zero_shot(kind: str, h: int, r: pd.Series, idx, X: np.ndarray, y: np.ndarray, calc, n_sel: int) -> tuple[dict, str]:
+    """zero-shot 모델의 위치별 h기 누적 수익률(%) 예측. n_sel = Chronos-2 공변량 선택에 쓰는 앞쪽 행 수(그 이후 정보 미사용)."""
+    import torch
+    import forecast_lab as FL
+    lp = (r.fillna(0.0).cumsum() / 100.0)
+    calc = np.asarray(calc)
+    pos = lp.index.get_indexer(idx[calc])
+    if kind == "Chronos-2":
+        from chronos import BaseChronosPipeline
+        if "c2" not in _PIPE:
+            _PIPE["c2"] = BaseChronosPipeline.from_pretrained("amazon/chronos-2", device_map="cpu", torch_dtype=torch.float32)
+        sel = _top_cols(X[:n_sel], y[:n_sel], 8)
+        Xi = pd.DataFrame(X[:, sel], index=idx).reindex(lp.index).ffill().fillna(0.0).values
+        items = [{"target": lp.values[max(0, p - 511):p + 1].astype(np.float32),
+                  "past_covariates": {f"x{j}": Xi[max(0, p - 511):p + 1, j].astype(np.float32) for j in range(len(sel))}} for p in pos]
+        res = []
+        for k in range(0, len(items), 64):
+            q, _ = _PIPE["c2"].predict_quantiles(items[k:k + 64], prediction_length=h, quantile_levels=FL.QS)
+            res.append(np.stack([np.asarray(x).reshape(-1, h, len(FL.QS))[0] for x in q]))
+        med = np.concatenate(res)[:, h - 1, 4]
+        return ({k: float((med[j] - lp.values[p]) * 100.0) for j, (k, p) in enumerate(zip(calc, pos))},
+                f"사전학습 모델 zero-shot — 직전 512기 로그가격 + 설명변수 {len(sel)}개(학습 구간 상관 상위)를 과거 공변량으로")
+    key = lambda k: (kind, h, r.name, r.index[0], idx[k])        # noqa: E731
+    todo = [(k, p) for k, p in zip(calc, pos) if key(k) not in _ZS_CACHE]
+    if todo:
+        Q = FL._load(kind)([lp.values[max(0, p - 511):p + 1] for _, p in todo], h)
+        for j, (k, p) in enumerate(todo):
+            _ZS_CACHE[key(k)] = float((Q[j, h - 1, 4] - lp.values[p]) * 100.0)
+    return ({k: _ZS_CACHE[key(k)] for k in calc},
+            "사전학습 모델 zero-shot — 직전 512기 로그가격만 보고 예측 (설명변수 사용 안 함)")
+
+
+def alt_walk_forward(label: str, D, ann: int, r: pd.Series, scale: pd.Series | None = None,
+                     start_frac: float = 0.5, max_points: int = 400):
+    """zero-shot 모델의 walk-forward. 학습이 없어 재추정할 것이 없으므로 analytics.walk_forward와 같은 평가 구간의 각 시점을
+    '그때까지 가격'으로 예측하면 그대로 walk-forward 결과 (Chronos-Bolt·TimesFM은 단일 분할에서 계산한 시점을 캐시로 재사용,
+    Chronos-2는 공변량을 평가 시작 전 자료로 고름). 반환 형식 = analytics.walk_forward."""
+    import analytics as A
+    raw, h = D.raw, D.horizon
+    idx, X, y = raw.index, raw.drop(columns="__y").values, raw["__y"].values
+    n = len(raw)
+    ks = np.array([k for k in range(int(n * start_frac), n) if k - (h - 1) >= 60])
+    step = max(1, int(np.ceil(len(D.idx_te) / max_points)))          # 단일 분할과 같은 간격 → 같은 시점 공유
+    p_at, _ = _zero_shot(ALT_SINGLE[label], h, r, idx, X, y, _calc_pos(ks, step), int(ks[0]) - (h - 1))
+    sc = scale.reindex(idx).values if scale is not None else np.ones(n)
+    preds = np.full(n, np.nan)
+    preds[ks] = pd.Series(p_at).reindex(ks).ffill().values / sc[ks]
+    return A.wf_result(preds, y, idx, h, ann, D, 0)
 
 
 def _input_size(ann: int, n_tr: int) -> int:
@@ -129,7 +189,7 @@ def run_alt_single(label: str, D, ann: int, r: pd.Series, scale: pd.Series | Non
     yraw_tr = D.y_tr + D.y_mu
     te_pos = np.arange(n_tr, len(idx))
     step = max(1, int(np.ceil(len(te_pos) / max_points)))
-    calc = te_pos[::step]
+    calc = _calc_pos(te_pos, step)
     p_tr = np.full(n_tr, np.nan)
     p_at = {}
     sc = scale.reindex(idx).values if scale is not None else np.ones(len(idx))
@@ -187,31 +247,8 @@ def run_alt_single(label: str, D, ann: int, r: pd.Series, scale: pd.Series | Non
             extra["설명"] = (f"직전 {ins}기 목표 수익률" + (f" + 설명변수 {len(ex)}개(과거 변수)" if ex else " (외부 변수 없음)") +
                             f"로 다음 {h}기 수익률 예측 → 합계. 학습 구간으로 한 번 학습 (최대 300단계)")
     else:
-        import torch
-        import forecast_lab as FL
-        lp = (r.fillna(0.0).cumsum() / 100.0)
-        pos = lp.index.get_indexer(idx[calc])
-        if kind == "Chronos-2":
-            from chronos import BaseChronosPipeline
-            if "c2" not in _PIPE:
-                _PIPE["c2"] = BaseChronosPipeline.from_pretrained("amazon/chronos-2", device_map="cpu", torch_dtype=torch.float32)
-            sel = _top_cols(D.X_tr, D.y_tr, 8)
-            Xi = pd.DataFrame(X[:, sel], index=idx).reindex(lp.index).ffill().fillna(0.0).values
-            items = [{"target": lp.values[max(0, p - 511):p + 1].astype(np.float32),
-                      "past_covariates": {f"x{j}": Xi[max(0, p - 511):p + 1, j].astype(np.float32) for j in range(len(sel))}} for p in pos]
-            res = []
-            for k in range(0, len(items), 64):
-                q, _ = _PIPE["c2"].predict_quantiles(items[k:k + 64], prediction_length=h, quantile_levels=FL.QS)
-                res.append(np.stack([np.asarray(x).reshape(-1, h, len(FL.QS))[0] for x in q]))
-            Q = np.concatenate(res)
-            extra["설명"] = f"사전학습 모델 zero-shot — 직전 512기 로그가격 + 설명변수 {len(sel)}개(학습 구간 상관 상위)를 과거 공변량으로"
-        else:
-            f = FL._load(kind)
-            Q = f([lp.values[max(0, p - 511):p + 1] for p in pos], h)
-            extra["설명"] = "사전학습 모델 zero-shot — 직전 512기 로그가격만 보고 예측 (설명변수 사용 안 함)"
-        med = Q[:, h - 1, 4]
-        p_at = {k: float((med[j] - lp.values[p]) * 100.0) for j, (k, p) in enumerate(zip(calc, pos))}
-    pt = pd.Series({k: v for k, v in p_at.items()}).reindex(te_pos).ffill().values      # 계산 안 한 시점은 직전 예측 유지
+        p_at, extra["설명"] = _zero_shot(kind, h, r, idx, X, np.r_[D.y_tr, D.y_te], calc, n_tr)
+    pt =pd.Series({k: v for k, v in p_at.items()}).reindex(te_pos).ffill().values      # 계산 안 한 시점은 직전 예측 유지
     p_te = pt / sc[te_pos] - D.y_mu
     p_te = np.where(np.isfinite(p_te), p_te, 0.0)
     if kind not in ("prophet",):

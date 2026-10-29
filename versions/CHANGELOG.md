@@ -3,6 +3,14 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.38.0 — 2026-10-29 — zero-shot 모델 walk-forward(재계산 없이 재사용), ◆ 물량 위험 σ = GARCH, 발표 PPT 한 번에 생성
+- ④ 단일 품목 예측: zero-shot 대안 모델(Chronos-Bolt·TimesFM·Chronos-2)을 walk-forward에 포함 — 학습이 없어 재학습해도 예측이 같으므로 날짜별 예측을 한 번 계산해 저장(`predict_lab._ZS_CACHE`), 단일 분할·walk-forward·재실행이 공유 (단일 분할 재계산 약 11초 → 0.02초, 값 차이 0). 학습형(Prophet·PatchTST·iTransformer·TFT·LSTM)은 재학습마다 가중치가 달라 계속 제외
+  - `analytics.wf_result` 분리(walk-forward 성과 계산 공용), `predict_lab.alt_walk_forward`
+- ◆ 리스크 C(구매·보유 물량 위험): σ 모형 선택 추가, 기본 GARCH(1,1) — 단일 품목 VaR와 같은 σ (옥수수·대두·대두박 각 3만 톤 매입 예정 20일 99%: 정규 3.13M→3.23M $, FHS 3.76M→3.43M $). ★ 4주 범위는 기본 프리셋이 이미 MIDAS 예측 σ(4주 범위 적중률로 검증)라 유지
+- 발표 자료 `docs/발표/scripts/build.py`: 차트 → `data.json` → pptx 한 번에 (다음 번호로 저장, 기존 파일 덮어쓰지 않음)
+- `tests/test_app.py`: zero-shot walk-forward 단계, ⑨ 설정 배경색 변경 단계(설정 파일은 원래대로 복원) 추가
+- ⑧ FAQ: walk-forward를 해도 결과가 같은 모델은?
+
 ## v1.37.1 — 2026-10-29 — 도감 3D 보완, ⑨ 설정 탭, 신호 차트·테스트 수정
 - ⑦ 모델 도감 3D 보완: PCA 3변수 구름, Ridge·Lasso 규제 해 경로, SCAD·MCP 목적함수 골짜기, Newton 반복 경로(`portfolio.newton_mv` info에 path), DCC 4품목 상관 지형
 - ⑨ 설정 탭: 본문·사이드바 배경색(15가지 + 직접 고르기), 차트 바탕 투명, `data/ui_settings.json` 저장

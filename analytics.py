@@ -587,13 +587,18 @@ def walk_forward(D: Design, model: str, ann: int, step: int, start_frac: float =
             outs += [_wf_one(*j) for j in rest]
     for k, pk in zip(ks, outs):
         preds[k:k + step] = pk
+    return wf_result(preds, yall, idx, h, ann, D, int(np.ceil((n - k0) / step)))
+
+
+def wf_result(preds, yall, idx, h: int, ann: int, D: Design, n_refit: int):
+    """walk-forward 예측 경로(평가 안 한 시점 NaN) → (예측, 실현, 성과 지표). 학습 없는 zero-shot 모델도 같은 형식으로 평가."""
     m = ~np.isnan(preds)
     y_oos, p_oos = yall[m], preds[m]
     # 기준예측: 각 시점의 과거 평균(확장창) — Campbell-Thompson OOS R²
     bench = pd.Series(yall).expanding().mean().shift(h).values[m]
     met = {"OOS R² (vs 학습평균)": 1 - ((y_oos - p_oos) ** 2).sum() / ((y_oos - bench) ** 2).sum()}
     met.update(strategy_stats(p_oos, y_oos, ann, h, getattr(D, "cost", 0.0), getattr(D, "band", 0.0)))
-    met["재추정 횟수"] = int(np.ceil((n - k0) / step))
+    met["재추정 횟수"] = n_refit
     return pd.Series(preds[m], index=idx[m]), pd.Series(y_oos, index=idx[m]), met
 
 
