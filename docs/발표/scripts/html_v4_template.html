@@ -51,7 +51,13 @@ html, body { background:#fff; }
 .hx-leg { display:flex; align-items:center; gap:calc(var(--u)*0.1); font-size:calc(var(--u)*0.12); color:var(--muted); }
 .hx-leg i { display:inline-block; width:calc(var(--u)*1.6); height:calc(var(--u)*0.1); border-radius:4px; background:linear-gradient(90deg,#cd4a32,#f8f7f2,#2e7d52); }
 .hx-key { margin-left:calc(var(--u)*0.25); font-weight:700; } .hx-key.ts { color:var(--blue); } .hx-key.cs { color:#9A7A1A; }
-/* 14장 컨트롤 */
+/* 2D 선 그래프: 선이 왼쪽→오른쪽으로 그려짐 */
+.plot.sweep .scatterlayer, .plot.sweep .barlayer { animation:sweepIn 2.4s cubic-bezier(.35,.1,.25,1) both; }
+@keyframes sweepIn { from { clip-path:inset(0 100% 0 0); } to { clip-path:inset(0 0 0 0); } }
+/* 3D 회전 상태 안내 (클릭으로 멈춤 ↔ 다시 회전) */
+.spin-tip { position:absolute; right:calc(var(--u)*0.06); bottom:calc(var(--u)*0.05); z-index:6; font-size:calc(var(--u)*0.095); color:var(--muted); background:rgba(255,255,255,.85); padding:1px 6px; border-radius:8px; pointer-events:none; }
+.pl.paused .spin-tip { color:#fff; background:var(--g); }
+/* 15장 컨트롤 */
 .ef-pick { position:absolute; left:calc(var(--u)*0.08); top:calc(var(--u)*0.06); z-index:5; font:inherit; font-size:calc(var(--u)*0.13); padding:2px 6px; border:1px solid var(--g); border-radius:6px; color:var(--g); background:#fff; }
 .ey-ctl { position:absolute; left:calc(var(--u)*0.08); right:calc(var(--u)*0.08); bottom:calc(var(--u)*0.04); display:flex; align-items:center; gap:calc(var(--u)*0.08); font-size:calc(var(--u)*0.13); z-index:5; }
 .ey-ctl input { flex:1; accent-color:var(--g); }

@@ -3,8 +3,8 @@
 deck_v4.js를 고치지 않고 그대로 실행해(deck_capture.js) 장마다 글상자·도형·그림·표·차트를 같은 위치에 HTML로 다시 그림.
 - 모든 요소가 순서대로 날아 들어오는 등장 효과, 큰 숫자는 올라가며 세기
 - 5장 품목 × 월 수익률 → 칸마다 숫자가 든 2D 히트맵(칸이 차례로 등장)
-- 8·9장 AI 모델 카드 8개 그림 → 같은 자리에서 회전되는 3D (Plotly)
-- 14장 효율적 투자선 → 대시보드 ⑤ 'Portfolio Customization' 3D(위험 × 수익 × Sharpe) + 연도별 경계선 재생
+- 9·10장 AI 모델 카드 8개 그림 → 같은 자리에서 회전되는 3D (Plotly)
+- 15장 효율적 투자선 → 대시보드 ⑤ 'Portfolio Customization' 3D(위험 × 수익 × Sharpe) + 연도별 경계선 재생
 - 하단 자료 기준일, 열람일 기준 7일 지나면 빨간 경고 · 발표자 노트 = 10분 대본(키보드 S)
 
 사용 (프로젝트 루트에서):  .venv\\Scripts\\python.exe docs\\발표\\scripts\\html_v4.py
@@ -38,7 +38,8 @@ ZIP = HERE.parent / "원자재_퀀트_MI_발표_v4_web"                 # → �
 IMGS = {}                                                        # 장에 쓰인 그림 이름 → 경로
 PLOTS = {"c47a_lasso3d": "lasso", "c47b_pca3d": "pca", "c47c_rf3d": "rf", "c47d_lstm3d": "lstm",
          "c48a_chronos3d": "chronos", "c48b_finbert3d": "finbert", "c48c_garch3d": "garch", "c48d_hmm3d": "hmm",
-         "c49a_frontier_grid": "ef3d", "c49b_frontier_ribbon": "efyear"}
+         "c49a_frontier_grid": "ef3d", "c49b_frontier_ribbon": "efyear", "c51_ml_overfit3d": "ovf",
+         "c41_randomwalk": "rw", "c42_brownian": "mc", "c09_volatility": "vol", "c16_strategies": "strat"}   # 마지막 4개 = 선이 그려지는 2D
 
 
 def r(x, n=2):
@@ -132,6 +133,26 @@ def data():
         gap = float(fr_[fv_ <= mv].max() - mr) if (fv_ <= mv).any() else 0.0
         FR[yr] = dict(fv=r(fv_), fr=r(fr_), mix=r([mv, mr]), tan=r([vol[k], ret[k]]), gap=round(max(gap, 0), 1))
     D["efyear"] = FR
+    # 6장 랜덤워크·몬테카를로 (charts_v2 c41·c42와 같은 난수·같은 순서 → PPT와 같은 그림, 정답 위치 동일)
+    adj2 = adj.loc[:"2026-10-26"]
+    KN12 = ["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F", "yf:ZL=F", "yf:CL=F", "yf:NG=F", "yf:GC=F", "yf:HG=F", "yf:KC=F", "yf:SB=F", "yf:CT=F"]
+    P12 = LS.weekly(adj2, KN12, "2001-01-01")[KN12]
+    c = np.log(P12["yf:ZC=F"].dropna()).loc["2016-10":]; rr = c.diff().dropna(); sd = float(rr.std()); g = np.random.default_rng(7)
+    real = (c - c.iloc[0]).values; paths, ends = [], [real[-1]]
+    while len(paths) < 5:
+        p_ = np.r_[0, np.cumsum(g.normal(0, sd, len(rr)))]
+        if np.exp(p_).min() > 0.45 and np.exp(p_).max() < 2.1 and min(abs(p_[-1] - e) for e in ends) > 0.12:
+            paths.append(p_); ends.append(p_[-1])
+    paths.insert(3, real)
+    D["rw"] = dict(d=[f"{x:%Y-%m-%d}" for x in c.index], y=[r(100 * np.exp(q), 1) for q in paths])
+    Z = g.normal(0, sd, (400, 52)).cumsum(1); wk = np.arange(1, 53)
+    D["mc"] = dict(paths=[r(100 * np.exp(Z[k]), 1) for k in range(120)], lo=r(100 * np.exp(-1.645 * sd * np.sqrt(wk)), 1), hi=r(100 * np.exp(1.645 * sd * np.sqrt(wk)), 1))
+    # 7장 옥수수 변동성 군집 (charts c09)
+    wv = np.log(adj2["yf:ZC=F"].dropna()).resample("W-FRI").last().diff().dropna().loc["2006":] * 100; rv = wv.rolling(26).std() * np.sqrt(52)
+    D["vol"] = dict(d=[f"{x:%Y-%m-%d}" for x in wv.index], w=r(wv.values, 2), rv=[None if np.isnan(v) else round(float(v), 1) for v in rv.values])
+    # 14장 전략 누적 수익 (charts c16)
+    D["strat"] = dict(d=[f"{x:%Y-%m-%d}" for x in X3.index], names=["최소분산", "52주 모멘텀", "가치"], y=[r(X3[k].cumsum().values, 1) for k in X3.columns],
+                      mix=r(W["혼합 · MinVar 50 + 모멘텀 25 + 가치 25 (사후 선택 주의)|10|4"].loc["2007":].reindex(X3.index).fillna(0).cumsum().values, 1))
     return D
 
 
@@ -280,14 +301,15 @@ def anim_class(it):
 
 
 def slide_html(n, s, D):
+    ef_slide = any(it["kind"] == "image" and Path(it["opts"]["path"]).stem == "c49a_frontier_grid" for it in s["items"])
     dark = (s.get("background") or {}).get("color") == "1E3A2F"
     els, i = [], 0
     for it in s["items"]:
         o = it.get("opts", {}); k = it["kind"]
         # 14장: 연도별 리본 그림의 설명 글은 빼고(재생 막대 자리), 읽는 법 글은 새 3D 구성에 맞게 바꿈
-        if n == 14 and k == "text" and isinstance(it["text"], str) and it["text"].startswith("3D: 3년 간격"):
+        if ef_slide and k == "text" and isinstance(it["text"], str) and it["text"].startswith("3D: 3년 간격"):
             continue                                       # 재생 막대가 같은 자리를 씀
-        if n == 14 and k == "text" and isinstance(it["text"], list) and str(it["text"][0].get("text", "")).startswith("읽는 법"):
+        if ef_slide and k == "text" and isinstance(it["text"], list) and str(it["text"][0].get("text", "")).startswith("읽는 법"):
             et = D["ef_text"]
             it = dict(it, text=[{"text": "읽는 법 · 시사점", "options": {"bold": True, "color": "1E3A2F", "breakLine": True, "paraSpaceAfter": 6}},
                                 {"text": "왼쪽 3D = 대시보드 ⑤ 투자선 화면과 같은 계산: 점 = 세 전략을 섞는 비중, 높이·색 = Sharpe(위험 1단위당 수익)", "options": {"bullet": True, "breakLine": True, "paraSpaceAfter": 6}},

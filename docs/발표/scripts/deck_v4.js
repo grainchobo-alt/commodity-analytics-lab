@@ -1,4 +1,4 @@
-// 발표 자료 v4: v3 + 퀀트 학문 지도 정밀판 · AI 카드별 3D 그림 8개 · 연도별 효율적 투자선(겹침 제거) · 품목군 기준 확장 비전 (본문 18장 + 별첨 1장)
+// 발표 자료 v4: v3 + 퀀트 학문 지도 정밀판 · AI 카드별 3D 그림 8개 · 연도별 효율적 투자선(겹침 제거) · 품목군 기준 확장 비전 (본문 19장 + 별첨 2장)
 const pptxgen = require("pptxgenjs");
 const fs = require("fs");
 const path = require("path");
@@ -151,6 +151,45 @@ const SH = D.sharpe, VT = D.voltgt;
   bullets(s, [`지난주 등락으로 이번 주 등락을 설명하는 힘 ≈ 0 (12개 품목 평균 상관 ${D.ac1_mean_abs.toFixed(2)}) → 아무리 정교한 모델도 '정답'을 맞히기는 어려움`,
     `불확실성은 시간의 제곱근으로 커짐: 옥수수 4주 뒤 ${D.band4[0]}% ~ +${D.band4[1]}%, 1년 뒤 ${D.band52[0]}% ~ +${D.band52[1]}% (90% 범위)`,
     "그래서 목표는 '맞히기'가 아니라 ① 위험의 크기 관리 ② 오래 반복된 작은 경향의 확률적 우위 ③ 섞어서 출렁임 줄이기"], { x: 0.5, y: 6.0, w: 12.3, h: 0.95, fontSize: 11.5 });
+}
+
+// ════════════════ 5-2 검증 방법: 학습·시험을 시간으로 나눔 + 선형 vs 머신러닝
+{
+  const s = base();
+  header(s, "Ⅱ", "성적은 '처음 보는 미래'로 매김 — 그리고 머신러닝의 함정", "과거로 배우고(학습) 그다음 기간으로 시험해야 실전 성적 — 섞어서 시험하면 미래 정보가 새어 들어가 성적이 부풀려짐");
+  // 왼쪽: 학습·시험 분리와 Walk-forward
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 1.62, w: 5.95, h: 0.62, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.08 });
+  s.addText([{ text: "비유  ", options: { bold: true, color: G } }, { text: "시험 문제를 미리 보고 공부하면 점수가 높게 나옴 → 실력이 아니라 '미리 본 답'", options: { color: INK } }],
+    { x: 0.65, y: 1.62, w: 5.7, h: 0.62, fontFace: F, fontSize: 11.5, valign: "middle", margin: 0 });
+  const X0 = 0.6, XW = 5.75;
+  s.addText("✕  무작위로 섞어 검증 (잘못된 방법)", { x: 0.5, y: 2.4, w: 5.9, h: 0.3, fontFace: F, fontSize: 11.5, bold: true, color: RED, margin: 0 });
+  const mix = [0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0];
+  mix.forEach((m, i) => { const w = XW / mix.length;
+    s.addShape(pres.shapes.RECTANGLE, { x: X0 + i * w, y: 2.74, w: w - 0.03, h: 0.3, fill: { color: m ? GOLD : BLUE }, line: { color: m ? GOLD : BLUE } }); });
+  s.addText("미래 자료가 학습에 섞임 → 구매 판단 모델 AUC 0.69 (부풀려짐)", { x: 0.5, y: 3.07, w: 5.9, h: 0.28, fontFace: F, fontSize: 10, color: RED, margin: 0 });
+  s.addText("○  시간 순으로 나눠 검증 (올바른 방법)", { x: 0.5, y: 3.45, w: 5.9, h: 0.3, fontFace: F, fontSize: 11.5, bold: true, color: G, margin: 0 });
+  s.addShape(pres.shapes.RECTANGLE, { x: X0, y: 3.79, w: 3.95, h: 0.32, fill: { color: BLUE }, line: { color: BLUE } });
+  s.addText("학습 2008–2016", { x: X0, y: 3.79, w: 3.95, h: 0.32, fontFace: F, fontSize: 10, bold: true, color: WHITE, align: "center", valign: "middle", margin: 0 });
+  s.addShape(pres.shapes.RECTANGLE, { x: X0 + 4.0, y: 3.79, w: 1.75, h: 0.32, fill: { color: GOLD }, line: { color: GOLD } });
+  s.addText("시험 2017~", { x: X0 + 4.0, y: 3.79, w: 1.75, h: 0.32, fontFace: F, fontSize: 10, bold: true, color: WHITE, align: "center", valign: "middle", margin: 0 });
+  s.addText("처음 보는 미래로만 채점 → AUC 0.50 = 동전 던지기 수준 (실제 실력)", { x: 0.5, y: 4.14, w: 5.9, h: 0.28, fontFace: F, fontSize: 10, color: G, margin: 0 });
+  s.addText("Walk-forward — 학습 구간을 시간 순으로 늘리며 항상 '그다음'만 시험", { x: 0.5, y: 4.52, w: 5.95, h: 0.3, fontFace: F, fontSize: 11.5, bold: true, color: BLUE, margin: 0 });
+  [2.2, 3.0, 3.8].forEach((tw, k) => { const y = 4.88 + k * 0.3;
+    s.addShape(pres.shapes.RECTANGLE, { x: X0, y, w: tw, h: 0.22, fill: { color: BLUE }, line: { color: BLUE } });
+    s.addShape(pres.shapes.RECTANGLE, { x: X0 + tw + 0.04, y, w: 0.75, h: 0.22, fill: { color: GOLD }, line: { color: GOLD } });
+    s.addText(`${k + 1}회`, { x: X0 + tw + 0.85, y: y - 0.03, w: 0.6, h: 0.28, fontFace: F, fontSize: 9, color: MUTED, margin: 0 }); });
+  arrow(s, X0, 5.84, X0 + 5.6, 5.84, MUTED);
+  s.addText("시간 →", { x: X0 + 4.9, y: 5.86, w: 0.9, h: 0.25, fontFace: F, fontSize: 9, color: MUTED, align: "right", margin: 0 });
+  bullets(s, ["파랑 = 학습(과거), 금색 = 시험(그 뒤) — 대시보드의 모든 성과는 이 방식으로만 계산", "그래서 발표의 숫자는 '실전에서 기대할 수 있는 성적'"], { x: 0.5, y: 6.1, w: 5.95, h: 0.85, fontSize: 10.5 });
+  s.addShape(pres.shapes.LINE, { x: 6.67, y: 1.62, w: 0, h: 5.25, line: { color: LINE, width: 1 } });
+  // 오른쪽: 선형 vs 머신러닝 — 학습 성적과 시험 성적
+  s.addText("선형(통계·계량) vs 곡선(머신러닝) — 학습과 시험 성적", { x: 6.85, y: 1.62, w: 6.0, h: 0.35, fontFace: F, fontSize: 12.5, bold: true, color: G, margin: 0 });
+  img(s, "c51_ml_overfit3d", 6.85, 1.98, 6.0, 3.3);
+  bullets(s, ["통계·계량: 직선 관계를 안정적으로 → 학습·시험 성적 차이가 작음",
+    "머신러닝: 출렁임 크고 곡선인 자료도 잘 맞추지만, 잡음까지 외워 시험에서 급락 (과적합)",
+    { t: "권장: 통계·계량을 뼈대로 두고 머신러닝은 그 위에 보조 신호로 접목 → 시험 성적이 가장 안정", b: true, c: G }],
+    { x: 6.85, y: 5.32, w: 6.0, h: 1.6, fontSize: 10.5 });
+  foot(s, "AUC = 맞힌 정도(0.5 = 동전 던지기). 실제: 구매 판단 모델 무작위 섞기 검증 0.69 vs 시간 분리 0.50. 오른쪽 그림은 개념 예시 — 대시보드 실험에서도 머신러닝 단독은 시험 구간에서 선형(Ridge)보다 열위.");
 }
 
 // ════════════════ 6 그래도 예측 가능한 것

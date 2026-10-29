@@ -265,3 +265,21 @@ ax.set_zlim(-20 * HS, 20 * HS); ax.set_zticks([-10 * HS, 0, 10 * HS]); ax.set_zt
 ax.set_box_aspect((2.3, 2.0, 0.5)); ax.view_init(elev=50, azim=-60)
 ax.set_title("품목 × 월 수익률 (%, 칸 위 숫자)  ·  파랑 = 시계열(옥수수 12개월)  ·  금색 = 횡단면(2026년 10월)", loc="left", fontsize=11.5, fontweight="bold", color=G)
 save(f, "c50_xs_ts3d", pad=0.02)
+
+# ════════ 51 학습 vs 시험 성적 3D 막대 (개념 예시): 선형 · 머신러닝 단독 · 통계 위 머신러닝 접목
+OVF = [("통계·계량\n(선형)", 60, 56), ("머신러닝\n단독", 90, 40), ("통계 +\n머신러닝", 72, 63)]
+f = plt.figure(figsize=(6.4, 4.4)); ax = f.add_subplot(projection="3d"); ax.computed_zorder = False
+for a_ in (ax.xaxis, ax.yaxis, ax.zaxis): a_.pane.set_facecolor((0.97, 0.97, 0.96, 1)); a_.pane.set_edgecolor("#dddddd")
+for j in (1, 0):                                                   # 뒤(학습, y=1)부터 그려 앞(시험, y=0)이 덮도록
+    for i, (nm, tr, te) in enumerate(OVF):
+        v = (te, tr)[j]; col = ((RED if i == 1 else G), "#8DB7CF")[j]
+        ax.bar3d(i - 0.28, j - 0.28, 0, 0.56, 0.56, v, color=col, alpha=0.95, shade=True, edgecolor="white", linewidth=0.4)
+for j in (1, 0):
+    for i, (nm, tr, te) in enumerate(OVF):
+        v = (te, tr)[j]; ax.text(i, j, v + 5, f"{v}", ha="center", fontsize=10.5, fontweight="bold", color=(INK, BLUE)[j],
+                                 bbox=dict(fc="white", ec="none", alpha=0.7, pad=0.5))
+ax.set_xticks(range(3)); ax.set_xticklabels([o[0] for o in OVF], fontsize=8.5)
+ax.set_yticks([0, 1]); ax.set_yticklabels(["시험 성적\n(처음 본 문제)", "학습 성적\n(외운 문제)"], fontsize=8.5)
+ax.set_zlim(0, 100); ax.set_zticks([0, 50, 100]); ax.set_zlabel("맞힌 정도 (예시)", fontsize=8.5)
+ax.set_box_aspect((1.6, 1.0, 0.9)); ax.view_init(elev=24, azim=-62)
+save(f, "c51_ml_overfit3d")

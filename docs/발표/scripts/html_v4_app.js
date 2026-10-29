@@ -122,7 +122,58 @@ P.efyear = (el) => {
   return [tr, { margin: { l: 34, r: 6, t: 6, b: Math.round(unit() * 0.62) }, xaxis: { title: { text: "연 변동성 (%)", standoff: 2 }, range: eyRange.x, gridcolor: "#EEE" }, yaxis: { title: { text: "연 수익 (%)", standoff: 2 }, range: eyRange.y, gridcolor: "#EEE" } }];
 };
 
-// ── pptx 차트 (13장 선 · 15장 막대)
+// ── 6·7·14장 선 그래프 (PPT 그림과 같은 자료, 선이 그려지는 효과)
+const title2 = (t) => ({ text: `<b>${t}</b>`, font: { size: Math.max(10, unit() * 0.13), color: C.g }, x: 0.01, xanchor: "left", y: 0.98 });
+const ax2 = (extra) => Object.assign({ gridcolor: "#EEEEEA", zeroline: false, tickfont: { size: Math.max(8, unit() * 0.1) } }, extra);
+const lay2 = (t, extra) => Object.assign({ title: title2(t), margin: { l: Math.round(unit() * 0.5), r: Math.round(unit() * 0.35), t: Math.round(unit() * 0.38), b: Math.round(unit() * 0.32) }, hovermode: "x unified" }, extra);
+P.rw = () => {
+  const R = D.rw, cols = [C.g, C.blue, C.gold, C.red, "#8A8A84", "#6E5A9B"], L = "ABCDEF", last = R.d[R.d.length - 1];
+  return [R.y.map((y, k) => ({ x: R.d, y, mode: "lines", line: { color: cols[k], width: 1.6 }, name: L[k], hovertemplate: `${L[k]} %{y:.0f}<extra></extra>` })),
+    lay2("6개 중 하나만 실제 옥수수 가격 — 나머지는 동전 던지기", { xaxis: ax2({ range: [R.d[0], "2027-04-01"] }), yaxis: ax2({ title: { text: "2016년 10월 = 100", font: { size: 10 } } }),
+      shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 100, y1: 100, line: { color: "#bbbbb5", width: 0.8 } }],
+      annotations: R.y.map((y, k) => ({ x: last, y: y[y.length - 1], text: `<b>${L[k]}</b>`, showarrow: false, xanchor: "left", xshift: 6, font: { color: cols[k], size: 13 } })) })];
+};
+P.mc = () => {
+  const M = D.mc, wk = M.lo.map((_, i) => i + 1), x = [], y = [];
+  M.paths.forEach((p) => { x.push(0, ...wk, null); y.push(100, ...p, null); });
+  const pct = (v) => `${v - 100 > 0 ? "+" : ""}${Math.round(v - 100)}%`;
+  return [[{ x, y, mode: "lines", line: { color: "rgba(138,138,132,0.35)", width: 0.6 }, hoverinfo: "skip" },
+    { x: wk, y: M.lo, mode: "lines", line: { color: C.gold, width: 2 }, hovertemplate: "%{x}주 뒤 하단 %{y:.0f}<extra></extra>" },
+    { x: wk, y: M.hi, mode: "lines", line: { color: C.gold, width: 2 }, fill: "tonexty", fillcolor: "rgba(200,162,74,0.22)", hovertemplate: "%{x}주 뒤 상단 %{y:.0f}<extra></extra>" }],
+    lay2("몬테카를로 시뮬레이션 400회 (옥수수와 같은 출렁임)", { hovermode: "closest", xaxis: ax2({ title: { text: "오늘부터 몇 주 뒤", font: { size: 10 } }, range: [0, 54] }), yaxis: ax2({ title: { text: "오늘 가격 = 100", font: { size: 10 } }, range: [45, 205] }),
+      shapes: [{ type: "line", x0: 0, x1: 54, y0: 100, y1: 100, line: { color: C.g, width: 1.2 } }],
+      annotations: [[4, 6, 172], [52, 33, 192]].map(([w, ax, ay]) => ({ x: w, y: M.hi[w - 1], ax, ay, axref: "x", ayref: "y", text: `<b>${w}주 뒤 90% 범위<br>${pct(M.lo[w - 1])} ~ ${pct(M.hi[w - 1])}</b>`,
+        font: { color: "#7a5d10", size: 11 }, bgcolor: "rgba(255,255,255,0.9)", arrowcolor: "#7a5d10", arrowwidth: 1 })) })];
+};
+P.vol = () => {
+  const V = D.vol, ev = [["2008-06-01", "2009-03-31", "금융위기"], ["2012-06-01", "2012-10-31", "미국 가뭄"], ["2020-03-01", "2020-06-30", "코로나"], ["2022-02-01", "2022-07-31", "우크라이나"]];
+  return [[{ type: "bar", x: V.d, y: V.w, marker: { color: "rgba(138,138,132,0.55)" }, name: "주간 수익률 (%)", hovertemplate: "주간 %{y:.1f}%<extra></extra>" },
+    { x: V.d, y: V.rv, mode: "lines", line: { color: C.red, width: 2 }, name: "연 변동성 (26주, %)", yaxis: "y2", hovertemplate: "연 변동성 %{y:.0f}%<extra></extra>" }],
+    lay2("옥수수: 큰 움직임은 몰려서 옴 (변동성 군집)", { showlegend: true, legend: { orientation: "h", x: 1, xanchor: "right", y: 1.06, font: { size: 9 } }, bargap: 0,
+      xaxis: ax2({}), yaxis: ax2({ title: { text: "주간 수익률 %", font: { size: 10 } } }), yaxis2: ax2({ overlaying: "y", side: "right", showgrid: false, title: { text: "연 변동성 %", font: { size: 10, color: C.red } } }),
+      shapes: ev.map(([a, b]) => ({ type: "rect", xref: "x", yref: "paper", x0: a, x1: b, y0: 0, y1: 1, fillcolor: "rgba(200,162,74,0.18)", line: { width: 0 }, layer: "below" })),
+      annotations: ev.map(([a, , t]) => ({ x: a, y: 0.97, xref: "x", yref: "paper", text: t, showarrow: false, xanchor: "left", font: { size: 9, color: "#7a5d10" } })) })];
+};
+P.strat = () => {
+  const S = D.strat, cols = [C.g, C.blue, C.gold];
+  return [[...S.y.map((y, k) => ({ x: S.d, y, mode: "lines", line: { color: cols[k], width: 1.6 }, name: S.names[k], hovertemplate: `${S.names[k]} %{y:.0f}%<extra></extra>` })),
+    { x: S.d, y: S.mix, mode: "lines", line: { color: C.red, width: 2.8 }, name: "가치 혼합 (목표 변동성 10%)", hovertemplate: "가치 혼합 %{y:.0f}%<extra></extra>" }],
+    lay2("2007–2026 누적 수익 (각 목표 변동성 10%, 거래비용 차감)", { showlegend: true, legend: { orientation: "h", x: 0.01, y: 0.93, font: { size: 9 }, bgcolor: "rgba(255,255,255,0.6)" },
+      xaxis: ax2({}), yaxis: ax2({ title: { text: "누적 수익 (%, 합산)", font: { size: 10 } } }) })];
+};
+// ── 7장 학습 vs 시험 성적 3D 막대 (개념 예시)
+P.ovf = () => {
+  const O = [["통계·계량(선형)", 60, 56], ["머신러닝 단독", 90, 40], ["통계 + 머신러닝", 72, 63]], B = [], tx = [], ty = [], tz = [], tt = [], tc = [];
+  O.forEach(([nm, tr, te], i) => {
+    B.push({ x: i, y: 1, z: tr, c: "#8DB7CF", h: `${nm}<br>학습 성적 ${tr}` }, { x: i, y: 0, z: te, c: i === 1 ? C.red : C.g, h: `${nm}<br>시험 성적 ${te}` });
+    tx.push(i, i); ty.push(1, 0); tz.push(tr + 7, te + 7); tt.push(`<b>${tr}</b>`, `<b>${te}</b>`); tc.push(C.blue, C.ink);
+  });
+  return [[bars3d(B, 0.55, 0.55), { type: "scatter3d", mode: "text", x: tx, y: ty, z: tz, text: tt, textfont: { size: 13, color: tc }, hoverinfo: "skip" }],
+    { scene: { xaxis: ax3("", { tickvals: [0, 1, 2], ticktext: O.map((o) => o[0]) }), yaxis: ax3("", { tickvals: [0, 1], ticktext: ["시험 성적", "학습 성적"] }),
+      zaxis: ax3("맞힌 정도 (예시)", { range: [0, 105] }), aspectmode: "manual", aspectratio: { x: 1.7, y: 1, z: 0.9 }, camera: { eye: { x: -1.05, y: -1.55, z: 0.75 } } } }];
+};
+
+// ── pptx 차트 (14장 선 · 16장 막대)
 function pptChart(id) {
   const c = D.charts[id], o = c.opts, cols = (o.chartColors || [C.g, C.red]).map((x) => "#" + x);
   const tr = c.data.map((s, q) => c.type === "bar"
@@ -142,10 +193,25 @@ function draw(el, again) {
     if (small) ["xaxis", "yaxis", "zaxis"].forEach((a) => { if (l.scene[a]) { l.scene[a].tickfont = { size: 8 }; l.scene[a].title.font = { size: 9 }; } });
   }
   (again ? Plotly.react : Plotly.newPlot)(el, tr, lay(l), CFG);
-  if (!again && tr.some((t) => t.type === "mesh3d" || t.type === "surface" || t.type === "scatter3d")) {
-    el.dataset.spin = "1"; ["mousedown", "wheel", "touchstart"].forEach((ev) => el.addEventListener(ev, () => { el.dataset.spin = "0"; }, { passive: true }));
-  }
+  if (!again && tr.some((t) => t.type === "mesh3d" || t.type === "surface" || t.type === "scatter3d")) spinCtl(el);
+  if (!again && isSweep(key)) sweep(el);
 }
+// 3D 회전 제어: 끌기·휠 = 멈추고 조작, 끌지 않고 한 번 클릭 = 멈춤 ↔ 다시 회전
+function spinCtl(el) {
+  const box = el.parentNode, tip = document.createElement("div"); tip.className = "spin-tip"; box.appendChild(tip);
+  const set = (on) => { el.dataset.spin = on ? "1" : "0"; tip.textContent = on ? "⟳ 회전 중 · 클릭하면 멈춤" : "❚❚ 멈춤 · 클릭하면 다시 회전"; box.classList.toggle("paused", !on); };
+  let sx = 0, sy = 0, was = true;
+  set(true);
+  el.addEventListener("mousedown", (e) => { sx = e.clientX; sy = e.clientY; was = el.dataset.spin === "1"; el.dataset.spin = "0"; }, true);
+  el.addEventListener("mouseup", (e) => { const click = Math.hypot(e.clientX - sx, e.clientY - sy) < 5; set(click ? !was : false); }, true);
+  el.addEventListener("wheel", () => set(false), { capture: true, passive: true });
+  el.addEventListener("touchstart", (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; was = el.dataset.spin === "1"; el.dataset.spin = "0"; }, { capture: true, passive: true });
+  el.addEventListener("touchend", (e) => { const t = e.changedTouches[0]; set(Math.hypot(t.clientX - sx, t.clientY - sy) < 8 ? !was : false); }, { capture: true, passive: true });
+}
+// 2D 선 그래프: 왼쪽에서 오른쪽으로 선이 그려지는 효과 (장에 올 때마다 다시)
+const SWEEP = new Set(["rw", "mc", "vol", "strat"]);
+const isSweep = (key) => SWEEP.has(key) || (D.charts && D.charts[key] && D.charts[key].type === "line");
+function sweep(el) { el.classList.remove("sweep"); void el.offsetWidth; el.classList.add("sweep"); }
 let spinT = 0;
 function spin(ts) {                                                            // 보이는 장의 3D를 천천히 회전 (마우스를 대면 멈춤)
   if (ts - spinT > 70) {
@@ -174,7 +240,10 @@ function show(sl) {
   if (!sl) return;
   document.querySelectorAll("section.done").forEach((x) => x.classList.remove("done"));      // 다시 오면 등장 효과 재생
   clearTimeout(doneT); doneT = setTimeout(() => sl.classList.add("done"), 3000);
-  sl.querySelectorAll(".plot").forEach((el) => { if (!el.dataset.done) { el.dataset.done = 1; setTimeout(() => draw(el), 250); } else Plotly.Plots.resize(el); });
+  sl.querySelectorAll(".plot").forEach((el) => {
+    if (!el.dataset.done) { el.dataset.done = 1; setTimeout(() => draw(el), 250); }
+    else { Plotly.Plots.resize(el); if (isSweep(el.dataset.plot)) setTimeout(() => sweep(el), 250); }
+  });
   countUp(sl);
 }
 Reveal.initialize({ hash: true, width: "100%", height: "100%", margin: 0, minScale: 1, maxScale: 1, center: false, transition: "slide", transitionSpeed: "default",
