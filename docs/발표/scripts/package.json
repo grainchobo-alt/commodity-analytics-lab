@@ -12,6 +12,8 @@
   "type": "commonjs",
   "dependencies": {
     "docx": "^9.15.0",
-    "pptxgenjs": "^3.12.0"
+    "plotly.js-dist-min": "^2.35.2",
+    "pptxgenjs": "^3.12.0",
+    "reveal.js": "^5.1.0"
   }
 }

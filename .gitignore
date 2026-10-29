@@ -40,3 +40,6 @@ desktop.ini
 # ---- 내부 문서 (기획서 등) ----
 *.docx
 *.pptx
+
+# ---- 발표 HTML (내부 수치 포함, html_v4.py로 재생성)
+docs/발표/*.html
