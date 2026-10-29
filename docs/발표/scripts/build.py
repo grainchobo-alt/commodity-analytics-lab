@@ -1,7 +1,7 @@
 """발표 PPT 한 번에 다시 만들기: 차트 PNG → data.json → pptx.
 
 사용 (프로젝트 루트에서):
-    .venv\\Scripts\\python.exe docs\\발표\\scripts\\build.py [v1|v2 ...] [출력.pptx]
+    .venv\\Scripts\\python.exe docs\\발표\\scripts\\build.py [v1|v2|v3|v4 ...] [출력.pptx]
 버전 = deck_v{N}.js·notes_v{N}.js 묶음(생략하면 가장 최신). 출력을 생략하면 docs\\발표\\원자재_퀀트_MI_발표_v{N}.pptx,
 같은 이름이 이미 있으면 _YYYYMMDD-HHMM을 붙여 새로 저장(기존 파일은 덮어쓰지 않음).
 """
@@ -62,6 +62,8 @@ def main():
         subprocess.run([py, str(HERE / "charts_v2.py")], cwd=ROOT, check=True)
     if v >= 3:
         subprocess.run([py, str(HERE / "charts_v3.py")], cwd=ROOT, check=True)
+    if v >= 4:
+        subprocess.run([py, str(HERE / "charts_v4.py")], cwd=ROOT, check=True)
     step("2/3 data.json (nums.json + 목표 변동성 표)")
     build_data()
     step("3/3 슬라이드 조립 (pptxgenjs)")
@@ -74,7 +76,8 @@ def main():
     print(f"\n완료: {out}")
     print({1: "※ 발표 전 확인: 29번 장(횡단면 군집)·30번 장(이번 주 판단 카드)은 deck_v1.js에 직접 적은 값 -> 앱 화면 기준으로 갱신",
            2: "※ 발표 전 확인: 10번 장(이번 주 판단)·11번 장(물량 위험 금액)·2번 장 요약 숫자는 deck_v2.js에 직접 적은 값 -> 앱 화면 기준으로 갱신",
-           3: "※ 발표 전 확인: 14번 장(이번 주 판단)·15번 장(물량 위험 금액)·2번 장 요약 숫자는 deck_v3.js에 직접 적은 값 -> 앱 화면 기준으로 갱신"}.get(v, ""))
+           3: "※ 발표 전 확인: 14번 장(이번 주 판단)·15번 장(물량 위험 금액)·2번 장 요약 숫자는 deck_v3.js에 직접 적은 값 -> 앱 화면 기준으로 갱신",
+           4: "※ 발표 전 확인: 14번 장(이번 주 판단)·15번 장(물량 위험 금액)·2번 장 요약 숫자는 deck_v4.js에 직접 적은 값 -> 앱 화면 기준으로 갱신"}.get(v, ""))
 
 
 if __name__ == "__main__":
