@@ -383,12 +383,20 @@ function mcards(s, ms) {
 {
   const s = base();
   header(s, "Ⅴ", "확장 비전 — 전사 원자재 리스크 컨트롤 타워", "금융 트레이딩을 하지 않더라도, 품목군별로 흩어진 원자재 매매를 통합해 회사 전체의 가격 변동 위험을 줄일 수 있음");
-  const grp = [["식량", "옥수수 · 밀 · 대두 · 대두박\n수수 · 팜유 · 대두유", "6E7F74"], ["철강·소재", "철광석 · 구리(동) · 알루미늄 · 아연\n텅스텐 · 리튬 · 코발트", BLUE], ["에너지", "암모니아 · 수소 · LNG · PNG\n원유(Crude Oil) · 석탄", GOLD]];
-  grp.forEach((d, i) => { const y = 1.75 + i * 1.42;
-    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y, w: 3.0, h: 1.22, fill: { color: TINT }, line: { color: LINE }, rectRadius: 0.08 });
-    s.addShape(pres.shapes.RECTANGLE, { x: 0.5, y: y + 0.15, w: 0.08, h: 0.92, fill: { color: d[2] }, line: { color: d[2] } });
-    s.addText([{ text: d[0], options: { bold: true, fontSize: 14, color: INK, breakLine: true } }, { text: d[1], options: { fontSize: 10, color: MUTED } }], { x: 0.7, y, w: 2.75, h: 1.22, fontFace: F, valign: "middle", margin: 0, paraSpaceAfter: 2 });
-    arrow(s, 3.55, y + 0.61, 3.95, 3.85, MUTED); });
+  const OK = "2E7D3E", MID = "B8901C", NO = RED, MK = { o: ["● ", OK], m: ["◐ ", MID], x: ["✕ ", NO] };
+  const grp = [["식량", "6E7F74", [["옥수수", "o"], ["밀", "o"], ["대두", "o"], ["대두박", "o"], ["대두유", "o"], ["팜유", "m"], ["수수", "x"]], 3],
+    ["철강·소재", BLUE, [["철광석", "o"], ["구리(동)", "o"], ["알루미늄", "o"], ["아연", "m"], ["리튬", "m"], ["코발트", "x"], ["텅스텐", "x"]], 2],
+    ["에너지", GOLD, [["원유", "o"], ["석탄", "m"], ["LNG", "m"], ["PNG", "x"], ["암모니아", "x"], ["수소", "x"]], 3]];
+  grp.forEach(([nm, col, items, br], i) => { const y = 1.68 + i * 1.42;
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y, w: 3.0, h: 1.3, fill: { color: TINT }, line: { color: LINE }, rectRadius: 0.08 });
+    s.addShape(pres.shapes.RECTANGLE, { x: 0.5, y: y + 0.15, w: 0.08, h: 1.0, fill: { color: col }, line: { color: col } });
+    const runs = [{ text: nm, options: { bold: true, fontSize: 14, color: INK, breakLine: true } }];
+    items.forEach(([t, k], j) => { runs.push({ text: MK[k][0], options: { fontSize: 9.5, color: MK[k][1], bold: true } });
+      runs.push({ text: t + (j === br ? "" : "   "), options: { fontSize: 10, color: k === "x" ? "9A9A94" : INK, breakLine: j === br } }); });
+    s.addText(runs, { x: 0.7, y, w: 2.78, h: 1.3, fontFace: F, valign: "middle", margin: 0, paraSpaceAfter: 2 });
+    arrow(s, 3.55, y + 0.65, 3.95, 3.85, MUTED); });
+  s.addText([{ text: "● ", options: { color: OK, bold: true } }, { text: "지금 분석 가능   ", options: {} }, { text: "◐ ", options: { color: MID, bold: true } }, { text: "시장은 있음 · 자료 연결 필요   ", options: {} },
+    { text: "✕ ", options: { color: NO, bold: true } }, { text: "시장 시세 없음 → 대체 지표로 위험만", options: {} }], { x: 0.5, y: 5.92, w: 9.2, h: 0.3, fontFace: F, fontSize: 9.5, color: INK, margin: 0 });
   s.addShape(pres.shapes.OVAL, { x: 4.0, y: 2.6, w: 2.5, h: 2.5, fill: { color: G }, line: { color: G } });
   s.addText("리스크\n컨트롤 타워", { x: 4.0, y: 2.6, w: 2.5, h: 2.5, fontFace: F, fontSize: 16, bold: true, color: WHITE, align: "center", valign: "middle", margin: 0 });
   const outs = ["전사 포지션 합산 · 순 위험 금액", "품목끼리 상쇄되는 자연 헤지 식별", "목표 위험 기준 한도 배분", "구매 시점·물량의 통합 의사결정"];
@@ -396,8 +404,8 @@ function mcards(s, ms) {
     s.addText(o, { x: 7.05, y, w: 2.5, h: 0.65, fontFace: F, fontSize: 11.5, bold: true, color: G, valign: "middle", margin: 0 }); });
   card(s, 9.7, 1.75, 3.1, 2.45, "학계·헤지펀드의 표준 방법", "• 포트폴리오 이론 — 노벨경제학상(1990)\n• 위험 크기 예측 — 노벨경제학상(2003)\n• 추세·가치 전략 — 대형 헤지펀드의 핵심 운용 방식", BLUE, { hs: 13, bs: 11 });
   card(s, 9.7, 4.35, 3.1, 2.4, "모든 가격 자산으로 확장", "원자재뿐 아니라 주식·채권·환율 등 가격이 있는 모든 자산에 같은 엔진(위험 계산·전략·검증)을 그대로 적용 가능", GOLD, { hs: 13, bs: 11.5 });
-  bullets(s, ["품목군별로는 작아 보이는 위험도, 합치면 함께 움직여 커지거나 서로 상쇄됨 — 통합해서 봐야 실제 위험이 보임"], { x: 0.5, y: 6.15, w: 9.0, h: 0.75, fontSize: 12 });
-  foot(s, "품목은 예시. 수소·암모니아·PNG·텅스텐·코발트 등 거래소 시세가 없는 품목은 계약가·대체 지표로 연결 필요.");
+  bullets(s, ["품목군별로는 작아 보이는 위험도, 합치면 함께 움직여 커지거나 서로 상쇄됨 — 통합해서 봐야 실제 위험이 보임"], { x: 0.5, y: 6.3, w: 9.0, h: 0.6, fontSize: 12 });
+  foot(s, "판정 기준 = 유동성 있는 선물 시세가 장기간(5년+) 있는가. ✕ 품목은 모멘텀·가치 등 전략 적용 불가, 계약가·대체 지표(천연가스·유가·옥수수 등)로 위험만 근사. 품목별 근거는 별첨 2.");
 }
 
 // ════════════════ 13 활용 제안 · 한계
@@ -428,10 +436,39 @@ function mcards(s, ms) {
     ["시장 국면 판별 / 변하는 관계 추적", "Hidden Markov Model, Markov-switching, Kalman 필터", "② 레짐"],
     ["동전보다 잘 맞힌 품목", "AUC > 0.55 (학습 2008–16), 시험 2017~ 평균 0.570", "★ 구매 · ⑥ 실험"],
     ["기다리면 더 쌀 확률", "로지스틱 회귀, 매년 1월 재학습(walk-forward)", "★ 구매"],
-    ["무작위 걸음 / 시뮬레이션", "랜덤워크·기하 브라운 운동, 몬테카를로 400회", "본문 5장"],
+    ["무작위 걸음 / 시뮬레이션", "랜덤워크·기하 브라운 운동, 몬테카를로 400회", "본문 6장"],
     ["위험 1단위당 수익", "Sharpe = 연 수익 ÷ 연 변동성", "⑤ 포트폴리오"],
     ["과거로 배우고 이후로 시험", "학습/시험 분리, look-ahead bias 차단, 위약 비교", "⑧ 방법론"]];
   table(s, rows, { x: 0.6, y: 1.75, w: 12.2, colW: [3.6, 5.8, 2.8], rowH: 0.5, fontSize: 11.5, boldFirst: true });
+}
+
+// ════════════════ 별첨 2: 품목별 퀀트 분석 가능 여부 (확장 비전 근거)
+{
+  const s = base();
+  header(s, "별첨", "별첨 2 — 품목별 퀀트 분석 가능 여부", "기준: 유동성 있는 선물·시장 시세가 5년 이상 매일 있는가 (모멘텀 1년 · 가치 5년 평균 · 위험 추정에 필요)");
+  const OK = "● 가능", MID = "◐ 연결 필요", NO = "✕ 어려움";
+  const rows = [["품목군", "품목", "시장 (거래소)", "판정", "대시보드 적용 방법"],
+    ["식량", "옥수수 · 밀 · 대두 · 대두박 · 대두유", "CBOT 선물", OK, "이미 수집 중 — 전체 분석 적용"],
+    ["", "팜유", "Bursa Malaysia (FCPO) · DCE", MID, "선물 활발, 자료 소스 연결만 필요"],
+    ["", "수수", "유동성 있는 선물 없음", NO, "옥수수 가격으로 대체 (사료용 대체재, 함께 움직임)"],
+    ["철강·소재", "철광석", "SGX 62% · DCE", OK, "이미 수집 중"],
+    ["", "구리 · 알루미늄", "COMEX · LME", OK, "이미 수집 중 (알루미늄은 LME가 주 시장)"],
+    ["", "아연", "LME · SHFE", MID, "선물 활발, 무료 일별 자료 제한 → 소스 연결 필요"],
+    ["", "리튬", "GFEX 탄산리튬(2023~) · CME 수산화리튬", MID, "역사 짧음 → 위험 계산만, 5년 가치 전략은 아직 불가"],
+    ["", "코발트", "CME 선물 상장, 거래 거의 없음", NO, "가격 평가지(유료) 기준 → 위험만 근사"],
+    ["", "텅스텐", "선물 없음 (APT 가격 평가만)", NO, "계약가 기록 기반 → 퀀트 전략 불가"],
+    ["에너지", "원유", "WTI · Brent", OK, "이미 수집 중"],
+    ["", "석탄", "ICE Newcastle · Rotterdam", MID, "선물 활발, 무료 자료 제한 (IMF 월간 호주탄은 무료)"],
+    ["", "LNG", "JKM 선물 (CME · ICE)", MID, "자료 연결 필요. 미국 천연가스(HH)는 수집 중이나 아시아 LNG와 다름"],
+    ["", "PNG (배관 가스)", "자체 시세 없음 — 장기 계약", NO, "계약 공식(유가·허브 가스 연동)대로 유가·가스로 위험 환산"],
+    ["", "암모니아", "CME 선물 상장, 거래 거의 없음", NO, "원가 대부분인 천연가스로 위험 근사"],
+    ["", "수소", "거래 시장 없음", NO, "정책·계약가 → 현재는 정량 분석 대상 아님"]];
+  s.addTable(rows.map((r, i) => r.map((c, j) => ({ text: c, options: {
+      bold: i === 0 || j === 0 || j === 3, fontSize: 9.5,
+      color: i === 0 ? WHITE : j === 3 ? (c.startsWith("●") ? "2E7D3E" : c.startsWith("◐") ? "B8901C" : RED) : j === 4 && r[3].startsWith("✕") ? MUTED : INK,
+      fill: { color: i === 0 ? G : (i % 2 ? WHITE : TINT) } } }))),
+    { x: 0.5, y: 1.6, w: 12.3, colW: [1.1, 2.9, 2.9, 1.2, 4.2], rowH: 0.3, fontFace: F, border: { type: "solid", color: LINE, pt: 0.5 }, valign: "middle" });
+  foot(s, "판정은 2026년 10월 기준 거래소 상장·거래 현황에 대한 일반 지식 — 자료 연결 전 거래량·자료 구입 비용 재확인 필요. 대시보드 수집 여부는 코드 기준 확인.");
 }
 
 pres.writeFile({ fileName: OUT }).then((f) => console.log("written", f, "slides", page));
