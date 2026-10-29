@@ -60,6 +60,8 @@ def main():
     subprocess.run([py, str(HERE / "charts3d.py")], cwd=ROOT, check=True)
     if v >= 2:
         subprocess.run([py, str(HERE / "charts_v2.py")], cwd=ROOT, check=True)
+    if v >= 3:
+        subprocess.run([py, str(HERE / "charts_v3.py")], cwd=ROOT, check=True)
     step("2/3 data.json (nums.json + 목표 변동성 표)")
     build_data()
     step("3/3 슬라이드 조립 (pptxgenjs)")
@@ -71,7 +73,8 @@ def main():
     subprocess.run([node, f"deck_v{v}.js", str(out)], cwd=HERE, check=True)
     print(f"\n완료: {out}")
     print({1: "※ 발표 전 확인: 29번 장(횡단면 군집)·30번 장(이번 주 판단 카드)은 deck_v1.js에 직접 적은 값 -> 앱 화면 기준으로 갱신",
-           2: "※ 발표 전 확인: 10번 장(이번 주 판단)·11번 장(물량 위험 금액)·2번 장 요약 숫자는 deck_v2.js에 직접 적은 값 -> 앱 화면 기준으로 갱신"}.get(v, ""))
+           2: "※ 발표 전 확인: 10번 장(이번 주 판단)·11번 장(물량 위험 금액)·2번 장 요약 숫자는 deck_v2.js에 직접 적은 값 -> 앱 화면 기준으로 갱신",
+           3: "※ 발표 전 확인: 14번 장(이번 주 판단)·15번 장(물량 위험 금액)·2번 장 요약 숫자는 deck_v3.js에 직접 적은 값 -> 앱 화면 기준으로 갱신"}.get(v, ""))
 
 
 if __name__ == "__main__":
