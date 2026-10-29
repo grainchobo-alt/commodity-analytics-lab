@@ -3,6 +3,11 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.38.1 — 2026-10-29 — 발표 자료 버전 관리, 10분 보고판(v2)
+- `docs/발표/scripts`: 버전별 `deck_v{N}.js`·`notes_v{N}.js`(v1 = 46장 상세판 보존), `build.py v2`로 버전 선택·같은 이름은 날짜 붙여 새로 저장
+- v2(본문 13장 + 별첨 1장, 비전공 임원 기준): AUC·GARCH·HMM·Kalman 개별 장표 삭제(이름은 별첨 대응표로), AI 모델 8묶음 한 장, 시계열 vs 횡단면, 랜덤워크·몬테카를로(브라운 운동) — 왜 완벽히 예측할 수 없나, 포트폴리오 3대 전략(모멘텀·최소분산·가치) 장표, 발표자 노트 13장 ≈ 10분
+- `charts_v2.py`: 품목 × 월 수익률 표(행 = 시계열, 열 = 횡단면), 실제 옥수수 vs 무작위 경로 5개, 몬테카를로 400회 90% 범위
+
 ## v1.38.0 — 2026-10-29 — zero-shot 모델 walk-forward(재계산 없이 재사용), ◆ 물량 위험 σ = GARCH, 발표 PPT 한 번에 생성
 - ④ 단일 품목 예측: zero-shot 대안 모델(Chronos-Bolt·TimesFM·Chronos-2)을 walk-forward에 포함 — 학습이 없어 재학습해도 예측이 같으므로 날짜별 예측을 한 번 계산해 저장(`predict_lab._ZS_CACHE`), 단일 분할·walk-forward·재실행이 공유 (단일 분할 재계산 약 11초 → 0.02초, 값 차이 0). 학습형(Prophet·PatchTST·iTransformer·TFT·LSTM)은 재학습마다 가중치가 달라 계속 제외
   - `analytics.wf_result` 분리(walk-forward 성과 계산 공용), `predict_lab.alt_walk_forward`

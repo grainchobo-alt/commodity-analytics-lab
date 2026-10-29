@@ -5,7 +5,7 @@ const path = require("path");
 const D = JSON.parse(fs.readFileSync(path.join(__dirname, "data.json"), "utf8"));
 const IMG = (n) => path.join(__dirname, "img", n + ".png");
 const OUT = process.argv[2] || path.join(__dirname, "deck.pptx");
-const NOTES = require("./notes.js");
+const NOTES = require("./notes_v1.js");
 
 const pres = new pptxgen();
 pres.layout = "LAYOUT_WIDE"; // 13.333 x 7.5
