@@ -10,6 +10,7 @@
 | `charts_v3.py` | v3 추가 3D 차트: 머신러닝 예측 지형, 위험 크기 지형, 연도별 효율적 투자선 |
 | `charts_v4.py` | v4 차트: 퀀트 학문 지도(정밀판), AI 카드별 3D 8개(실제: PCA·FinBERT·GARCH·HMM), 연도별 효율적 투자선 4×4 + 3D 리본 |
 | `deck_v{N}.js` | pptxgenjs로 슬라이드 조립 (`data.json`, `img/`, `notes_v{N}.js` 사용) |
+| `deck_v4_glass.js` | 유리판 PPT: deck_v4.js를 그대로 실행하며 pptxgenjs를 감싸 배경(흐르는 색 그라데이션 그림)·반투명 카드·그림 액자·세리프 제목만 바꿈 → `build.py v4 --glass` |
 | `build.py` | 위 단계를 순서대로 한 번에 실행 + `data.json` 생성 |
 | `notes_v{N}.js` | 장별 발표자 노트(장 순서와 1:1, 개수가 다르면 경고). v4부터 `[초, 대본]` → `build.py`가 `docs/발표/발표대본_v{N}.md`(시간 배분표 + 대본)도 생성 |
 

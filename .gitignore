@@ -49,3 +49,8 @@ docs/발표/*.zip
 docs/발표/*.mp4
 docs/발표/_demo_tmp/
 docs/발표/*.png
+# 예외: 최신 발표본 4개는 추적 (사용자 확인 2026-10-30 — 사내 비밀정보 없음). 재생성 후 다시 커밋
+!docs/발표/원자재_퀀트_MI_발표_v4.pptx
+!docs/발표/원자재_퀀트_MI_발표_v4_유리.pptx
+!docs/발표/원자재_퀀트_MI_발표_v4.html
+!docs/발표/원자재_퀀트_MI_발표_v4_유리.html
