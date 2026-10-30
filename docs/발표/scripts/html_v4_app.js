@@ -185,14 +185,14 @@ P.split = () => {
 P.linfit = () => {
   const L = D.linfit;
   return [[{ type: "surface", x: L.g, y: L.g, z: L.plane, colorscale: [[0, "#9CC3D5"], [1, "#2F6E8F"]], opacity: 0.8, showscale: false, hovertemplate: "통계 평면 %{z:.2f}<extra></extra>" },
-    { type: "scatter3d", mode: "markers", x: L.x, y: L.y, z: L.z, marker: { size: 1.6, color: C.g, opacity: 0.85 }, hovertemplate: "수익률 %{z:.2f}<extra></extra>" }],
+    { type: "scatter3d", mode: "markers", x: L.x, y: L.y, z: L.z, marker: { size: 0.55, color: C.g, opacity: 0.9 }, hovertemplate: "수익률 %{z:.2f}<extra></extra>" }],
     { scene: { xaxis: ax3("설명변수 1"), yaxis: ax3("설명변수 2"), zaxis: ax3("수익률"), camera: { eye: { x: 1.5, y: -1.5, z: 0.6 } } } }];
 };
 P.mlfit = () => {
   const M = D.mlfit;
   return [[{ type: "surface", x: M.g, y: M.g, z: M.surf, colorscale: "Viridis", opacity: 0.92, showscale: false, hovertemplate: "머신러닝 곡면 %{z:.2f}<extra></extra>" },
     { type: "surface", x: M.g, y: M.g, z: M.plane, colorscale: [[0, "#9a9a9a"], [1, "#9a9a9a"]], opacity: 0.4, showscale: false, hoverinfo: "skip" },
-    { type: "scatter3d", mode: "markers", x: M.x, y: M.y, z: M.z, marker: { size: 1.4, color: C.red, opacity: 0.85 }, hovertemplate: "수익률 %{z:.2f}<extra></extra>" }],
+    { type: "scatter3d", mode: "markers", x: M.x, y: M.y, z: M.z, marker: { size: 0.5, color: C.red, opacity: 0.9 }, hovertemplate: "수익률 %{z:.2f}<extra></extra>" }],
     { scene: { xaxis: ax3("설명변수 1"), yaxis: ax3("설명변수 2"), zaxis: ax3("수익률"), camera: { eye: { x: 1.5, y: -1.5, z: 0.8 } } } }];
 };
 
@@ -320,6 +320,7 @@ function show(sl) {
     else { Plotly.Plots.resize(el); if (isSweep(el.dataset.plot)) setTimeout(() => sweep(el), 250); }
   });
   document.querySelectorAll(".plot[data-spin]").forEach((el) => hovOff(el));             // 장을 옮기면 3D 말풍선 끔
+  document.documentElement.classList.toggle("on-pilot", sl.classList.contains("pilot"));   // 테마 시범 장에서만 바깥 여백색도 바꿈
   countUp(sl);
   document.querySelectorAll("video").forEach((v) => { if (!sl.contains(v)) v.pause(); });   // 다른 장의 영상은 멈춤
   sl.querySelectorAll("video").forEach((v) => { v.currentTime = 0; v.play().catch(() => {}); });   // 시연 장에 오면 처음부터 재생
@@ -331,6 +332,19 @@ Reveal.initialize({ hash: true, width: "100%", height: "100%", margin: 0, minSca
   show(Reveal.getCurrentSlide()); requestAnimationFrame(spin);
 });
 Reveal.on("slidechanged", (e) => show(e.currentSlide));
+// 테마: T 키로 기본 → 유리·밝게 → 유리·어둡게 순환 (회의실 조명에 맞춰). 주소 뒤 ?theme=glass / glass-dark 로도 지정, 마지막 선택은 이 브라우저에 기억
+const THEMES = [["", "기본 디자인"], ["th-glass", "유리 · 밝게"], ["th-glass th-dark", "유리 · 어둡게"]];
+let thIdx = 0, thTimer;
+function setTheme(k, toast) {
+  thIdx = (k + THEMES.length) % THEMES.length;
+  const cl = document.documentElement.classList; cl.remove("th-glass", "th-dark"); THEMES[thIdx][0].split(" ").filter(Boolean).forEach((c) => cl.add(c));
+  try { localStorage.setItem("mi-theme", thIdx); } catch (e) {}
+  if (toast) { const t = $("#thToast"); t.textContent = `테마: ${THEMES[thIdx][1]}  (T 키로 바꾸기 · 지금은 표지·3대 전략·리스크 장에 시범 적용)`; t.classList.add("on"); clearTimeout(thTimer); thTimer = setTimeout(() => t.classList.remove("on"), 2200); }
+}
+(() => { const q = new URLSearchParams(location.search).get("theme"); let k = 0;
+  if (q) k = { glass: 1, "glass-dark": 2 }[q] || 0; else { try { k = +localStorage.getItem("mi-theme") || 0; } catch (e) {} }
+  setTheme(k, false); })();
+Reveal.addKeyBinding({ keyCode: 84, key: "T", description: "테마 바꾸기 (기본 · 유리 밝게 · 유리 어둡게)" }, () => setTheme(thIdx + 1, true));
 // 마우스 휠 = 장 넘김 (3D 그래프 위에서는 휠이 확대·축소). 터치패드 관성으로 여러 장 넘어가지 않게 한 번 멈췄다가 다음 장
 let wheelLast = 0, wheelFire = 0;
 addEventListener("wheel", (e) => {

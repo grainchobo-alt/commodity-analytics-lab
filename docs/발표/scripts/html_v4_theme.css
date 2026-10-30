@@ -1,0 +1,84 @@
+/* 발표 v4 테마: ① 반투명 유리 + ③ 에디토리얼(세리프 제목)
+   - html.th-glass = 유리·밝게, html.th-glass.th-dark = 유리·어둡게, 클래스 없음 = 기본 디자인. T 키로 순환
+   - 지금은 시범 장(section.pilot: 표지 · 3대 전략 · 리스크)에만 적용. 전체 장에 쓰려면 아래 선택자의 ".pilot"을 지우면 됨 */
+:root {
+  --glass: rgba(255,255,255,.46); --glass-line: rgba(255,255,255,.75); --glass-shadow: 0 10px 30px rgba(30,58,47,.13);
+  --serif: "Batang","바탕","HANBatang","한컴바탕","Noto Serif KR","Malgun Gothic",serif;
+}
+html.th-dark { --glass: rgba(255,255,255,.075); --glass-line: rgba(255,255,255,.16); --glass-shadow: 0 12px 34px rgba(0,0,0,.35); }
+
+/* 배경: 은은한 색 덩어리가 천천히 흐르는 그라데이션 (유리 뒤에 비칠 재료) */
+.th-glass .pilot .cv {
+  background:
+    radial-gradient(38% 46% at 12% 18%, rgba(46,125,82,.22), transparent 70%),
+    radial-gradient(42% 50% at 88% 82%, rgba(200,162,74,.28), transparent 70%),
+    radial-gradient(34% 40% at 72% 8%, rgba(47,110,143,.18), transparent 70%),
+    linear-gradient(135deg, #F3F6F1, #FBF8EF);
+  background-size: 140% 140%; animation: thDrift 26s ease-in-out infinite alternate;
+}
+.th-glass.th-dark .pilot .cv {
+  background:
+    radial-gradient(38% 46% at 12% 18%, rgba(46,125,82,.38), transparent 70%),
+    radial-gradient(42% 50% at 88% 82%, rgba(200,162,74,.24), transparent 70%),
+    radial-gradient(34% 40% at 72% 8%, rgba(47,110,143,.34), transparent 70%),
+    linear-gradient(135deg, #0C1913, #13271E 50%, #0E1B28);
+  background-size: 140% 140%;
+}
+.th-glass .pilot .cv.dark {                                         /* 표지: 밝은 테마에서도 짙은 바탕 유지 */
+  background:
+    radial-gradient(40% 55% at 15% 20%, rgba(83,160,116,.45), transparent 70%),
+    radial-gradient(45% 55% at 90% 85%, rgba(200,162,74,.35), transparent 70%),
+    radial-gradient(35% 45% at 75% 10%, rgba(47,110,143,.45), transparent 70%),
+    linear-gradient(135deg, #10251B, #1E3A2F 55%, #12283A);
+  background-size: 140% 140%;
+}
+@keyframes thDrift { from { background-position: 0% 0%; } to { background-position: 100% 100%; } }
+.th-glass.on-pilot body, .th-glass.on-pilot .reveal { background: #F3F6F1; }
+.th-glass.th-dark.on-pilot body, .th-glass.th-dark.on-pilot .reveal { background: #0C1913; }
+
+/* 표지: 제목 뒤 유리판 */
+.th-glass .pilot .cv.dark::before {
+  content: ""; position: absolute; left: calc(var(--u)*0.5); top: calc(var(--u)*1.2); width: calc(var(--u)*12.3); height: calc(var(--u)*2.85);
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.2); border-radius: calc(var(--u)*0.22);
+  backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%); box-shadow: 0 20px 50px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.25);
+}
+
+/* 유리 카드: 회색(F1F3EF)·크림(FBF4E1) 상자, 그래프 액자, 표, 히트맵 */
+.th-glass .pilot .sh.f-F1F3EF, .th-glass .pilot .sh.f-FBF4E1, .th-glass .pilot .pl, .th-glass .pilot .hx, .th-glass .pilot .tb table {
+  background: var(--glass) !important; border: 1px solid var(--glass-line) !important;
+  backdrop-filter: blur(16px) saturate(150%); -webkit-backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255,255,255,.55);
+}
+.th-glass .pilot .sh.f-FBF4E1 { background: linear-gradient(120deg, rgba(251,244,225,.75), rgba(255,255,255,.35)) !important; border-color: rgba(200,162,74,.6) !important; }
+.th-glass .pilot .sh.f-F1F3EF, .th-glass .pilot .sh.f-FBF4E1 { border-radius: calc(var(--u)*0.16) !important; }
+.th-glass .pilot .pl { border-radius: calc(var(--u)*0.12); }
+.th-glass .pilot .hx { border-radius: calc(var(--u)*0.12); padding: calc(var(--u)*0.08); }
+.th-glass .pilot .tb table { border-radius: calc(var(--u)*0.12); overflow: hidden; border-collapse: separate !important; border-spacing: 0; }
+.th-glass .pilot .tb td { border-color: rgba(30,58,47,.12) !important; }
+.th-glass .pilot .tb td[style*="background:#F1F3EF"] { background: rgba(255,255,255,.3) !important; }
+.th-glass .pilot .tb td[style*="background:#1E3A2F"] { background: rgba(30,58,47,.88) !important; }
+.th-glass.th-dark .pilot .pl { background: rgba(250,250,247,.9) !important; }   /* 어둡게: 그래프는 읽기 쉽게 밝은 판 위에 */
+.th-glass.th-dark .pilot .hx { background: rgba(250,250,247,.92) !important; }
+
+/* ③ 에디토리얼: 세리프 제목 · 얇은 금색 밑줄 */
+.th-glass .pilot .t-h { font-family: var(--serif); letter-spacing: -0.01em; }
+.th-glass .pilot .t-h p { display: inline-block; width: auto !important; box-shadow: inset 0 -0.13em 0 rgba(200,162,74,.42); }
+.th-glass .pilot .cv.dark .t-h p { box-shadow: none; }
+
+/* 어둡게: 본문 글자색 뒤집기 (deck 색 → 어두운 바탕용) */
+.th-glass.th-dark .pilot .tx[style*="color:#222222"], .th-glass.th-dark .pilot .tx [style*="color:#222222"], .th-glass.th-dark .pilot td[style*="color:#222222"] { color: #ECEEE9 !important; }
+.th-glass.th-dark .pilot .tx[style*="color:#1E3A2F"], .th-glass.th-dark .pilot .tx [style*="color:#1E3A2F"] { color: #CFE6D7 !important; }
+.th-glass.th-dark .pilot .tx[style*="color:#6B6B66"], .th-glass.th-dark .pilot .tx [style*="color:#6B6B66"] { color: #A9B5AD !important; }
+.th-glass.th-dark .pilot .tx[style*="color:#2F6E8F"], .th-glass.th-dark .pilot .tx [style*="color:#2F6E8F"] { color: #8CC6E2 !important; }
+.th-glass.th-dark .pilot .tx[style*="color:#D9582B"], .th-glass.th-dark .pilot .tx [style*="color:#D9582B"] { color: #FF8F63 !important; }
+.th-glass.th-dark .pilot .tx[style*="color:#2E7D52"], .th-glass.th-dark .pilot .tx [style*="color:#2E7D52"] { color: #86D9A6 !important; }
+.th-glass.th-dark .pilot .tb td { color: #ECEEE9 !important; }
+.th-glass.th-dark .pilot .tb td[style*="background:#FFFFFF"] { background: transparent !important; }
+.th-glass.th-dark .pilot .tb td[style*="background:#F1F3EF"] { background: rgba(255,255,255,.07) !important; }
+
+/* 테마 이름 안내 (T 키) */
+#thToast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 40; padding: 8px 18px; border-radius: 20px; font: 14px "Malgun Gothic",sans-serif;
+  color: #fff; background: rgba(30,58,47,.82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); opacity: 0; transition: opacity .3s; pointer-events: none; }
+#thToast.on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .th-glass .pilot .cv { animation: none; } }
+.th-glass.th-dark .pilot .sh.f-FBF4E1 { background: linear-gradient(120deg, rgba(200,162,74,.22), rgba(255,255,255,.05)) !important; border-color: rgba(200,162,74,.55) !important; }

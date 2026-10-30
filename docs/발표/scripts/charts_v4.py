@@ -303,7 +303,7 @@ x1, x2 = rs.uniform(-2, 2, 120), rs.uniform(-2, 2, 120); yl = 0.8 * x1 + 0.5 * x
 bl = np.linalg.lstsq(np.c_[np.ones(120), x1, x2], yl, rcond=None)[0]
 gx = np.linspace(-2, 2, 20); GX, GY = np.meshgrid(gx, gx)
 f, ax = ax3d((4.4, 3.6)); ax.plot_surface(GX, GY, bl[0] + bl[1] * GX + bl[2] * GY, color=BLUE, alpha=0.55, linewidth=0)
-ax.scatter(x1, x2, yl, c=G, s=2.5, depthshade=False); lab(ax, "설명변수 1", "설명변수 2", "수익률"); ax.set_xticks([-2, 0, 2]); ax.set_yticks([-2, 0, 2]); ax.view_init(elev=18, azim=-60)
+ax.scatter(x1, x2, yl, c=G, s=0.9, depthshade=False); lab(ax, "설명변수 1", "설명변수 2", "수익률"); ax.set_xticks([-2, 0, 2]); ax.set_yticks([-2, 0, 2]); ax.view_init(elev=18, azim=-60)
 save(f, "c53_linfit3d")
 from sklearn.kernel_ridge import KernelRidge
 rs = np.random.default_rng(12)
@@ -314,7 +314,7 @@ gz = np.linspace(-3, 3, 30); ZX, ZY = np.meshgrid(gz, gz); ZK = kr.predict(np.c_
 bn = np.linalg.lstsq(np.c_[np.ones(260), z1, z2], yn, rcond=None)[0]
 f, ax = ax3d((4.4, 3.6)); ax.plot_surface(ZX, ZY, ZK, cmap="viridis", alpha=0.75, linewidth=0)
 ax.plot_surface(ZX, ZY, bn[0] + bn[1] * ZX + bn[2] * ZY, color="#999999", alpha=0.25, linewidth=0)
-ax.scatter(z1, z2, yn, c=RED, s=2, depthshade=False); lab(ax, "설명변수 1", "설명변수 2", "수익률"); ax.view_init(elev=22, azim=-55)
+ax.scatter(z1, z2, yn, c=RED, s=0.7, depthshade=False); lab(ax, "설명변수 1", "설명변수 2", "수익률"); ax.view_init(elev=22, azim=-55)
 save(f, "c54_mlfit3d")
 
 # ════════ 55·56·57 3대 전략 직관: 추세가 이어짐 · 출렁임 그릇의 바닥(달걀) · 평균으로 당겨지는 고무줄 (html_v4_app.js와 같은 식)

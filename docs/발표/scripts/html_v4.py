@@ -240,6 +240,8 @@ def text_item(text, o, cls=""):
     cnt = ""
     if raw and o.get("fontSize", 0) >= 28 and any(ch.isdigit() for ch in raw) and len(raw) <= 9:
         cnt = f' data-count="{H.escape(raw)}"'
+    if (o.get("fontSize", 0) >= 24 and o.get("y", 9) < 1.1) or o.get("fontSize", 0) >= 36:
+        cls += " t-h"                                                # 장 제목 (테마에서 세리프로)
     return f'<div class="el tx {cls}" style="{st}"{cnt}>{text_html(text, o)}</div>'
 
 
@@ -259,7 +261,7 @@ def shape_item(t, o):
     if line.get("color") and line.get("color") != fill.get("color"):
         st += f"border:{PT(line.get('width', 0.75))} {'dashed' if line.get('dashType') else 'solid'} #{line['color']};"
     st += {"ellipse": "border-radius:50%;", "roundRect": f"border-radius:{U(o.get('rectRadius', 0.08))};"}.get(t, "")
-    return f'<div class="el sh" style="{st}"></div>'
+    return f'<div class="el sh f-{fill.get("color", "none")}" style="{st}"></div>'   # f-색 = 테마가 카드 상자를 찾는 표시
 
 
 def table_item(rows, o):
@@ -395,7 +397,9 @@ def slide_html(n, s, D):
         els.append(h_.replace('class="el ', f'class="el {a} ', 1).replace('style="', f'style="{style_i};', 1))
     note = f'<aside class="notes">{H.escape(s.get("notes", ""))}</aside>'
     bg = ' data-background-color="#1E3A2F"' if dark else ""
-    return f'<section data-slide="{n}"{bg}><div class="cv{" dark" if dark else ""}">' + "".join(els) + f"</div>{note}</section>"
+    stems = {Path(it["opts"]["path"]).stem for it in s["items"] if it["kind"] == "image"}
+    pilot = ' class="pilot"' if n == 1 or stems & {"c55_mom3d", "c26_corr"} else ""          # 테마 시범 장: 표지 · 3대 전략 · 리스크
+    return f'<section data-slide="{n}"{bg}{pilot}><div class="cv{" dark" if dark else ""}">' + "".join(els) + f"</div>{note}</section>"
 
 
 def main():
@@ -408,12 +412,12 @@ def main():
     secs = [slide_html(n, s, D) for n, s in enumerate(S, 1)]
     tpl = (HERE / "html_v4_template.html").read_text(encoding="utf-8").replace("<!--@SLIDES-->", "\n".join(secs))
     src = {"REVEAL_CSS": NM / "reveal.js/dist/reveal.css", "REVEAL_JS": NM / "reveal.js/dist/reveal.js", "NOTES_JS": NM / "reveal.js/plugin/notes/notes.js",
-           "PLOTLY_JS": NM / "plotly.js-dist-min/plotly.min.js", "APP_JS": HERE / "html_v4_app.js"}
+           "PLOTLY_JS": NM / "plotly.js-dist-min/plotly.min.js", "APP_JS": HERE / "html_v4_app.js", "THEME_CSS": HERE / "html_v4_theme.css"}
     data_js = "const D = " + json.dumps(D, ensure_ascii=False) + ";"
     # ① 한 파일판: 모두 인라인 (파일 하나로 전달할 때)
     rd = lambda k: src[k].read_text(encoding="utf-8").replace("</script", "<\\/script")     # noqa: E731  인라인 스크립트 안의 </script 차단
     one = tpl
-    for k in ("REVEAL_CSS", "REVEAL_JS", "NOTES_JS", "PLOTLY_JS", "APP_JS"):
+    for k in ("REVEAL_CSS", "THEME_CSS", "REVEAL_JS", "NOTES_JS", "PLOTLY_JS", "APP_JS"):
         one = one.replace(f"/*@{k}*/", rd(k))
     one = one.replace("/*@DATA*/", data_js.replace("</", "<\\/"))
     for nm, p in IMGS.items():
@@ -423,7 +427,7 @@ def main():
     if WEB.exists():
         shutil.rmtree(WEB)
     (WEB / "assets" / "img").mkdir(parents=True)
-    page = tpl.replace("<style>/*@REVEAL_CSS*/</style>", '<link rel="stylesheet" href="assets/reveal.css">')
+    page = tpl.replace("<style>/*@REVEAL_CSS*/</style>", '<link rel="stylesheet" href="assets/reveal.css">').replace("<style>/*@THEME_CSS*/</style>", '<link rel="stylesheet" href="assets/theme.css">')
     for k, fn in (("REVEAL_JS", "reveal.js"), ("NOTES_JS", "notes.js"), ("PLOTLY_JS", "plotly.min.js")):
         page = page.replace(f"<script>/*@{k}*/</script>", f'<script src="assets/{fn}"></script>')
     page = page.replace("<script>\n/*@DATA*/\n/*@APP_JS*/\n</script>", '<script src="assets/data.js"></script>\n<script src="assets/app.js"></script>')
@@ -431,11 +435,11 @@ def main():
     for nm, p in IMGS.items():
         page = page.replace(f"@IMG:{nm}", f"assets/img/{nm}"); shutil.copy(p, WEB / "assets" / "img" / nm)
     (WEB / "index.html").write_text(page, encoding="utf-8")
-    for k, fn in (("REVEAL_CSS", "reveal.css"), ("REVEAL_JS", "reveal.js"), ("NOTES_JS", "notes.js"), ("PLOTLY_JS", "plotly.min.js"), ("APP_JS", "app.js")):
+    for k, fn in (("REVEAL_CSS", "reveal.css"), ("THEME_CSS", "theme.css"), ("REVEAL_JS", "reveal.js"), ("NOTES_JS", "notes.js"), ("PLOTLY_JS", "plotly.min.js"), ("APP_JS", "app.js")):
         shutil.copy(src[k], WEB / "assets" / fn)
     (WEB / "assets" / "data.js").write_text(data_js, encoding="utf-8")
     (WEB / "README.txt").write_text("원자재 퀀트 MI 발표 v4 (인터랙티브 HTML)\n\n1) zip 압축을 먼저 푸세요 (zip 안에서 바로 열면 그림·차트를 못 찾음)\n2) index.html을 Chrome 또는 Edge로 여세요 (메일·메신저 미리보기, Internet Explorer 불가)\n"
-                                                 "3) 방향키·마우스 휠 = 장 넘김, F = 전체 화면, S = 발표자 보기(대본·타이머)\n", encoding="utf-8")
+                                                 "3) 방향키·마우스 휠 = 장 넘김, T = 테마(기본 · 유리 밝게 · 유리 어둡게), F = 전체 화면, S = 발표자 보기(대본·타이머)\n", encoding="utf-8")
     z = shutil.make_archive(str(ZIP), "zip", root_dir=WEB.parent, base_dir=WEB.name)
     print(f"완료 ① 한 파일: {OUT}  ({OUT.stat().st_size / 1e6:.1f} MB)")
     print(f"완료 ② 폴더+zip: {z}  ({Path(z).stat().st_size / 1e6:.1f} MB, index.html {(WEB / 'index.html').stat().st_size / 1e6:.2f} MB) · {len(S)}장 · 자료 기준일 {D['asof']}")
