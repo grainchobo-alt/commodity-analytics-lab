@@ -13,6 +13,7 @@
 | 파일 | 용도 |
 |---|---|
 | `run_daily.bat` | 데이터 수집(`collect.py`) → 대시보드 생성(`build_dashboard.py`) → `dashboard.html` 열기 |
+| `대시보드_유리_열기.bat` | 유리+에디토리얼 테마판(`app_glass.py`, 포트 8502, 밝은 테마 고정) — `app.py`를 그대로 실행하고 CSS만 얹음, 기본판과 동시에 열 수 있음 |
 | `대시보드_열기.bat` | **평소에 이것만 더블클릭** — 앱이 꺼져 있으면 켜고(최소화 창) 준비되면 브라우저 열기, 켜져 있으면 브라우저만 열기 |
 | `run_lab.bat` | 분석 앱 실행 → 브라우저에서 http://localhost:8501 |
 | `dashboard.html` | 생성된 대시보드 (인터넷 필요: Plotly CDN) |
