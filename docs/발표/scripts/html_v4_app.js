@@ -173,6 +173,29 @@ P.ovf = () => {
       zaxis: ax3("맞힌 정도 (예시)", { range: [0, 105] }), aspectmode: "manual", aspectratio: { x: 1.7, y: 1, z: 0.9 }, camera: { eye: { x: -1.05, y: -1.55, z: 0.75 } } } }];
 };
 
+// ── 7장: 섞기 vs 시간 분리 3D 블록 · 선형 평면 vs 머신러닝 곡면
+P.split = () => {
+  const mix = [0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0], tm = Array(10).fill(0).concat([1, 1, 1, 1]), B = [], TR = "#3B8EA5", TE = "#F2A541";
+  [[1, tm, "시간 순 분리"], [0, mix, "무작위로 섞기"]].forEach(([row, seq, nm]) => seq.forEach((m, i) => B.push({ x: i, y: row, z: 0.5, c: m ? TE : TR, h: `${nm}<br>${m ? "시험" : "학습"} 구간` })));
+  B.push({ x: 15.2, y: 1, z: 2.0, c: "#2E7D52", h: "시간 분리 AUC 0.50 (실제 실력)" }, { x: 15.2, y: 0, z: 2.76, c: C.red, h: "섞기 AUC 0.69 (부풀려짐)" });
+  return [[bars3d(B, 0.85, 0.62), { type: "scatter3d", mode: "text", x: [17.6, 12.6], y: [1, 0], z: [2.2, 3.1], text: ["<b>AUC 0.50</b>", "<b>AUC 0.69</b>"], textfont: { size: 13, color: ["#2E7D52", C.red] }, hoverinfo: "skip" }],
+    { scene: { xaxis: ax3("시간 →", { showticklabels: false }), yaxis: ax3("", { tickvals: [0, 1], ticktext: ["무작위로 섞기", "시간 순 분리"] }), zaxis: ax3("", { showticklabels: false }),
+      aspectmode: "manual", aspectratio: { x: 3.0, y: 0.9, z: 0.7 }, camera: { eye: { x: -0.55, y: -1.35, z: 0.75 } } } }];
+};
+P.linfit = () => {
+  const L = D.linfit;
+  return [[{ type: "surface", x: L.g, y: L.g, z: L.plane, colorscale: [[0, "#9CC3D5"], [1, "#2F6E8F"]], opacity: 0.55, showscale: false, hoverinfo: "skip" },
+    { type: "scatter3d", mode: "markers", x: L.x, y: L.y, z: L.z, marker: { size: 3, color: C.g }, hovertemplate: "수익률 %{z:.2f}<extra></extra>" }],
+    { scene: { xaxis: ax3("설명변수 1"), yaxis: ax3("설명변수 2"), zaxis: ax3("수익률"), camera: { eye: { x: 1.5, y: -1.5, z: 0.6 } } } }];
+};
+P.mlfit = () => {
+  const M = D.mlfit;
+  return [[{ type: "surface", x: M.g, y: M.g, z: M.surf, colorscale: "Viridis", opacity: 0.82, showscale: false, hovertemplate: "머신러닝 곡면 %{z:.2f}<extra></extra>" },
+    { type: "surface", x: M.g, y: M.g, z: M.plane, colorscale: [[0, "#aaaaaa"], [1, "#aaaaaa"]], opacity: 0.3, showscale: false, hoverinfo: "skip" },
+    { type: "scatter3d", mode: "markers", x: M.x, y: M.y, z: M.z, marker: { size: 2.6, color: C.red }, hovertemplate: "수익률 %{z:.2f}<extra></extra>" }],
+    { scene: { xaxis: ax3("설명변수 1"), yaxis: ax3("설명변수 2"), zaxis: ax3("수익률"), camera: { eye: { x: 1.5, y: -1.5, z: 0.8 } } } }];
+};
+
 // ── pptx 차트 (14장 선 · 16장 막대)
 function pptChart(id) {
   const c = D.charts[id], o = c.opts, cols = (o.chartColors || [C.g, C.red]).map((x) => "#" + x);
@@ -245,6 +268,8 @@ function show(sl) {
     else { Plotly.Plots.resize(el); if (isSweep(el.dataset.plot)) setTimeout(() => sweep(el), 250); }
   });
   countUp(sl);
+  document.querySelectorAll("video").forEach((v) => { if (!sl.contains(v)) v.pause(); });   // 다른 장의 영상은 멈춤
+  sl.querySelectorAll("video").forEach((v) => { v.currentTime = 0; v.play().catch(() => {}); });   // 시연 장에 오면 처음부터 재생
 }
 Reveal.initialize({ hash: true, width: "100%", height: "100%", margin: 0, minScale: 1, maxScale: 1, center: false, transition: "slide", transitionSpeed: "default",
   backgroundTransition: "fade", slideNumber: false, controls: true, progress: true, plugins: [RevealNotes] }).then(() => {

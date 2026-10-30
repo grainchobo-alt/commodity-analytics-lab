@@ -35,11 +35,13 @@ NM = HERE / "node_modules"
 OUT = HERE.parent / "원자재_퀀트_MI_발표_v4.html"
 WEB = HERE.parent / "MI_quant_v4_web"                           # 폴더판 (index.html + assets/). zip 안 이름은 영문(압축 도구별 한글 깨짐 방지)
 ZIP = HERE.parent / "원자재_퀀트_MI_발표_v4_web"                 # → 원자재_퀀트_MI_발표_v4_web.zip
+MIME = {".png": "image/png", ".mp4": "video/mp4"}
 IMGS = {}                                                        # 장에 쓰인 그림 이름 → 경로
 PLOTS = {"c47a_lasso3d": "lasso", "c47b_pca3d": "pca", "c47c_rf3d": "rf", "c47d_lstm3d": "lstm",
          "c48a_chronos3d": "chronos", "c48b_finbert3d": "finbert", "c48c_garch3d": "garch", "c48d_hmm3d": "hmm",
          "c49a_frontier_grid": "ef3d", "c49b_frontier_ribbon": "efyear", "c51_ml_overfit3d": "ovf",
-         "c41_randomwalk": "rw", "c42_brownian": "mc", "c09_volatility": "vol", "c16_strategies": "strat"}   # 마지막 4개 = 선이 그려지는 2D
+         "c41_randomwalk": "rw", "c42_brownian": "mc", "c09_volatility": "vol", "c16_strategies": "strat",
+         "c52_split3d": "split", "c53_linfit3d": "linfit", "c54_mlfit3d": "mlfit"}   # 마지막 4개 = 선이 그려지는 2D
 
 
 def r(x, n=2):
@@ -153,6 +155,17 @@ def data():
     # 14장 전략 누적 수익 (charts c16)
     D["strat"] = dict(d=[f"{x:%Y-%m-%d}" for x in X3.index], names=["최소분산", "52주 모멘텀", "가치"], y=[r(X3[k].cumsum().values, 1) for k in X3.columns],
                       mix=r(W["혼합 · MinVar 50 + 모멘텀 25 + 가치 25 (사후 선택 주의)|10|4"].loc["2007":].reindex(X3.index).fillna(0).cumsum().values, 1))
+    # 7장 선형 평면 vs 머신러닝 곡면 (charts_v4 c53·c54와 같은 난수)
+    from sklearn.kernel_ridge import KernelRidge
+    rs = np.random.default_rng(11); x1, x2 = rs.uniform(-2, 2, 120), rs.uniform(-2, 2, 120); yl = 0.8 * x1 + 0.5 * x2 + rs.normal(0, 0.35, 120)
+    bl = np.linalg.lstsq(np.c_[np.ones(120), x1, x2], yl, rcond=None)[0]; gx = np.linspace(-2, 2, 15)
+    D["linfit"] = dict(x=r(x1), y=r(x2), z=r(yl), g=r(gx), plane=[r(bl[0] + bl[1] * gx + bl[2] * v) for v in gx])
+    rs = np.random.default_rng(12); z1, z2 = rs.uniform(-3, 3, 260), rs.uniform(-3, 3, 260)
+    yn = 1.5 * np.sin(1.3 * z1) + 0.8 * np.cos(1.1 * z2) + 0.15 * z1 * z2 + rs.normal(0, 0.35, 260)
+    kr = KernelRidge(kernel="rbf", alpha=0.3, gamma=0.5).fit(np.c_[z1, z2], yn); gz = np.linspace(-3, 3, 30); ZX, ZY = np.meshgrid(gz, gz)
+    bn = np.linalg.lstsq(np.c_[np.ones(260), z1, z2], yn, rcond=None)[0]
+    D["mlfit"] = dict(x=r(z1), y=r(z2), z=r(yn), g=r(gz), surf=r(kr.predict(np.c_[ZX.ravel(), ZY.ravel()]).reshape(ZX.shape)),
+                      plane=r(bn[0] + bn[1] * ZX + bn[2] * ZY))
     return D
 
 
@@ -323,6 +336,9 @@ def slide_html(n, s, D):
             h_ = shape_item(it["type"], o)
         elif k == "table":
             h_ = table_item(it["rows"], o)
+        elif k == "media":                                          # 시연 영상: 한 파일판은 base64, 폴더판은 파일
+            IMGS[Path(o["path"]).name] = Path(o["path"])
+            h_ = (f'<div class="el vd" style="{box_style(o)}"><video src="@IMG:{Path(o["path"]).name}" poster="{o.get("cover", "")}" controls muted playsinline preload="auto"></video></div>')
         elif k == "chart":
             cid = f"chart{n}_{i}"; D.setdefault("charts", {})[cid] = dict(type=it["type"], data=it["data"], opts=o); h_ = plot_item(o, cid)
         else:
@@ -365,7 +381,7 @@ def main():
         one = one.replace(f"/*@{k}*/", rd(k))
     one = one.replace("/*@DATA*/", data_js.replace("</", "<\\/"))
     for nm, p in IMGS.items():
-        one = one.replace(f"@IMG:{nm}", "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode())
+        one = one.replace(f"@IMG:{nm}", f"data:{MIME.get(p.suffix, 'image/png')};base64," + base64.b64encode(p.read_bytes()).decode())
     OUT.write_text(one, encoding="utf-8")
     # ② 폴더판: index.html(작음) + assets/ → zip으로 전달, 받은 쪽은 압축을 푼 뒤 index.html을 염 (file://에서도 동작: fetch 없이 <script src>만 사용)
     if WEB.exists():

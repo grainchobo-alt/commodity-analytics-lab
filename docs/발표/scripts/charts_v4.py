@@ -283,3 +283,36 @@ ax.set_yticks([0, 1]); ax.set_yticklabels(["시험 성적\n(처음 본 문제)",
 ax.set_zlim(0, 100); ax.set_zticks([0, 50, 100]); ax.set_zlabel("맞힌 정도 (예시)", fontsize=8.5)
 ax.set_box_aspect((1.6, 1.0, 0.9)); ax.view_init(elev=24, azim=-62)
 save(f, "c51_ml_overfit3d")
+
+# ════════ 52·53·54 검증 방법 장: 섞기 vs 시간 분리 3D 블록 · 선형 평면 vs 머신러닝 곡면 (html_v4.py와 같은 난수)
+SPLIT_MIX = [0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0]
+f = plt.figure(figsize=(6.6, 3.2)); ax = f.add_subplot(projection="3d"); ax.computed_zorder = False
+for a_ in (ax.xaxis, ax.yaxis, ax.zaxis): a_.pane.set_facecolor((0.97, 0.97, 0.96, 1)); a_.pane.set_edgecolor("#dddddd")
+TRC, TEC = "#3B8EA5", "#F2A541"
+for row, seq in ((1, [0] * 10 + [1] * 4), (0, SPLIT_MIX)):
+    for i, m in enumerate(seq):
+        ax.bar3d(i, row - 0.32, 0, 0.9, 0.64, 0.5, color=TEC if m else TRC, shade=True, edgecolor="white", linewidth=0.4)
+for row, auc, col in ((1, 0.50, "#2E7D52"), (0, 0.69, RED)):
+    ax.bar3d(15.2, row - 0.32, 0, 0.9, 0.64, auc * 4, color=col, shade=True, edgecolor="white", linewidth=0.4)
+    ax.text(15.6 + (1.6 if row else -0.2), row, auc * 4 + 0.25, f"AUC {auc:.2f}", ha="left" if row else "right", fontsize=9, fontweight="bold", color=col)
+ax.set_yticks([0, 1]); ax.set_yticklabels(["무작위로 섞기", "시간 순 분리"], fontsize=8.5); ax.set_xticks([]); ax.set_zticks([])
+ax.set_xlabel("시간 →", fontsize=8.5, labelpad=-8); ax.set_box_aspect((3.2, 1.0, 0.75)); ax.view_init(elev=30, azim=-66)
+save(f, "c52_split3d")
+rs = np.random.default_rng(11)
+x1, x2 = rs.uniform(-2, 2, 120), rs.uniform(-2, 2, 120); yl = 0.8 * x1 + 0.5 * x2 + rs.normal(0, 0.35, 120)
+bl = np.linalg.lstsq(np.c_[np.ones(120), x1, x2], yl, rcond=None)[0]
+gx = np.linspace(-2, 2, 20); GX, GY = np.meshgrid(gx, gx)
+f, ax = ax3d((4.4, 3.6)); ax.plot_surface(GX, GY, bl[0] + bl[1] * GX + bl[2] * GY, color=BLUE, alpha=0.35, linewidth=0)
+ax.scatter(x1, x2, yl, c=G, s=9, depthshade=False); lab(ax, "설명변수 1", "설명변수 2", "수익률"); ax.set_xticks([-2, 0, 2]); ax.set_yticks([-2, 0, 2]); ax.view_init(elev=18, azim=-60)
+save(f, "c53_linfit3d")
+from sklearn.kernel_ridge import KernelRidge
+rs = np.random.default_rng(12)
+z1, z2 = rs.uniform(-3, 3, 260), rs.uniform(-3, 3, 260)
+yn = 1.5 * np.sin(1.3 * z1) + 0.8 * np.cos(1.1 * z2) + 0.15 * z1 * z2 + rs.normal(0, 0.35, 260)
+kr = KernelRidge(kernel="rbf", alpha=0.3, gamma=0.5).fit(np.c_[z1, z2], yn)
+gz = np.linspace(-3, 3, 30); ZX, ZY = np.meshgrid(gz, gz); ZK = kr.predict(np.c_[ZX.ravel(), ZY.ravel()]).reshape(ZX.shape)
+bn = np.linalg.lstsq(np.c_[np.ones(260), z1, z2], yn, rcond=None)[0]
+f, ax = ax3d((4.4, 3.6)); ax.plot_surface(ZX, ZY, ZK, cmap="viridis", alpha=0.75, linewidth=0)
+ax.plot_surface(ZX, ZY, bn[0] + bn[1] * ZX + bn[2] * ZY, color="#999999", alpha=0.25, linewidth=0)
+ax.scatter(z1, z2, yn, c=RED, s=7, depthshade=False); lab(ax, "설명변수 1", "설명변수 2", "수익률"); ax.view_init(elev=22, azim=-55)
+save(f, "c54_mlfit3d")

@@ -21,6 +21,7 @@ class Recorder {
       addImage: (opts) => push({ kind: "image", opts }),
       addTable: (rows, opts) => push({ kind: "table", rows, opts }),
       addChart: (type, data, opts) => push({ kind: "chart", type, data, opts }),
+      addMedia: (opts) => push({ kind: "media", opts }),
       addNotes: (t) => { s.notes = t; },
     };
   }

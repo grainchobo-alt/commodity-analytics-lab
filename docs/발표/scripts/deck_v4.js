@@ -1,4 +1,4 @@
-// 발표 자료 v4: v3 + 퀀트 학문 지도 정밀판 · AI 카드별 3D 그림 8개 · 연도별 효율적 투자선(겹침 제거) · 품목군 기준 확장 비전 (본문 19장 + 별첨 2장)
+// 발표 자료 v4: v3 + 퀀트 학문 지도 정밀판 · AI 카드별 3D 그림 8개 · 연도별 효율적 투자선(겹침 제거) · 품목군 기준 확장 비전 (본문 20장 + 별첨 2장)
 const pptxgen = require("pptxgenjs");
 const fs = require("fs");
 const path = require("path");
@@ -153,43 +153,35 @@ const SH = D.sharpe, VT = D.voltgt;
     "그래서 목표는 '맞히기'가 아니라 ① 위험의 크기 관리 ② 오래 반복된 작은 경향의 확률적 우위 ③ 섞어서 출렁임 줄이기"], { x: 0.5, y: 6.0, w: 12.3, h: 0.95, fontSize: 11.5 });
 }
 
-// ════════════════ 5-2 검증 방법: 학습·시험을 시간으로 나눔 + 선형 vs 머신러닝
+// ════════════════ 5-2 검증 방법: 섞기 vs 시간 분리 + 선형(통계·계량) vs 곡선(머신러닝)
 {
   const s = base();
   header(s, "Ⅱ", "성적은 '처음 보는 미래'로 매김 — 그리고 머신러닝의 함정", "과거로 배우고(학습) 그다음 기간으로 시험해야 실전 성적 — 섞어서 시험하면 미래 정보가 새어 들어가 성적이 부풀려짐");
-  // 왼쪽: 학습·시험 분리와 Walk-forward
-  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 1.62, w: 5.95, h: 0.62, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.08 });
+  // 왼쪽: 섞기 vs 시간 분리 (실제 실험)
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 1.62, w: 5.95, h: 0.55, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.08 });
   s.addText([{ text: "비유  ", options: { bold: true, color: G } }, { text: "시험 문제를 미리 보고 공부하면 점수가 높게 나옴 → 실력이 아니라 '미리 본 답'", options: { color: INK } }],
-    { x: 0.65, y: 1.62, w: 5.7, h: 0.62, fontFace: F, fontSize: 11.5, valign: "middle", margin: 0 });
-  const X0 = 0.6, XW = 5.75;
-  s.addText("✕  무작위로 섞어 검증 (잘못된 방법)", { x: 0.5, y: 2.4, w: 5.9, h: 0.3, fontFace: F, fontSize: 11.5, bold: true, color: RED, margin: 0 });
-  const mix = [0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0];
-  mix.forEach((m, i) => { const w = XW / mix.length;
-    s.addShape(pres.shapes.RECTANGLE, { x: X0 + i * w, y: 2.74, w: w - 0.03, h: 0.3, fill: { color: m ? GOLD : BLUE }, line: { color: m ? GOLD : BLUE } }); });
-  s.addText("미래 자료가 학습에 섞임 → 구매 판단 모델 AUC 0.69 (부풀려짐)", { x: 0.5, y: 3.07, w: 5.9, h: 0.28, fontFace: F, fontSize: 10, color: RED, margin: 0 });
-  s.addText("○  시간 순으로 나눠 검증 (올바른 방법)", { x: 0.5, y: 3.45, w: 5.9, h: 0.3, fontFace: F, fontSize: 11.5, bold: true, color: G, margin: 0 });
-  s.addShape(pres.shapes.RECTANGLE, { x: X0, y: 3.79, w: 3.95, h: 0.32, fill: { color: BLUE }, line: { color: BLUE } });
-  s.addText("학습 2008–2016", { x: X0, y: 3.79, w: 3.95, h: 0.32, fontFace: F, fontSize: 10, bold: true, color: WHITE, align: "center", valign: "middle", margin: 0 });
-  s.addShape(pres.shapes.RECTANGLE, { x: X0 + 4.0, y: 3.79, w: 1.75, h: 0.32, fill: { color: GOLD }, line: { color: GOLD } });
-  s.addText("시험 2017~", { x: X0 + 4.0, y: 3.79, w: 1.75, h: 0.32, fontFace: F, fontSize: 10, bold: true, color: WHITE, align: "center", valign: "middle", margin: 0 });
-  s.addText("처음 보는 미래로만 채점 → AUC 0.50 = 동전 던지기 수준 (실제 실력)", { x: 0.5, y: 4.14, w: 5.9, h: 0.28, fontFace: F, fontSize: 10, color: G, margin: 0 });
-  s.addText("Walk-forward — 학습 구간을 시간 순으로 늘리며 항상 '그다음'만 시험", { x: 0.5, y: 4.52, w: 5.95, h: 0.3, fontFace: F, fontSize: 11.5, bold: true, color: BLUE, margin: 0 });
-  [2.2, 3.0, 3.8].forEach((tw, k) => { const y = 4.88 + k * 0.3;
-    s.addShape(pres.shapes.RECTANGLE, { x: X0, y, w: tw, h: 0.22, fill: { color: BLUE }, line: { color: BLUE } });
-    s.addShape(pres.shapes.RECTANGLE, { x: X0 + tw + 0.04, y, w: 0.75, h: 0.22, fill: { color: GOLD }, line: { color: GOLD } });
-    s.addText(`${k + 1}회`, { x: X0 + tw + 0.85, y: y - 0.03, w: 0.6, h: 0.28, fontFace: F, fontSize: 9, color: MUTED, margin: 0 }); });
-  arrow(s, X0, 5.84, X0 + 5.6, 5.84, MUTED);
-  s.addText("시간 →", { x: X0 + 4.9, y: 5.86, w: 0.9, h: 0.25, fontFace: F, fontSize: 9, color: MUTED, align: "right", margin: 0 });
-  bullets(s, ["파랑 = 학습(과거), 금색 = 시험(그 뒤) — 대시보드의 모든 성과는 이 방식으로만 계산", "그래서 발표의 숫자는 '실전에서 기대할 수 있는 성적'"], { x: 0.5, y: 6.1, w: 5.95, h: 0.85, fontSize: 10.5 });
+    { x: 0.65, y: 1.62, w: 5.7, h: 0.55, fontFace: F, fontSize: 11, valign: "middle", margin: 0 });
+  s.addText("섞어서 시험 vs 시간 순으로 나눠 시험 — 대시보드 실제 실험", { x: 0.5, y: 2.25, w: 5.95, h: 0.3, fontFace: F, fontSize: 11.5, bold: true, color: G, margin: 0 });
+  img(s, "c52_split3d", 0.5, 2.55, 5.95, 2.3);
+  s.addText([{ text: "✕ 섞기: 미래 자료가 학습에 섞여 AUC 0.69로 부풀려짐", options: { color: RED, bold: true, breakLine: true } },
+    { text: "○ 시간 분리: 처음 보는 미래로만 채점 → 0.50 (동전 던지기 = 실제 실력)", options: { color: "2E7D52", bold: true } }],
+    { x: 0.5, y: 4.88, w: 5.95, h: 0.55, fontFace: F, fontSize: 10.5, margin: 0, paraSpaceAfter: 3 });
+  img(s, "c51_ml_overfit3d", 0.45, 5.48, 2.45, 1.45);
+  s.addText([{ text: "머신러닝 단독의 함정 (예시)", options: { bold: true, color: G, breakLine: true } },
+    { text: "학습 성적 90 → 시험 40: 학습 자료의 잡음까지 외움. 통계 위에 접목하면 학습 72 · 시험 63으로 안정", options: { color: INK } }],
+    { x: 3.0, y: 5.55, w: 3.45, h: 1.3, fontFace: F, fontSize: 10, valign: "middle", margin: 0, paraSpaceAfter: 3 });
   s.addShape(pres.shapes.LINE, { x: 6.67, y: 1.62, w: 0, h: 5.25, line: { color: LINE, width: 1 } });
-  // 오른쪽: 선형 vs 머신러닝 — 학습 성적과 시험 성적
-  s.addText("선형(통계·계량) vs 곡선(머신러닝) — 학습과 시험 성적", { x: 6.85, y: 1.62, w: 6.0, h: 0.35, fontFace: F, fontSize: 12.5, bold: true, color: G, margin: 0 });
-  img(s, "c51_ml_overfit3d", 6.85, 1.98, 6.0, 3.3);
-  bullets(s, ["통계·계량: 직선 관계를 안정적으로 → 학습·시험 성적 차이가 작음",
-    "머신러닝: 출렁임 크고 곡선인 자료도 잘 맞추지만, 잡음까지 외워 시험에서 급락 (과적합)",
-    { t: "권장: 통계·계량을 뼈대로 두고 머신러닝은 그 위에 보조 신호로 접목 → 시험 성적이 가장 안정", b: true, c: G }],
-    { x: 6.85, y: 5.32, w: 6.0, h: 1.6, fontSize: 10.5 });
-  foot(s, "AUC = 맞힌 정도(0.5 = 동전 던지기). 실제: 구매 판단 모델 무작위 섞기 검증 0.69 vs 시간 분리 0.50. 오른쪽 그림은 개념 예시 — 대시보드 실험에서도 머신러닝 단독은 시험 구간에서 선형(Ridge)보다 열위.");
+  // 오른쪽: 선형 평면 vs 머신러닝 곡면
+  s.addText("직선이면 통계·계량, 넓게 퍼지고 방향이 바뀌면 머신러닝", { x: 6.85, y: 1.62, w: 6.0, h: 0.35, fontFace: F, fontSize: 12.5, bold: true, color: G, margin: 0 });
+  img(s, "c53_linfit3d", 6.85, 2.02, 2.95, 2.7);
+  img(s, "c54_mlfit3d", 9.9, 2.02, 2.95, 2.7);
+  s.addText("통계·계량: 점들을 관통하는 평면(직선)으로 설명 — 관계가 일정할 때 안정적", { x: 6.85, y: 4.74, w: 2.95, h: 0.62, fontFace: F, fontSize: 9.5, color: BLUE, bold: true, margin: 0, valign: "top" });
+  s.addText("머신러닝: 범위가 넓고 방향이 계속 바뀌면 곡면으로 근사 (회색 평면 = 직선은 못 따라감)", { x: 9.9, y: 4.74, w: 2.95, h: 0.62, fontFace: F, fontSize: 9.5, color: RED, bold: true, margin: 0, valign: "top" });
+  bullets(s, ["직선 관계면 통계·계량으로 충분하고 '왜'를 설명하기 쉬움",
+    "곡선·방향 전환이 잦은 자료는 머신러닝이 더 잘 따라가지만, 잡음까지 외우기 쉬움 (왼쪽 아래)",
+    { t: "권장: 통계·계량을 뼈대로, 머신러닝은 그 위에 보조로 접목 → 처음 보는 미래에서도 안정", b: true, c: G }],
+    { x: 6.85, y: 5.42, w: 6.0, h: 1.5, fontSize: 10.5 });
+  foot(s, "AUC = 맞힌 정도(0.5 = 동전 던지기). 0.69 · 0.50 = 대시보드 실험(LightGBM 구매 분류기, 2001–2011 학습 표본을 무작위 K-fold vs 기간 분리 Purged K-fold로 평가). 그 밖의 그림은 개념 예시(가상 자료).");
 }
 
 // ════════════════ 6 그래도 예측 가능한 것
@@ -416,6 +408,24 @@ function mcards(s, ms) {
   bullets(s, [{ t: "실무 활용", b: true, c: G }, "기준선이 감내 범위를 넘으면 → 선매입·헤지 비율 검토", "어느 품목이 위험을 가장 많이 만드는지 기여도로 표시", { t: "주의", b: true, c: RED }, "'평범한 종 모양' 가정은 위기를 과소평가 → 과거 실제 충격을 다시 쓰는 방식을 함께 제시", "평시가 아닌 위기 때 기준으로 한도 설정 (위기엔 품목들이 함께 움직임)"], { x: 0.6, y: 3.95, w: 6.0, h: 2.95, fontSize: 12.5 });
   img(s, "c26_corr", 6.9, 1.6, 5.9, 5.2);
   foot(s, "기준일 2026-10-26 가격, 매입 예정(가격 상승이 손실). 오른쪽: 원자재 19개 주간 수익률 상관(2007–2026) — 같은 색 묶음은 함께 움직임. 출처: ◆ 리스크 › 구매·보유 물량 위험.");
+}
+
+// ════════════════ 11-2 대시보드 시연 영상
+{
+  const s = base();
+  header(s, "Ⅳ", "대시보드 시연 — 실제 화면으로 보는 4가지 기능", "구매 판단 · 머신러닝 예측 · 포트폴리오 구성 · 레짐(칼만 필터)을 실제 앱에서 조작한 화면 (약 75초)");
+  const cover = "data:image/png;base64," + fs.readFileSync(path.join(__dirname, "img", "demo_v4_cover.png")).toString("base64");
+  s.addMedia({ type: "video", path: path.join(__dirname, "img", "demo_v4.mp4"), cover, x: 0.5, y: 1.6, w: 8.9, h: 5.0 });
+  const sc = [["① 구매 의사결정", "0:00", "품목별 이번 주 매수 · 보류 판단과 물량 위험 금액", G],
+    ["② 머신러닝 예측", "0:15", "OLS · Ridge · Lasso · 나무 모델 등 7종을 같은 조건으로 비교", BLUE],
+    ["③ Portfolio Customization", "0:51", "전략을 골라 섞고 효율적 투자선 3D에서 내 위치 확인", GOLD],
+    ["④ 레짐 · 칼만 필터", "1:02", "위기 때 커지는 민감도(β)를 시간 × 변수 지형으로 추적", RED]];
+  sc.forEach(([t, tm, d, col], i) => { const y = 1.6 + i * 1.27;
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 9.6, y, w: 3.25, h: 1.15, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.08 });
+    s.addShape(pres.shapes.RECTANGLE, { x: 9.6, y: y + 0.12, w: 0.07, h: 0.9, fill: { color: col }, line: { color: col } });
+    s.addText([{ text: t, options: { bold: true, color: INK, fontSize: 12 } }, { text: "   " + tm, options: { color: MUTED, fontSize: 9.5, breakLine: true } },
+      { text: d, options: { color: INK, fontSize: 9.5 } }], { x: 9.8, y, w: 2.95, h: 1.15, fontFace: F, valign: "middle", margin: 0, paraSpaceAfter: 2 }); });
+  foot(s, "영상 = 대시보드 실제 화면 녹화(계산 대기 구간 생략). 화면 숫자는 자료 기준일 2026-10-26 기준.");
 }
 
 // ════════════════ 12 확장 비전 — 품목군 기준
