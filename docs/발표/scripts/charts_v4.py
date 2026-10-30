@@ -286,7 +286,7 @@ save(f, "c51_ml_overfit3d")
 
 # ════════ 52·53·54 검증 방법 장: 섞기 vs 시간 분리 3D 블록 · 선형 평면 vs 머신러닝 곡면 (html_v4.py와 같은 난수)
 SPLIT_MIX = [0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0]
-f = plt.figure(figsize=(6.6, 3.2)); ax = f.add_subplot(projection="3d"); ax.computed_zorder = False
+f = plt.figure(figsize=(4.4, 4.2)); ax = f.add_subplot(projection="3d"); ax.computed_zorder = False
 for a_ in (ax.xaxis, ax.yaxis, ax.zaxis): a_.pane.set_facecolor((0.97, 0.97, 0.96, 1)); a_.pane.set_edgecolor("#dddddd")
 TRC, TEC = "#3B8EA5", "#F2A541"
 for row, seq in ((1, [0] * 10 + [1] * 4), (0, SPLIT_MIX)):
@@ -296,14 +296,14 @@ for row, auc, col in ((1, 0.50, "#2E7D52"), (0, 0.69, RED)):
     ax.bar3d(15.2, row - 0.32, 0, 0.9, 0.64, auc * 4, color=col, shade=True, edgecolor="white", linewidth=0.4)
     ax.text(15.6 + (1.6 if row else -0.2), row, auc * 4 + 0.25, f"AUC {auc:.2f}", ha="left" if row else "right", fontsize=9, fontweight="bold", color=col)
 ax.set_yticks([0, 1]); ax.set_yticklabels(["무작위로 섞기", "시간 순 분리"], fontsize=8.5); ax.set_xticks([]); ax.set_zticks([])
-ax.set_xlabel("시간 →", fontsize=8.5, labelpad=-8); ax.set_box_aspect((3.2, 1.0, 0.75)); ax.view_init(elev=30, azim=-66)
+ax.set_xlabel("시간 →", fontsize=8.5, labelpad=-8); ax.set_box_aspect((2.2, 1.1, 0.9)); ax.view_init(elev=28, azim=-62)
 save(f, "c52_split3d")
 rs = np.random.default_rng(11)
 x1, x2 = rs.uniform(-2, 2, 120), rs.uniform(-2, 2, 120); yl = 0.8 * x1 + 0.5 * x2 + rs.normal(0, 0.35, 120)
 bl = np.linalg.lstsq(np.c_[np.ones(120), x1, x2], yl, rcond=None)[0]
 gx = np.linspace(-2, 2, 20); GX, GY = np.meshgrid(gx, gx)
-f, ax = ax3d((4.4, 3.6)); ax.plot_surface(GX, GY, bl[0] + bl[1] * GX + bl[2] * GY, color=BLUE, alpha=0.35, linewidth=0)
-ax.scatter(x1, x2, yl, c=G, s=9, depthshade=False); lab(ax, "설명변수 1", "설명변수 2", "수익률"); ax.set_xticks([-2, 0, 2]); ax.set_yticks([-2, 0, 2]); ax.view_init(elev=18, azim=-60)
+f, ax = ax3d((4.4, 3.6)); ax.plot_surface(GX, GY, bl[0] + bl[1] * GX + bl[2] * GY, color=BLUE, alpha=0.55, linewidth=0)
+ax.scatter(x1, x2, yl, c=G, s=2.5, depthshade=False); lab(ax, "설명변수 1", "설명변수 2", "수익률"); ax.set_xticks([-2, 0, 2]); ax.set_yticks([-2, 0, 2]); ax.view_init(elev=18, azim=-60)
 save(f, "c53_linfit3d")
 from sklearn.kernel_ridge import KernelRidge
 rs = np.random.default_rng(12)
@@ -314,5 +314,34 @@ gz = np.linspace(-3, 3, 30); ZX, ZY = np.meshgrid(gz, gz); ZK = kr.predict(np.c_
 bn = np.linalg.lstsq(np.c_[np.ones(260), z1, z2], yn, rcond=None)[0]
 f, ax = ax3d((4.4, 3.6)); ax.plot_surface(ZX, ZY, ZK, cmap="viridis", alpha=0.75, linewidth=0)
 ax.plot_surface(ZX, ZY, bn[0] + bn[1] * ZX + bn[2] * ZY, color="#999999", alpha=0.25, linewidth=0)
-ax.scatter(z1, z2, yn, c=RED, s=7, depthshade=False); lab(ax, "설명변수 1", "설명변수 2", "수익률"); ax.view_init(elev=22, azim=-55)
+ax.scatter(z1, z2, yn, c=RED, s=2, depthshade=False); lab(ax, "설명변수 1", "설명변수 2", "수익률"); ax.view_init(elev=22, azim=-55)
 save(f, "c54_mlfit3d")
+
+# ════════ 55·56·57 3대 전략 직관: 추세가 이어짐 · 출렁임 그릇의 바닥(달걀) · 평균으로 당겨지는 고무줄 (html_v4_app.js와 같은 식)
+def mom_paths():
+    t = np.arange(79); S = [1.0, 0.55, -0.5, -0.95]
+    return t, [s_ * t * 0.4 + 3 * np.sin(t / 6 + k) for k, s_ in enumerate(S)], S
+t, Z, S = mom_paths(); f, ax = ax3d((4.6, 2.2))
+for k, (z, s_) in enumerate(zip(Z, S)):
+    col = "#2E7D52" if s_ > 0 else RED
+    ax.plot(t[:53], [k] * 53, z[:53], color=col, lw=1.8); ax.plot(t[52:], [k] * 27, z[52:], color=col, lw=1.4, ls="--", alpha=0.6)
+ax.set_xticks([0, 52]); ax.set_xticklabels(["1년 전", "오늘"], fontsize=7); ax.set_yticks([]); ax.set_zticks([0]); ax.view_init(elev=22, azim=-70); ax.set_box_aspect((2.4, 1, 0.8))
+save(f, "c55_mom3d")
+def mv_grid(n=41):
+    vol = np.array([25, 20, 30.0]); cor = np.array([[1, .2, .1], [.2, 1, .3], [.1, .3, 1]]); cov = np.outer(vol, vol) * cor
+    g = np.linspace(0, 1, n); W1, W2 = np.meshgrid(g, g); W3 = 1 - W1 - W2
+    V = np.sqrt(np.einsum("...i,ij,...j->...", np.stack([W1, W2, W3], -1), cov, np.stack([W1, W2, W3], -1))); V[W3 < -1e-9] = np.nan
+    return g, V
+g, V = mv_grid(); f, ax = ax3d((4.6, 2.2)); GA, GB = np.meshgrid(g, g)
+ax.plot_surface(GA, GB, np.ma.masked_invalid(V), cmap="YlGnBu_r", alpha=0.85, linewidth=0)
+i_ = np.nanargmin(V); ax.scatter([GA.ravel()[i_]], [GB.ravel()[i_]], [V.ravel()[i_] + 0.8], s=60, c="#F3E3C3", edgecolors="#8a6d2b")
+ax.set_xticks([]); ax.set_yticks([]); ax.set_zticks([]); ax.view_init(elev=28, azim=-130)
+save(f, "c56_minvar3d")
+def val_path():
+    t = np.arange(121); return t, 18 * np.sin(t / 9) + 6 * np.sin(t / 3.7)
+t, dv = val_path(); f, ax = ax3d((4.6, 2.2))
+ax.plot(t, [0] * len(t), dv, color=INK, lw=1.4); ax.plot(t, [0] * len(t), 0 * t, color=GOLD, lw=1.6)
+for q in range(0, 121, 4):
+    if abs(dv[q]) > 8: ax.plot([q, q], [0, 0], [0, dv[q]], color=(RED if dv[q] > 0 else "#2E7D52"), lw=1.4)
+ax.set_xticks([]); ax.set_yticks([]); ax.set_zticks([0]); ax.view_init(elev=18, azim=-75); ax.set_box_aspect((2.4, 0.6, 0.9))
+save(f, "c57_value3d")

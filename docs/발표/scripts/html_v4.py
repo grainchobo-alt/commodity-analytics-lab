@@ -41,7 +41,8 @@ PLOTS = {"c47a_lasso3d": "lasso", "c47b_pca3d": "pca", "c47c_rf3d": "rf", "c47d_
          "c48a_chronos3d": "chronos", "c48b_finbert3d": "finbert", "c48c_garch3d": "garch", "c48d_hmm3d": "hmm",
          "c49a_frontier_grid": "ef3d", "c49b_frontier_ribbon": "efyear", "c51_ml_overfit3d": "ovf",
          "c41_randomwalk": "rw", "c42_brownian": "mc", "c09_volatility": "vol", "c16_strategies": "strat",
-         "c52_split3d": "split", "c53_linfit3d": "linfit", "c54_mlfit3d": "mlfit"}   # 마지막 4개 = 선이 그려지는 2D
+         "c52_split3d": "split", "c53_linfit3d": "linfit", "c54_mlfit3d": "mlfit",
+         "c55_mom3d": "mom", "c56_minvar3d": "minvar", "c57_value3d": "value"}   # 마지막 4개 = 선이 그려지는 2D
 
 
 def r(x, n=2):
@@ -96,6 +97,13 @@ def data():
     PX = LS.weekly(adj, list(KX), "2020-01-01")[list(KX)].rename(columns=KX)
     MX = (np.log(PX).resample("ME").last().diff() * 100).iloc[-12:]
     D["xs"] = dict(months=[f"{d:%y.%m}" for d in MX.index], items=list(MX.columns), z=r(MX.T.values, 1))
+    # 리스크 장: 19개 품목 주간 수익률 상관 (charts.py c26_corr와 같은 계산)
+    KC = {"yf:ZC=F": "옥수수", "yf:ZW=F": "밀", "yf:ZS=F": "대두", "yf:ZM=F": "대두박", "yf:ZL=F": "대두유", "yf:CL=F": "원유", "yf:RB=F": "휘발유", "yf:HO=F": "난방유",
+          "yf:NG=F": "천연가스", "yf:GC=F": "금", "yf:SI=F": "은", "yf:PL=F": "백금", "yf:HG=F": "구리", "yf:KC=F": "커피", "yf:SB=F": "원당", "yf:CC=F": "코코아",
+          "yf:CT=F": "면화", "yf:LE=F": "생우", "yf:HE=F": "돈육"}
+    PC = LS.weekly(adj, LS.BASKET, "2001-01-01"); PC = PC[[c_ for c_ in KC if c_ in PC]].rename(columns=KC)
+    CM = (np.log(PC).diff().dropna(how="all") * 100).loc["2007":].corr()
+    D["corr"] = dict(items=list(CM.columns), z=r(CM.values, 2))
     # 14장: 대시보드 ⑤ Portfolio Customization과 같은 계산 (3대 전략 · 롱온리 · 합 100%)
     from scipy.optimize import minimize
     W = pd.read_parquet(ROOT / "data/voltgt_weekly.parquet")
@@ -292,9 +300,35 @@ def heat_html(o, X):
         cells.append(f'<div class="hx-c hx-r{" hx-ts" if a == 0 else ""}">{it}</div>')
         for b in range(nm):
             v = X["z"][a][b]; bg, fg = cl(v); cls = "hx-v" + (" hx-tsv" if a == 0 else "") + (" hx-csv" if b == nm - 1 else "")
-            cells.append(f'<div class="hx-c {cls}" style="background:{bg};color:{fg};--k:{a + b}" title="{it} · {X["months"][b]}: {v:+.1f}%">{"0" if round(v) == 0 else f"{v:+.0f}"}</div>')
+            cells.append(f'<div class="hx-c {cls}" style="background-color:{bg};color:{fg};--k:{a + b}" data-r="{a}" data-c="{b}" data-tip="<b>{it}</b> · 20{X["months"][b].replace(".", "년 ")}월<br>월 수익률 {v:+.1f}%">{"0" if round(v) == 0 else f"{v:+.0f}"}</div>')
     leg = ('<div class="hx-leg"><span>−12%</span><i></i><span>+12%</span><b class="hx-key ts">━ 시계열: 옥수수 12개월 (가로)</b><b class="hx-key cs">┃ 횡단면: 최근 월 품목 비교 (세로)</b></div>')
     return (f'<div class="el hx" style="{box_style(o)}"><div class="hx-g" style="grid-template-columns:{U(0.85)} repeat({nm},1fr);grid-template-rows:{U(0.3)} repeat({ni},1fr)">'
+            + "".join(cells) + f"</div>{leg}</div>")
+
+
+def corr_html(o, X):
+    """리스크 장: 19 × 19 상관 격자 — 입체 칸 · 마우스를 대면 그 줄과 열만 강조 · 같이 움직이는 묶음 테두리."""
+    def cl(v):                                                     # 파랑(−1) · 흰색(0) · 빨강(+1)
+        a, b = ((247, 246, 242), (178, 34, 52)) if v >= 0 else ((247, 246, 242), (33, 102, 172))
+        k = min(1, abs(v)) ** 0.75; rgb = [round(a[i] + (b[i] - a[i]) * k) for i in range(3)]
+        return f"rgb({rgb[0]},{rgb[1]},{rgb[2]})", ("#fff" if k > 0.5 else "#2a2a2a")
+    it, n = X["items"], len(X["items"])
+    cells = []
+    for a in range(n):
+        cells.append(f'<div class="cx-r" style="grid-row:{a + 1};grid-column:1" data-r="{a}">{it[a]}</div>')
+        for b in range(n):
+            v = X["z"][a][b]; bg, fg = cl(v); diag = a == b
+            txt = "" if diag else (f"{v:.1f}" if abs(v) >= 0.4 else "")
+            tip = f"<b>{it[a]}</b>" if diag else f"<b>{it[a]} × {it[b]}</b><br>상관 {v:+.2f} · " + ("함께 강하게 움직임" if v >= 0.5 else "어느 정도 함께" if v >= 0.25 else "거의 따로 움직임")
+            cells.append(f'<div class="hx-c hx-v cx-v{" cx-d" if diag else ""}" style="grid-row:{a + 1};grid-column:{b + 2};background-color:{bg};color:{fg};--k:{(a + b) * 0.55:.1f}" '
+                         f'data-r="{a}" data-c="{b}" data-tip="{tip}">{txt}</div>')
+    for b in range(n):
+        cells.append(f'<div class="cx-col" style="grid-row:{n + 1};grid-column:{b + 2}" data-c="{b}"><span>{it[b]}</span></div>')
+    for a0, a1, nm in ((0, 4, "곡물·유지"), (5, 8, "에너지"), (9, 12, "금속")):   # 빨간 묶음 = 같이 움직이는 품목
+        cells.append(f'<div class="cx-grp" style="grid-row:{a0 + 1}/{a1 + 2};grid-column:{a0 + 2}/{a1 + 3}"><i>{nm}</i></div>')
+    leg = '<div class="hx-leg cx-leg"><span>−1 반대로</span><i></i><span>+1 함께</span><b class="hx-key">마우스를 대면 그 품목의 줄·열만 강조</b></div>'
+    return (f'<div class="el hx cx" style="{box_style(o)}"><div class="cx-t">19개 품목 주간 수익률 상관 (2007–2026)</div>'
+            f'<div class="hx-g cx-g" style="grid-template-columns:{U(0.62)} repeat({n},1fr);grid-template-rows:repeat({n},1fr) {U(0.55)}">'
             + "".join(cells) + f"</div>{leg}</div>")
 
 
@@ -345,6 +379,8 @@ def slide_html(n, s, D):
             name = Path(o["path"]).stem
             if name == "c50_xs_ts3d":
                 h_ = heat_html(o, D["xs"])
+            elif name == "c26_corr":
+                h_ = corr_html(o, D["corr"])
             elif name in PLOTS:
                 key = PLOTS[name]
                 extra = ""
@@ -399,7 +435,7 @@ def main():
         shutil.copy(src[k], WEB / "assets" / fn)
     (WEB / "assets" / "data.js").write_text(data_js, encoding="utf-8")
     (WEB / "README.txt").write_text("원자재 퀀트 MI 발표 v4 (인터랙티브 HTML)\n\n1) zip 압축을 먼저 푸세요 (zip 안에서 바로 열면 그림·차트를 못 찾음)\n2) index.html을 Chrome 또는 Edge로 여세요 (메일·메신저 미리보기, Internet Explorer 불가)\n"
-                                                 "3) 방향키 = 장 넘김, F = 전체 화면, S = 발표자 보기(대본·타이머)\n", encoding="utf-8")
+                                                 "3) 방향키·마우스 휠 = 장 넘김, F = 전체 화면, S = 발표자 보기(대본·타이머)\n", encoding="utf-8")
     z = shutil.make_archive(str(ZIP), "zip", root_dir=WEB.parent, base_dir=WEB.name)
     print(f"완료 ① 한 파일: {OUT}  ({OUT.stat().st_size / 1e6:.1f} MB)")
     print(f"완료 ② 폴더+zip: {z}  ({Path(z).stat().st_size / 1e6:.1f} MB, index.html {(WEB / 'index.html').stat().st_size / 1e6:.2f} MB) · {len(S)}장 · 자료 기준일 {D['asof']}")

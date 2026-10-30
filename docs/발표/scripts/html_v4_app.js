@@ -170,7 +170,7 @@ P.ovf = () => {
   });
   return [[bars3d(B, 0.55, 0.55), { type: "scatter3d", mode: "text", x: tx, y: ty, z: tz, text: tt, textfont: { size: 13, color: tc }, hoverinfo: "skip" }],
     { scene: { xaxis: ax3("", { tickvals: [0, 1, 2], ticktext: O.map((o) => o[0]) }), yaxis: ax3("", { tickvals: [0, 1], ticktext: ["시험 성적", "학습 성적"] }),
-      zaxis: ax3("맞힌 정도 (예시)", { range: [0, 105] }), aspectmode: "manual", aspectratio: { x: 1.7, y: 1, z: 0.9 }, camera: { eye: { x: -1.05, y: -1.55, z: 0.75 } } } }];
+      zaxis: ax3("맞힌 정도 (예시)", { range: [0, 105] }), aspectmode: "manual", aspectratio: { x: 1.7, y: 1, z: 0.9 }, near: true, camera: { eye: { x: -1.45, y: -2.15, z: 1.05 } } } }];
 };
 
 // ── 7장: 섞기 vs 시간 분리 3D 블록 · 선형 평면 vs 머신러닝 곡면
@@ -178,22 +178,66 @@ P.split = () => {
   const mix = [0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0], tm = Array(10).fill(0).concat([1, 1, 1, 1]), B = [], TR = "#3B8EA5", TE = "#F2A541";
   [[1, tm, "시간 순 분리"], [0, mix, "무작위로 섞기"]].forEach(([row, seq, nm]) => seq.forEach((m, i) => B.push({ x: i, y: row, z: 0.5, c: m ? TE : TR, h: `${nm}<br>${m ? "시험" : "학습"} 구간` })));
   B.push({ x: 15.2, y: 1, z: 2.0, c: "#2E7D52", h: "시간 분리 AUC 0.50 (실제 실력)" }, { x: 15.2, y: 0, z: 2.76, c: C.red, h: "섞기 AUC 0.69 (부풀려짐)" });
-  return [[bars3d(B, 0.85, 0.62), { type: "scatter3d", mode: "text", x: [17.6, 12.6], y: [1, 0], z: [2.2, 3.1], text: ["<b>AUC 0.50</b>", "<b>AUC 0.69</b>"], textfont: { size: 13, color: ["#2E7D52", C.red] }, hoverinfo: "skip" }],
+  return [[bars3d(B, 0.85, 0.62), { type: "scatter3d", mode: "text", x: [15.2, 15.2], y: [1.05, -0.05], z: [2.45, 3.25], text: ["<b>AUC 0.50</b>", "<b>AUC 0.69</b>"], textfont: { size: 13, color: ["#2E7D52", C.red] }, hoverinfo: "skip" }],
     { scene: { xaxis: ax3("시간 →", { showticklabels: false }), yaxis: ax3("", { tickvals: [0, 1], ticktext: ["무작위로 섞기", "시간 순 분리"] }), zaxis: ax3("", { showticklabels: false }),
-      aspectmode: "manual", aspectratio: { x: 3.0, y: 0.9, z: 0.7 }, camera: { eye: { x: -0.55, y: -1.35, z: 0.75 } } } }];
+      aspectmode: "manual", aspectratio: { x: 2.2, y: 1.1, z: 0.9 }, near: true, camera: { eye: { x: -1.35, y: -2.4, z: 1.25 } } } }];
 };
 P.linfit = () => {
   const L = D.linfit;
-  return [[{ type: "surface", x: L.g, y: L.g, z: L.plane, colorscale: [[0, "#9CC3D5"], [1, "#2F6E8F"]], opacity: 0.55, showscale: false, hoverinfo: "skip" },
-    { type: "scatter3d", mode: "markers", x: L.x, y: L.y, z: L.z, marker: { size: 3, color: C.g }, hovertemplate: "수익률 %{z:.2f}<extra></extra>" }],
+  return [[{ type: "surface", x: L.g, y: L.g, z: L.plane, colorscale: [[0, "#9CC3D5"], [1, "#2F6E8F"]], opacity: 0.8, showscale: false, hovertemplate: "통계 평면 %{z:.2f}<extra></extra>" },
+    { type: "scatter3d", mode: "markers", x: L.x, y: L.y, z: L.z, marker: { size: 1.6, color: C.g, opacity: 0.85 }, hovertemplate: "수익률 %{z:.2f}<extra></extra>" }],
     { scene: { xaxis: ax3("설명변수 1"), yaxis: ax3("설명변수 2"), zaxis: ax3("수익률"), camera: { eye: { x: 1.5, y: -1.5, z: 0.6 } } } }];
 };
 P.mlfit = () => {
   const M = D.mlfit;
-  return [[{ type: "surface", x: M.g, y: M.g, z: M.surf, colorscale: "Viridis", opacity: 0.82, showscale: false, hovertemplate: "머신러닝 곡면 %{z:.2f}<extra></extra>" },
-    { type: "surface", x: M.g, y: M.g, z: M.plane, colorscale: [[0, "#aaaaaa"], [1, "#aaaaaa"]], opacity: 0.3, showscale: false, hoverinfo: "skip" },
-    { type: "scatter3d", mode: "markers", x: M.x, y: M.y, z: M.z, marker: { size: 2.6, color: C.red }, hovertemplate: "수익률 %{z:.2f}<extra></extra>" }],
+  return [[{ type: "surface", x: M.g, y: M.g, z: M.surf, colorscale: "Viridis", opacity: 0.92, showscale: false, hovertemplate: "머신러닝 곡면 %{z:.2f}<extra></extra>" },
+    { type: "surface", x: M.g, y: M.g, z: M.plane, colorscale: [[0, "#9a9a9a"], [1, "#9a9a9a"]], opacity: 0.4, showscale: false, hoverinfo: "skip" },
+    { type: "scatter3d", mode: "markers", x: M.x, y: M.y, z: M.z, marker: { size: 1.4, color: C.red, opacity: 0.85 }, hovertemplate: "수익률 %{z:.2f}<extra></extra>" }],
     { scene: { xaxis: ax3("설명변수 1"), yaxis: ax3("설명변수 2"), zaxis: ax3("수익률"), camera: { eye: { x: 1.5, y: -1.5, z: 0.8 } } } }];
+};
+
+// ── 3대 전략 직관 (charts_v4 c55·c56·c57과 같은 식)
+P.mom = () => {                                                                 // 추세는 이어진다: 지난 1년(면) 방향이 다음 반년(점선)에도 지속
+  const t = seq(79, (q) => q), S = [1.0, 0.55, -0.5, -0.95], tr = [];
+  S.forEach((s_, k) => {
+    const z = t.map((q) => s_ * q * 0.4 + 3 * Math.sin(q / 6 + k)), col = s_ > 0 ? "#2E7D52" : C.red, nm = s_ > 0 ? "오른 품목 → 사기" : "내린 품목 → 팔기";
+    tr.push(...curtain(t.slice(0, 53), k, z.slice(0, 53), col, 0.55, nm));
+    tr.push({ type: "scatter3d", mode: "lines", x: t.slice(52), y: t.slice(52).map(() => k), z: z.slice(52), line: { color: col, width: 5, dash: "dash" }, opacity: 0.7, hovertemplate: `${nm}<br>추세 지속 %{z:.0f}<extra></extra>` });
+  });
+  tr.push({ type: "mesh3d", x: [52, 52, 52, 52], y: [-0.5, 3.5, 3.5, -0.5], z: [-42, -42, 42, 42], i: [0, 0], j: [1, 2], k: [2, 3], color: C.gold, opacity: 0.18, hoverinfo: "skip" },
+    { type: "scatter3d", mode: "text", x: [52, 72, 72], y: [3.9, 0, 3], z: [44, 36, -36], text: ["<b>오늘</b>", "<b>계속 ↑</b>", "<b>계속 ↓</b>"], textfont: { size: 11, color: [C.ink, "#2E7D52", C.red] }, hoverinfo: "skip" });
+  return [tr, { scene: { xaxis: ax3("", { tickvals: [0, 52, 78], ticktext: ["1년 전", "오늘", "반년 뒤"] }), yaxis: ax3("", { showticklabels: false }), zaxis: ax3("수익 (%)", { showticklabels: false }),
+    aspectmode: "manual", aspectratio: { x: 2.3, y: 1, z: 0.8 }, near: true, camera: { eye: { x: -0.7, y: -1.45, z: 0.55 } } } }];
+};
+P.minvar = () => {                                                              // 세 품목 비중 × 전체 출렁임 = 그릇, 달걀이 자리 잡는 바닥 = 최소분산
+  const vol = [25, 20, 30], cor = [[1, 0.2, 0.1], [0.2, 1, 0.3], [0.1, 0.3, 1]], g = seq(81, (q) => q / 80);
+  const V = g.map((b) => g.map((a) => { const w = [a, b, 1 - a - b]; if (w[2] < -1e-9) return null; let v = 0; for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) v += w[i] * w[j] * vol[i] * vol[j] * cor[i][j]; return Math.sqrt(v); }));
+  let m = [0, 0, 99]; V.forEach((row, bi) => row.forEach((v, ai) => { if (v !== null && v < m[2]) m = [g[ai], g[bi], v]; }));
+  const ex = [], ey = [], ez = [], N = 18;                                       // 달걀: 아래가 조금 통통한 회전체
+  for (let p = 0; p <= N; p++) { const th = Math.PI * p / N, rr = Math.sin(th) * (1 + 0.18 * Math.cos(th)); ex.push([]); ey.push([]); ez.push([]);
+    for (let q = 0; q <= N; q++) { const ph = 2 * Math.PI * q / N; ex[p].push(m[0] + 0.08 * rr * Math.cos(ph)); ey[p].push(m[1] + 0.08 * rr * Math.sin(ph)); ez[p].push(m[2] + 2.4 - 2.4 * Math.cos(th)); } }
+  const corner = [[1, 0, 25, "A만"], [0, 1, 20, "B만"], [0, 0, 30, "C만"]];
+  return [[{ type: "surface", x: g, y: g, z: V, colorscale: [[0, "#2F6E8F"], [0.5, "#9CC3D5"], [1, "#F3EEDC"]], opacity: 0.9, showscale: false, hovertemplate: "출렁임 %{z:.1f}%<extra></extra>" },
+    { type: "surface", x: ex, y: ey, z: ez, colorscale: [[0, "#E9D3A6"], [1, "#FFF7E6"]], surfacecolor: ez, showscale: false, hovertemplate: `최소분산: 출렁임 ${m[2].toFixed(1)}%<br>세 품목을 고르게 섞은 바닥<extra></extra>`, lighting: { ambient: 0.65, diffuse: 0.8, specular: 0.4, roughness: 0.4 } },
+    { type: "scatter3d", mode: "markers", x: corner.map((c) => c[0]), y: corner.map((c) => c[1]), z: corner.map((c) => c[2]), text: corner.map((c) => `한 바구니에 몰빵(${c[3]})`),
+      marker: { size: 4, color: C.red }, textfont: { size: 9, color: C.red }, hovertemplate: "%{text}<br>출렁임 %{z:.0f}%<extra></extra>" },
+    { type: "scatter3d", mode: "text", x: [m[0]], y: [m[1]], z: [m[2] + 7.5], text: ["<b>달걀 = 섞으면 바닥 (최소분산)</b>"], textfont: { size: 11, color: C.g }, hoverinfo: "skip" }],
+    { scene: { xaxis: ax3("A 비중", { showticklabels: false }), yaxis: ax3("B 비중", { showticklabels: false }), zaxis: ax3("출렁임", { showticklabels: false }),
+      aspectmode: "manual", aspectratio: { x: 1.3, y: 1.3, z: 0.75 }, near: true, camera: { eye: { x: -1.0, y: -0.95, z: 0.6 } } } }];
+};
+P.value = () => {                                                               // 평균에서 멀어질수록 당겨지는 고무줄: 싸면 사고(초록) 비싸면 팔고(빨강)
+  const t = seq(121, (q) => q), dv = t.map((q) => 18 * Math.sin(q / 9) + 6 * Math.sin(q / 3.7)), x = [], y = [], z = [], c = [], i = [], j = [], k = [];
+  t.forEach((q) => { x.push(q, q); y.push(0, 0); z.push(0, dv[q]); c.push(0, dv[q]); });
+  for (let q = 0; q < t.length - 1; q++) { const a = 2 * q; i.push(a, a + 1); j.push(a + 1, a + 3); k.push(a + 2, a + 2); }
+  const RG = [[0, "#2E7D52"], [0.5, "#F7F6F2"], [1, C.red]], band = t.filter((q) => q % 3 === 0 && Math.abs(dv[q]) > 9);
+  return [[{ type: "mesh3d", x, y, z, i, j, k, intensity: c, colorscale: RG, cmin: -24, cmax: 24, showscale: false, opacity: 0.85, flatshading: true, hoverinfo: "skip" },
+    { type: "scatter3d", mode: "lines", x: t, y: t.map(() => 0), z: dv, line: { color: C.ink, width: 4 }, hovertemplate: "평균 대비 %{z:+.0f}%<extra></extra>" },
+    { type: "surface", x: [-2, 122], y: [-1.2, 1.2], z: [[0, 0], [0, 0]], colorscale: [[0, C.gold], [1, C.gold]], opacity: 0.25, showscale: false, hoverinfo: "skip" },
+    { type: "scatter3d", mode: "markers", x: band, y: band.map(() => 0), z: band.map((q) => dv[q]), marker: { size: 3.5, color: band.map((q) => (dv[q] > 0 ? C.red : "#2E7D52")) },
+      hovertemplate: "%{z:+.0f}% 벗어남 → 평균으로 당겨짐<extra></extra>" },
+    { type: "scatter3d", mode: "text", x: [0, 30, 60], y: [1.3, 0, 0], z: [3, 30, -32], text: ["5년 평균", "<b>비싸면 팔기</b>", "<b>싸면 사기</b>"], textfont: { size: 10, color: [C.gold, C.red, "#2E7D52"] }, hoverinfo: "skip" }],
+    { scene: { xaxis: ax3("시간 →", { showticklabels: false }), yaxis: ax3("", { showticklabels: false }), zaxis: ax3("평균 대비", { showticklabels: false }),
+      aspectmode: "manual", aspectratio: { x: 2.4, y: 0.7, z: 0.9 }, near: true, camera: { eye: { x: -0.6, y: -1.45, z: 0.5 } } } }];
 };
 
 // ── pptx 차트 (14장 선 · 16장 막대)
@@ -211,10 +255,11 @@ function pptChart(id) {
 function draw(el, again) {
   const key = el.dataset.plot, [tr, l] = P[key] ? P[key](el) : pptChart(key);
   if (l.scene && l.scene.camera) {                                             // 작은 카드는 카메라를 멀리 · 글자 작게
-    const small = el.clientWidth < unit() * 4, f = small ? 1.6 : 1.2, e = l.scene.camera.eye;
+    const small = el.clientWidth < unit() * 4, f = l.scene.near ? 1 : small ? 1.6 : 1.2, e = l.scene.camera.eye; delete l.scene.near;   // near = 카메라를 직접 맞춘 그림
     l.scene.camera.eye = { x: e.x * f, y: e.y * f, z: e.z * f };
     if (small) ["xaxis", "yaxis", "zaxis"].forEach((a) => { if (l.scene[a]) { l.scene[a].tickfont = { size: 8 }; l.scene[a].title.font = { size: 9 }; } });
   }
+  if (l.scene) { l.hovermode = el.dataset.hov === "1" ? "closest" : false; l.scene.hovermode = l.hovermode; }   // 3D 말풍선은 마우스를 움직였을 때만
   (again ? Plotly.react : Plotly.newPlot)(el, tr, lay(l), CFG);
   if (!again && tr.some((t) => t.type === "mesh3d" || t.type === "surface" || t.type === "scatter3d")) spinCtl(el);
   if (!again && isSweep(key)) sweep(el);
@@ -228,8 +273,15 @@ function spinCtl(el) {
   el.addEventListener("mousedown", (e) => { sx = e.clientX; sy = e.clientY; was = el.dataset.spin === "1"; el.dataset.spin = "0"; }, true);
   el.addEventListener("mouseup", (e) => { const click = Math.hypot(e.clientX - sx, e.clientY - sy) < 5; set(click ? !was : false); }, true);
   el.addEventListener("wheel", () => set(false), { capture: true, passive: true });
+  el.addEventListener("mousemove", () => { if (el.dataset.hov !== "1") { el.dataset.hov = "1"; Plotly.relayout(el, { hovermode: "closest", "scene.hovermode": "closest" }); } });
+  el.addEventListener("mouseleave", () => hovOff(el));
   el.addEventListener("touchstart", (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; was = el.dataset.spin === "1"; el.dataset.spin = "0"; }, { capture: true, passive: true });
   el.addEventListener("touchend", (e) => { const t = e.changedTouches[0]; set(Math.hypot(t.clientX - sx, t.clientY - sy) < 8 ? !was : false); }, { capture: true, passive: true });
+}
+// 3D 말풍선 끄기: 회전으로 그래프가 멈춰 있는 마우스 밑을 지나가거나 장을 옮길 때 저절로 뜨지 않게
+function hovOff(el) {
+  if (el.dataset.hov === "0") return;
+  el.dataset.hov = "0"; Plotly.Fx.unhover(el); if (el._fullLayout && el._fullLayout.scene) Plotly.relayout(el, { hovermode: false, "scene.hovermode": false });
 }
 // 2D 선 그래프: 왼쪽에서 오른쪽으로 선이 그려지는 효과 (장에 올 때마다 다시)
 const SWEEP = new Set(["rw", "mc", "vol", "strat"]);
@@ -267,6 +319,7 @@ function show(sl) {
     if (!el.dataset.done) { el.dataset.done = 1; setTimeout(() => draw(el), 250); }
     else { Plotly.Plots.resize(el); if (isSweep(el.dataset.plot)) setTimeout(() => sweep(el), 250); }
   });
+  document.querySelectorAll(".plot[data-spin]").forEach((el) => hovOff(el));             // 장을 옮기면 3D 말풍선 끔
   countUp(sl);
   document.querySelectorAll("video").forEach((v) => { if (!sl.contains(v)) v.pause(); });   // 다른 장의 영상은 멈춤
   sl.querySelectorAll("video").forEach((v) => { v.currentTime = 0; v.play().catch(() => {}); });   // 시연 장에 오면 처음부터 재생
@@ -278,4 +331,38 @@ Reveal.initialize({ hash: true, width: "100%", height: "100%", margin: 0, minSca
   show(Reveal.getCurrentSlide()); requestAnimationFrame(spin);
 });
 Reveal.on("slidechanged", (e) => show(e.currentSlide));
+// 마우스 휠 = 장 넘김 (3D 그래프 위에서는 휠이 확대·축소). 터치패드 관성으로 여러 장 넘어가지 않게 한 번 멈췄다가 다음 장
+let wheelLast = 0, wheelFire = 0;
+addEventListener("wheel", (e) => {
+  const now = Date.now(), gap = now - wheelLast; wheelLast = now;
+  if (e.ctrlKey || (e.target.closest && e.target.closest(".plot[data-spin]")) || Math.abs(e.deltaY) < 4) return;
+  if (gap < 200 || now - wheelFire < 650) return;
+  wheelFire = now; e.deltaY > 0 ? Reveal.next() : Reveal.prev();
+}, { passive: true });
+// 시연 영상: 장면 카드를 누르면 그 시각으로 이동, 재생 중인 장면 카드 강조
+document.querySelectorAll("section").forEach((sec) => {
+  const v = sec.querySelector("video"); if (!v) return;
+  const cards = [];
+  sec.querySelectorAll(".el.tx").forEach((t) => {
+    const m = t.textContent.match(/▶\s*(\d+):(\d\d)/); if (!m) return;
+    const at = +m[1] * 60 + +m[2]; t.classList.add("seek"); t.title = "누르면 이 장면으로 이동";
+    t.addEventListener("click", () => { v.currentTime = at; v.play().catch(() => {}); });
+    cards.push([at, t]);
+  });
+  v.addEventListener("timeupdate", () => { let cur = null; cards.forEach(([at, t]) => { if (v.currentTime >= at - 0.25) cur = t; }); cards.forEach(([, t]) => t.classList.toggle("on", t === cur)); });
+});
+// 히트맵: 마우스를 댄 칸의 줄·열만 강조 + 말풍선
+document.querySelectorAll(".hx").forEach((box) => {
+  const g = box.querySelector(".hx-g"), tip = document.createElement("div"), cx = box.classList.contains("cx"); tip.className = "hx-tip"; box.appendChild(tip);
+  const all = [...g.querySelectorAll("[data-r],[data-c]")];
+  g.addEventListener("mouseover", (e) => {
+    const c = e.target.closest(".hx-v"); if (!c) return;
+    const r = c.dataset.r, k = c.dataset.c; g.classList.add("hl");
+    all.forEach((x) => x.classList.toggle("on", x.dataset.r === r || x.dataset.c === k || (cx && !x.classList.contains("hx-v") && (x.dataset.r === k || x.dataset.c === r))));
+    tip.innerHTML = c.dataset.tip || ""; tip.style.display = c.dataset.tip ? "block" : "none";
+    const bb = box.getBoundingClientRect(), cb = c.getBoundingClientRect(), left = cb.left - bb.left + cb.width / 2;
+    tip.style.left = Math.min(Math.max(left, 80), bb.width - 80) + "px"; tip.style.top = (cb.top - bb.top - 6) + "px";
+  });
+  g.addEventListener("mouseleave", () => { g.classList.remove("hl"); all.forEach((x) => x.classList.remove("on")); tip.style.display = "none"; });
+});
 addEventListener("resize", () => { fit(); const cur = Reveal.getCurrentSlide(); cur && cur.querySelectorAll(".plot[data-done]").forEach((el) => draw(el, true)); });

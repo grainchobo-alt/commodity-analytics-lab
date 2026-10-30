@@ -161,15 +161,17 @@ const SH = D.sharpe, VT = D.voltgt;
   s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 1.62, w: 5.95, h: 0.55, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.08 });
   s.addText([{ text: "비유  ", options: { bold: true, color: G } }, { text: "시험 문제를 미리 보고 공부하면 점수가 높게 나옴 → 실력이 아니라 '미리 본 답'", options: { color: INK } }],
     { x: 0.65, y: 1.62, w: 5.7, h: 0.55, fontFace: F, fontSize: 11, valign: "middle", margin: 0 });
-  s.addText("섞어서 시험 vs 시간 순으로 나눠 시험 — 대시보드 실제 실험", { x: 0.5, y: 2.25, w: 5.95, h: 0.3, fontFace: F, fontSize: 11.5, bold: true, color: G, margin: 0 });
-  img(s, "c52_split3d", 0.5, 2.55, 5.95, 2.3);
-  s.addText([{ text: "✕ 섞기: 미래 자료가 학습에 섞여 AUC 0.69로 부풀려짐", options: { color: RED, bold: true, breakLine: true } },
-    { text: "○ 시간 분리: 처음 보는 미래로만 채점 → 0.50 (동전 던지기 = 실제 실력)", options: { color: "2E7D52", bold: true } }],
-    { x: 0.5, y: 4.88, w: 5.95, h: 0.55, fontFace: F, fontSize: 10.5, margin: 0, paraSpaceAfter: 3 });
-  img(s, "c51_ml_overfit3d", 0.45, 5.48, 2.45, 1.45);
-  s.addText([{ text: "머신러닝 단독의 함정 (예시)", options: { bold: true, color: G, breakLine: true } },
-    { text: "학습 성적 90 → 시험 40: 학습 자료의 잡음까지 외움. 통계 위에 접목하면 학습 72 · 시험 63으로 안정", options: { color: INK } }],
-    { x: 3.0, y: 5.55, w: 3.45, h: 1.3, fontFace: F, fontSize: 10, valign: "middle", margin: 0, paraSpaceAfter: 3 });
+  // 두 그림을 같은 크기로 나란히 (왼쪽 = 실제 실험, 오른쪽 = 개념 예시)
+  [["섞기 vs 시간 순 분리 — 실제 실험", "c52_split3d", 0.5,
+    [{ text: "✕ 섞기: 미래 자료가 학습에 섞여 AUC 0.69로 부풀려짐", options: { color: RED, bold: true, breakLine: true } },
+     { text: "○ 시간 분리: 처음 보는 미래로만 채점 → 0.50 (동전 던지기 = 실제 실력)", options: { color: "2E7D52", bold: true } }]],
+   ["머신러닝 단독의 함정 (개념 예시)", "c51_ml_overfit3d", 3.55,
+    [{ text: "✕ 머신러닝 단독: 학습 90 → 시험 40 (잡음까지 외움)", options: { color: RED, bold: true, breakLine: true } },
+     { text: "○ 통계 위에 접목: 학습 72 · 시험 63으로 안정", options: { color: G, bold: true } }]]].forEach(([t, im, x, tx]) => {
+    s.addText(t, { x, y: 2.27, w: 2.9, h: 0.3, fontFace: F, fontSize: 11, bold: true, color: G, margin: 0 });
+    img(s, im, x, 2.6, 2.9, 2.85);
+    s.addText(tx, { x, y: 5.52, w: 2.9, h: 0.95, fontFace: F, fontSize: 9.5, margin: 0, valign: "top", paraSpaceAfter: 3 });
+  });
   s.addShape(pres.shapes.LINE, { x: 6.67, y: 1.62, w: 0, h: 5.25, line: { color: LINE, width: 1 } });
   // 오른쪽: 선형 평면 vs 머신러닝 곡면
   s.addText("직선이면 통계·계량, 넓게 퍼지고 방향이 바뀌면 머신러닝", { x: 6.85, y: 1.62, w: 6.0, h: 0.35, fontFace: F, fontSize: 12.5, bold: true, color: G, margin: 0 });
@@ -284,19 +286,23 @@ function mcards(s, ms) {
     ["최소분산 (평균-분산)", "섞으면 출렁임이 준다", "19개 품목을 모두 사되, 함께 덜\n움직이는 조합으로 비중을 정해\n전체 출렁임을 최소화", "'달걀을 여러 바구니에'\n노벨경제학상 포트폴리오 이론(1990)", SH["최소분산"], G],
     ["가치", "너무 싸면 돌아온다", "5년 평균 가격 대비 가장 싼 1/3은\n사고, 가장 비싼 1/3은 팖", "'고무줄은 당긴 만큼 돌아온다'\n생산·소비 조정으로 가격 회귀", SH["가치"], GOLD],
   ];
+  const VIS = ["c55_mom3d", "c56_minvar3d", "c57_value3d"];
   st.forEach((c, i) => {
-    const x = 0.6 + i * 4.15, w = 3.95;
-    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 1.7, w, h: 3.85, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.08 });
+    const x = 0.6 + i * 4.15, w = 3.95, [q, why] = c[3].split("\n");
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 1.7, w, h: 4.35, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.08 });
     s.addShape(pres.shapes.RECTANGLE, { x, y: 1.7, w, h: 0.12, fill: { color: c[5] }, line: { color: c[5] } });
-    s.addText(c[0], { x: x + 0.2, y: 1.95, w: w - 0.4, h: 0.45, fontFace: F, fontSize: 18, bold: true, color: c[5], margin: 0 });
-    s.addText(c[1], { x: x + 0.2, y: 2.4, w: w - 0.4, h: 0.4, fontFace: F, fontSize: 13.5, bold: true, color: INK, margin: 0 });
-    s.addText([{ text: "규칙", options: { bold: true, color: GOLD, breakLine: true } }, { text: c[2], options: { breakLine: true } }, { text: " ", options: { breakLine: true, fontSize: 5 } }, { text: "직관", options: { bold: true, color: GOLD, breakLine: true } }, { text: c[3] }],
-      { x: x + 0.2, y: 2.9, w: w - 0.35, h: 2.0, fontFace: F, fontSize: 11.5, color: INK, margin: 0, valign: "top" });
-    s.addText([{ text: `Sharpe ${c[4]}`, options: { bold: true, fontSize: 16, color: c[5] } }, { text: "  (단독, 2007–2026)", options: { fontSize: 10, color: MUTED } }], { x: x + 0.2, y: 4.95, w: w - 0.4, h: 0.45, fontFace: F, margin: 0 });
+    s.addText(c[0], { x: x + 0.2, y: 1.92, w: w - 0.4, h: 0.42, fontFace: F, fontSize: 18, bold: true, color: c[5], margin: 0 });
+    s.addText(c[1], { x: x + 0.2, y: 2.34, w: w - 0.4, h: 0.36, fontFace: F, fontSize: 13.5, bold: true, color: INK, margin: 0 });
+    s.addText([{ text: "규칙", options: { bold: true, color: GOLD, breakLine: true } }, { text: c[2] }],
+      { x: x + 0.2, y: 2.76, w: w - 0.35, h: 0.86, fontFace: F, fontSize: 10.5, color: INK, margin: 0, valign: "top" });
+    s.addText([{ text: "직관  ", options: { bold: true, color: GOLD } }, { text: q, options: { bold: true, breakLine: true } }, { text: why, options: { color: MUTED, fontSize: 9.5 } }],
+      { x: x + 0.2, y: 3.64, w: w - 0.35, h: 0.44, fontFace: F, fontSize: 10.5, color: INK, margin: 0, valign: "top" });
+    img(s, VIS[i], x + 0.12, 4.12, w - 0.24, 1.5);
+    s.addText([{ text: `Sharpe ${c[4]}`, options: { bold: true, fontSize: 16, color: c[5] } }, { text: "  (단독, 2007–2026)", options: { fontSize: 10, color: MUTED } }], { x: x + 0.2, y: 5.62, w: w - 0.4, h: 0.4, fontFace: F, margin: 0 });
   });
-  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.6, y: 5.75, w: 12.2, h: 1.1, fill: { color: "FBF4E1" }, line: { color: GOLD, width: 1 }, rectRadius: 0.08 });
-  s.addText([{ text: `세 전략을 섞으면 Sharpe ${SH["가치 혼합"]}   `, options: { bold: true, color: RED, fontSize: 16 } }, { text: "최소분산 50% + 모멘텀 25% + 가치 25% — 각 전략 단독(0.4~0.6)보다 위험 대비 성과가 크게 개선 (한 전략이 부진할 때 다른 전략이 보완)", options: { fontSize: 12.5, color: INK } }],
-    { x: 0.85, y: 5.75, w: 11.8, h: 1.1, fontFace: F, valign: "middle", margin: 0 });
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.6, y: 6.15, w: 12.2, h: 0.72, fill: { color: "FBF4E1" }, line: { color: GOLD, width: 1 }, rectRadius: 0.08 });
+  s.addText([{ text: `세 전략을 섞으면 Sharpe ${SH["가치 혼합"]}   `, options: { bold: true, color: RED, fontSize: 15 } }, { text: "최소분산 50% + 모멘텀 25% + 가치 25% — 각 전략 단독(0.4~0.6)보다 위험 대비 성과가 크게 개선 (한 전략이 부진할 때 다른 전략이 보완)", options: { fontSize: 11.5, color: INK } }],
+    { x: 0.85, y: 6.15, w: 11.8, h: 0.72, fontFace: F, valign: "middle", margin: 0 });
   foot(s, "Sharpe = 연 수익 ÷ 연 변동성(위험 1단위당 수익, 1에 가까우면 우수). 각 목표 변동성 10%, 편도 거래비용 5bp 차감, 연속월물 기준.");
 }
 
@@ -423,7 +429,7 @@ function mcards(s, ms) {
   sc.forEach(([t, tm, d, col], i) => { const y = 1.6 + i * 1.27;
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 9.6, y, w: 3.25, h: 1.15, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.08 });
     s.addShape(pres.shapes.RECTANGLE, { x: 9.6, y: y + 0.12, w: 0.07, h: 0.9, fill: { color: col }, line: { color: col } });
-    s.addText([{ text: t, options: { bold: true, color: INK, fontSize: 12 } }, { text: "   " + tm, options: { color: MUTED, fontSize: 9.5, breakLine: true } },
+    s.addText([{ text: t, options: { bold: true, color: INK, fontSize: 12 } }, { text: "   ▶ " + tm, options: { color: MUTED, fontSize: 9.5, breakLine: true } },
       { text: d, options: { color: INK, fontSize: 9.5 } }], { x: 9.8, y, w: 2.95, h: 1.15, fontFace: F, valign: "middle", margin: 0, paraSpaceAfter: 2 }); });
   foot(s, "영상 = 대시보드 실제 화면 녹화(계산 대기 구간 생략). 화면 숫자는 자료 기준일 2026-10-26 기준.");
 }
