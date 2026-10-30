@@ -2,7 +2,7 @@
 
 사용 (프로젝트 루트에서):
     .venv\\Scripts\\python.exe docs\\학습\\scripts\\build.py
-결과: docs\\학습\\모델도감_학습노트.docx (*.docx는 git 제외). docx 패키지는 docs\\발표\\scripts\\node_modules 재사용.
+결과: docs\\학습\\모델도감_학습노트_v2.docx (개정판) · 블랙숄즈_학습노트.docx (*.docx는 git 제외). docx 패키지는 docs\\발표\\scripts\\node_modules 재사용.
 """
 import shutil
 import subprocess
@@ -17,4 +17,8 @@ if __name__ == "__main__":
         print(f"=== {s} ===", flush=True)
         subprocess.run([sys.executable, str(HERE / s)], cwd=ROOT, check=True)
     print("=== build_doc.js ===", flush=True)
-    subprocess.run([shutil.which("node"), "build_doc.js"], cwd=HERE, check=True)
+    subprocess.run([shutil.which("node"), "build_doc.js", str(HERE.parent / "모델도감_학습노트_v2.docx")], cwd=HERE, check=True)   # 개정판(기호 풀이·파라미터 표). 1판은 보존
+    print("=== 블랙숄즈 학습 노트 ===", flush=True)
+    for s in ("figs_bs.py", "content_bs.py"):
+        subprocess.run([sys.executable, str(HERE / s)], cwd=ROOT, check=True)
+    subprocess.run([shutil.which("node"), "build_doc.js", str(HERE.parent / "블랙숄즈_학습노트.docx"), "content_bs.json"], cwd=HERE, check=True)

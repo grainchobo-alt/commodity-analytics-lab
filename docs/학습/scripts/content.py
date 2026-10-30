@@ -51,6 +51,28 @@ def steps(*pairs):
             DOC.append(dict(t="p", text=pr[2], muted=True))
 
 
+from content_params import PARAMS  # noqa: E402  모델별 기호 풀이 · 파라미터 영향
+
+
+def sym_block(key):
+    """수식 바로 밑: 기호 하나씩 읽기 표."""
+    d = PARAMS.get(key)
+    if d and d.get("sym"):
+        h3("수식 기호 하나씩 읽기")
+        table([["기호", "뜻"]] + d["sym"], widths=[1.8, 4.7], small=True)
+
+
+def param_block(key):
+    """파라미터를 키우거나 줄이면 무엇이 바뀌는지 표 + 요령."""
+    d = PARAMS.get(key)
+    if not d or not d.get("params"):
+        return
+    h3("파라미터를 바꾸면 무엇이 바뀌나")
+    table([["파라미터", "크게(많이) 하면", "작게(적게) 하면", "고르는 법 · 흔한 값"]] + d["params"], widths=[1.5, 2.2, 2.0, 2.0], small=True)
+    if d.get("tip"):
+        boxx("fix", "요령", d["tip"])
+
+
 def model(name, one, intuition, stp, fig_, cap, example, where, pitfall, extra=None):
     h2(name)
     boxx("key", "한 줄 요약", one)
@@ -58,9 +80,12 @@ def model(name, one, intuition, stp, fig_, cap, example, where, pitfall, extra=N
     p(*([intuition] if isinstance(intuition, str) else intuition))
     h3("수식으로 따라가기")
     steps(*stp)
+    key = name.split()[0]
+    sym_block(key)
     if extra:
         extra()
     img(fig_, cap)
+    param_block(key)
     h3("원자재에 적용하면")
     p(example)
     table([["대시보드 위치", where], ["주의할 점 (함정)", pitfall]], widths=[1.6, 4.9], hdr=False)
@@ -68,7 +93,7 @@ def model(name, one, intuition, stp, fig_, cap, example, where, pitfall, extra=N
 
 # ════════════════════════════════════════ 표지 · 안내
 DOC.append(dict(t="title", text="모델 도감 학습 노트", sub="원자재 퀀트 대시보드 ⑦ 모델 도감 탭의 42개 기법을 그림·그래프·단계별 수식으로 이해하기",
-                meta="기준: 대시보드 v1.38.3 (2026-10-29) · 심화: LSTM · 시공간 GNN"))
+                meta="기준: 대시보드 v1.44.0 (2026-10-30) · 심화: LSTM · 시공간 GNN · 개정판: 모델마다 수식 기호 풀이 + 파라미터 영향 표 추가"))
 DOC.append(dict(t="toc"))
 pb()
 h1("이 노트를 읽는 법")
@@ -76,6 +101,8 @@ p("대시보드의 ⑦ 모델 도감 탭에는 42개 기법이 '무엇을 하나
   "공부용으로 풀어 쓴 것입니다. 각 기법은 같은 순서로 설명합니다.")
 ol("**한 줄 요약** — 이 기법이 하는 일을 한 문장으로.", "**직관** — 수식 없이 비유로.", "**수식으로 따라가기** — 한 번에 큰 식을 보여 주지 않고, 작은 단계로 나눠 각 기호의 뜻을 붙입니다.",
    "**그림** — 합성 데이터(설명용으로 만든 가상 자료)로 그린 개념 그림. 대시보드 실제 결과를 쓴 그림은 캡션에 '실제'라고 적었습니다.",
+   "**수식 기호 하나씩 읽기** — 수식에 나온 기호(그리스 문자·첨자)를 표로 풀이. 수식이 낯설면 이 표를 먼저 보세요.",
+   "**파라미터를 바꾸면 무엇이 바뀌나** — 사람이 정하는 설정값(하이퍼파라미터)을 키우거나 줄이면 결과가 어떻게 달라지는지, 보통 어떻게 고르는지.",
    "**원자재 적용 · 대시보드 위치 · 함정** — 어디서 쓰는지, 무엇을 조심해야 하는지.")
 p("LSTM과 시공간 GNN은 별도 장(제9장·제10장)에서 손계산 예시와 함께 깊게 다룹니다. 앞의 장들은 순서대로 읽지 않아도 되지만, 제0장의 기초 개념은 먼저 읽기를 권합니다.")
 boxx("key", "공통 기호",

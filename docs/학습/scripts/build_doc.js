@@ -5,8 +5,10 @@ const { Document, Packer, Paragraph, TextRun, ImageRun, Table, TableRow, TableCe
   HeadingLevel, LevelFormat, PageBreak, TableOfContents, Footer, PageNumber } = D;
 
 const HERE = __dirname, IMG = path.join(HERE, "img");
+// 사용: node build_doc.js [출력.docx] [content.json]  — 블랙숄즈 노트는 content_bs.json
 const OUT = process.argv[2] || path.join(HERE, "..", "모델도감_학습노트.docx");
-const blocks = JSON.parse(fs.readFileSync(path.join(HERE, "content.json"), "utf8"));
+const blocks = JSON.parse(fs.readFileSync(path.join(HERE, process.argv[3] || "content.json"), "utf8"));
+const TITLE = (blocks.find((b) => b.t === "title") || {}).text || "모델 도감 학습 노트";
 const F = "Malgun Gothic", INK = "222222", MUTED = "6B6B66", G = "1E3A2F";
 const PAGE_W = 11906, MARGIN = 1134, CW = PAGE_W - 2 * MARGIN;          // A4, 좌우 2cm → 본문 폭 9638 DXA (6.69인치)
 const BOX = { key: ["E8F0EC", G], ex: ["EAF2F7", "2F6E8F"], warn: ["FBEFE6", "D9582B"], fix: ["FFF6DA", "B8901C"] };
@@ -50,7 +52,7 @@ for (const b of blocks) {
     case "title":
       body.push(new Paragraph({ spacing: { before: 2800, after: 300 }, children: [new TextRun({ text: b.text, bold: true, size: 60, color: G, font: F })] }),
         new Paragraph({ spacing: { after: 600 }, border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: "C8A24A", space: 8 } }, children: [new TextRun({ text: b.sub, size: 26, color: INK, font: F })] }),
-        image(path.join(IMG, "gnn_pipeline.png"), 6.0), new Paragraph({ spacing: { before: 400 }, children: [new TextRun({ text: b.meta, size: 20, color: MUTED, font: F })] }),
+        image(path.join(IMG, (b.cover || "gnn_pipeline") + ".png"), b.cover ? 5.2 : 6.0), new Paragraph({ spacing: { before: 400 }, children: [new TextRun({ text: b.meta, size: 20, color: MUTED, font: F })] }),
         new Paragraph({ children: [new PageBreak()] }));
       break;
     case "toc":
@@ -82,7 +84,7 @@ for (const b of blocks) {
 
 const num = (ref) => ({ reference: ref, levels: [{ level: 0, format: LevelFormat.DECIMAL, text: "%1.", alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 500, hanging: 300 } } } }] });
 const doc = new Document({
-  creator: "Commodity Analytics Lab", title: "모델 도감 학습 노트",
+  creator: "Commodity Analytics Lab", title: TITLE,
   styles: {
     default: { document: { run: { font: F, size: 20, color: INK }, paragraph: { spacing: { line: 300 } } } },
     paragraphStyles: [
@@ -100,7 +102,7 @@ const doc = new Document({
     ...numRefs.map(num)] },
   sections: [{
     properties: { page: { size: { width: PAGE_W, height: 16838 }, margin: { top: 1247, bottom: 1247, left: MARGIN, right: MARGIN } } },
-    footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "모델 도감 학습 노트 · ", size: 16, color: MUTED }), new TextRun({ children: [PageNumber.CURRENT], size: 16, color: MUTED })] })] }) },
+    footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: TITLE + " · ", size: 16, color: MUTED }), new TextRun({ children: [PageNumber.CURRENT], size: 16, color: MUTED })] })] }) },
     children: body,
   }],
 });
