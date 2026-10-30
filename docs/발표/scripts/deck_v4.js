@@ -153,36 +153,36 @@ const SH = D.sharpe, VT = D.voltgt;
     "그래서 목표는 '맞히기'가 아니라 ① 위험의 크기 관리 ② 오래 반복된 작은 경향의 확률적 우위 ③ 섞어서 출렁임 줄이기"], { x: 0.5, y: 6.0, w: 12.3, h: 0.95, fontSize: 11.5 });
 }
 
-// ════════════════ 5-2 검증 방법: 섞기 vs 시간 분리 + 선형(통계·계량) vs 곡선(머신러닝)
+// ════════════════ 5-2 머신러닝의 강점(왼쪽) → 그럼에도 단독으로 쓰면 안 되는 두 가지 함정(오른쪽)
 {
   const s = base();
-  header(s, "Ⅱ", "성적은 '처음 보는 미래'로 매김 — 그리고 머신러닝의 함정", "과거로 배우고(학습) 그다음 기간으로 시험해야 실전 성적 — 섞어서 시험하면 미래 정보가 새어 들어가 성적이 부풀려짐");
-  // 왼쪽: 섞기 vs 시간 분리 (실제 실험)
-  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 1.62, w: 5.95, h: 0.55, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.08 });
+  header(s, "Ⅱ", "머신러닝은 곡선에 강함 — 그러나 단독으로 쓰면 함정", "곡선 자료는 머신러닝이 유리 — 단, 미래 정보가 새면 성적이 부풀고, 단독으론 잡음까지 외움");
+  // 왼쪽: 강점 — 선형 평면(통계·계량) vs 머신러닝 곡면
+  s.addText("① 강점: 직선이면 통계·계량, 넓게 퍼지고 방향이 바뀌면 머신러닝", { x: 0.5, y: 1.62, w: 6.0, h: 0.35, fontFace: F, fontSize: 12.5, bold: true, color: G, margin: 0 });
+  img(s, "c53_linfit3d", 0.5, 2.02, 2.95, 2.7);
+  img(s, "c54_mlfit3d", 3.55, 2.02, 2.95, 2.7);
+  s.addText("통계·계량: 점들을 관통하는 평면(직선)으로 설명 — 관계가 일정할 때 안정적", { x: 0.5, y: 4.74, w: 2.95, h: 0.62, fontFace: F, fontSize: 9.5, color: BLUE, bold: true, margin: 0, valign: "top" });
+  s.addText("머신러닝: 범위가 넓고 방향이 계속 바뀌면 곡면으로 근사 (회색 평면 = 직선은 못 따라감)", { x: 3.55, y: 4.74, w: 2.95, h: 0.62, fontFace: F, fontSize: 9.5, color: RED, bold: true, margin: 0, valign: "top" });
+  bullets(s, ["직선 관계면 통계·계량으로 충분하고 '왜'를 설명하기 쉬움",
+    "곡선·방향 전환이 잦은 자료는 머신러닝이 훨씬 잘 따라감 → 설명력이 높음",
+    { t: "그런데 잘 따라가는 힘이 곧 약점 — 오른쪽 두 가지 함정", b: true, c: RED }],
+    { x: 0.5, y: 5.42, w: 6.0, h: 1.5, fontSize: 10.5 });
+  s.addShape(pres.shapes.LINE, { x: 6.67, y: 1.62, w: 0, h: 5.25, line: { color: LINE, width: 1 } });
+  // 오른쪽: 그럼에도 단독 사용은 위험 — 함정 두 가지
+  s.addText("② 그럼에도 머신러닝만 쓰면 안 되는 이유", { x: 6.85, y: 1.62, w: 6.0, h: 0.35, fontFace: F, fontSize: 12.5, bold: true, color: G, margin: 0 });
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 6.85, y: 2.0, w: 6.0, h: 0.45, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.08 });
   s.addText([{ text: "비유  ", options: { bold: true, color: G } }, { text: "시험 문제를 미리 보고 공부하면 점수가 높게 나옴 → 실력이 아니라 '미리 본 답'", options: { color: INK } }],
-    { x: 0.65, y: 1.62, w: 5.7, h: 0.55, fontFace: F, fontSize: 11, valign: "middle", margin: 0 });
-  // 두 그림을 같은 크기로 나란히 (왼쪽 = 실제 실험, 오른쪽 = 개념 예시)
-  [["섞기 vs 시간 순 분리 — 실제 실험", "c52_split3d", 0.5,
+    { x: 7.0, y: 2.0, w: 5.75, h: 0.45, fontFace: F, fontSize: 10, valign: "middle", margin: 0 });
+  [["함정 ① 섞어서 시험 (실제 실험)", "c52_split3d", 6.85,
     [{ text: "✕ 섞기: 미래 자료가 학습에 섞여 AUC 0.69로 부풀려짐", options: { color: RED, bold: true, breakLine: true } },
      { text: "○ 시간 분리: 처음 보는 미래로만 채점 → 0.50 (동전 던지기 = 실제 실력)", options: { color: "2E7D52", bold: true } }]],
-   ["머신러닝 단독의 함정 (개념 예시)", "c51_ml_overfit3d", 3.55,
-    [{ text: "✕ 머신러닝 단독: 학습 90 → 시험 40 (잡음까지 외움)", options: { color: RED, bold: true, breakLine: true } },
-     { text: "○ 통계 위에 접목: 학습 72 · 시험 63으로 안정", options: { color: G, bold: true } }]]].forEach(([t, im, x, tx]) => {
-    s.addText(t, { x, y: 2.27, w: 2.9, h: 0.3, fontFace: F, fontSize: 11, bold: true, color: G, margin: 0 });
-    img(s, im, x, 2.6, 2.9, 2.85);
-    s.addText(tx, { x, y: 5.52, w: 2.9, h: 0.95, fontFace: F, fontSize: 9.5, margin: 0, valign: "top", paraSpaceAfter: 3 });
+   ["함정 ② 단독 사용 (개념 예시)", "c51_ml_overfit3d", 9.9,
+    [{ text: "✕ 머신러닝 단독: 학습 90 → 시험 40", options: { color: RED, bold: true, breakLine: true } },
+     { text: "○ 통계를 뼈대로, 머신러닝은 보조로 접목: 학습 72 · 시험 63으로 안정", options: { color: G, bold: true } }]]].forEach(([t, im, x, tx]) => {
+    s.addText(t, { x, y: 2.55, w: 2.95, h: 0.3, fontFace: F, fontSize: 10.5, bold: true, color: G, margin: 0 });
+    img(s, im, x, 2.88, 2.95, 2.62);
+    s.addText(tx, { x, y: 5.55, w: 2.95, h: 1.0, fontFace: F, fontSize: 9.5, margin: 0, valign: "top", paraSpaceAfter: 3 });
   });
-  s.addShape(pres.shapes.LINE, { x: 6.67, y: 1.62, w: 0, h: 5.25, line: { color: LINE, width: 1 } });
-  // 오른쪽: 선형 평면 vs 머신러닝 곡면
-  s.addText("직선이면 통계·계량, 넓게 퍼지고 방향이 바뀌면 머신러닝", { x: 6.85, y: 1.62, w: 6.0, h: 0.35, fontFace: F, fontSize: 12.5, bold: true, color: G, margin: 0 });
-  img(s, "c53_linfit3d", 6.85, 2.02, 2.95, 2.7);
-  img(s, "c54_mlfit3d", 9.9, 2.02, 2.95, 2.7);
-  s.addText("통계·계량: 점들을 관통하는 평면(직선)으로 설명 — 관계가 일정할 때 안정적", { x: 6.85, y: 4.74, w: 2.95, h: 0.62, fontFace: F, fontSize: 9.5, color: BLUE, bold: true, margin: 0, valign: "top" });
-  s.addText("머신러닝: 범위가 넓고 방향이 계속 바뀌면 곡면으로 근사 (회색 평면 = 직선은 못 따라감)", { x: 9.9, y: 4.74, w: 2.95, h: 0.62, fontFace: F, fontSize: 9.5, color: RED, bold: true, margin: 0, valign: "top" });
-  bullets(s, ["직선 관계면 통계·계량으로 충분하고 '왜'를 설명하기 쉬움",
-    "곡선·방향 전환이 잦은 자료는 머신러닝이 더 잘 따라가지만, 잡음까지 외우기 쉬움 (왼쪽 아래)",
-    { t: "권장: 통계·계량을 뼈대로, 머신러닝은 그 위에 보조로 접목 → 처음 보는 미래에서도 안정", b: true, c: G }],
-    { x: 6.85, y: 5.42, w: 6.0, h: 1.5, fontSize: 10.5 });
   foot(s, "AUC = 맞힌 정도(0.5 = 동전 던지기). 0.69 · 0.50 = 대시보드 실험(LightGBM 구매 분류기, 2001–2011 학습 표본을 무작위 K-fold vs 기간 분리 Purged K-fold로 평가). 그 밖의 그림은 개념 예시(가상 자료).");
 }
 

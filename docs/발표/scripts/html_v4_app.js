@@ -178,8 +178,9 @@ P.split = () => {
   const mix = [0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0], tm = Array(10).fill(0).concat([1, 1, 1, 1]), B = [], TR = "#3B8EA5", TE = "#F2A541";
   [[1, tm, "시간 순 분리"], [0, mix, "무작위로 섞기"]].forEach(([row, seq, nm]) => seq.forEach((m, i) => B.push({ x: i, y: row, z: 0.5, c: m ? TE : TR, h: `${nm}<br>${m ? "시험" : "학습"} 구간` })));
   B.push({ x: 15.2, y: 1, z: 2.0, c: "#2E7D52", h: "시간 분리 AUC 0.50 (실제 실력)" }, { x: 15.2, y: 0, z: 2.76, c: C.red, h: "섞기 AUC 0.69 (부풀려짐)" });
-  return [[bars3d(B, 0.85, 0.62), { type: "scatter3d", mode: "text", x: [15.2, 15.2], y: [1.05, -0.05], z: [2.45, 3.25], text: ["<b>AUC 0.50</b>", "<b>AUC 0.69</b>"], textfont: { size: 13, color: ["#2E7D52", C.red] }, hoverinfo: "skip" }],
-    { scene: { xaxis: ax3("시간 →", { showticklabels: false }), yaxis: ax3("", { tickvals: [0, 1], ticktext: ["무작위로 섞기", "시간 순 분리"] }), zaxis: ax3("", { showticklabels: false }),
+  return [[bars3d(B, 0.85, 0.62)],                                   // AUC 글자는 회전해도 가리지 않게 화면 고정
+    { annotations: [{ xref: "paper", yref: "paper", x: 0.02, y: 0.98, xanchor: "left", showarrow: false, align: "left", font: { size: 12 },
+        text: `<b><span style="color:${C.red}">■ 섞기 AUC 0.69</span></b> (부풀려짐)<br><b><span style="color:#2E7D52">■ 시간 분리 AUC 0.50</span></b> (실제 실력)` }], scene: { xaxis: ax3("시간 →", { showticklabels: false }), yaxis: ax3("", { tickvals: [0, 1], ticktext: ["무작위로 섞기", "시간 순 분리"] }), zaxis: ax3("", { showticklabels: false }),
       aspectmode: "manual", aspectratio: { x: 2.2, y: 1.1, z: 0.9 }, near: true, camera: { eye: { x: -1.35, y: -2.4, z: 1.25 } } } }];
 };
 P.linfit = () => {
@@ -335,14 +336,15 @@ Reveal.on("slidechanged", (e) => show(e.currentSlide));
 // 테마: T 키로 기본 → 유리·밝게 → 유리·어둡게 순환 (회의실 조명에 맞춰). 주소 뒤 ?theme=glass / glass-dark 로도 지정, 마지막 선택은 이 브라우저에 기억
 const THEMES = [["", "기본 디자인"], ["th-glass", "유리 · 밝게"], ["th-glass th-dark", "유리 · 어둡게"]];
 let thIdx = 0, thTimer;
+const TH_KEY = document.documentElement.dataset.themeKey || "mi-theme";
 function setTheme(k, toast) {
   thIdx = (k + THEMES.length) % THEMES.length;
   const cl = document.documentElement.classList; cl.remove("th-glass", "th-dark"); THEMES[thIdx][0].split(" ").filter(Boolean).forEach((c) => cl.add(c));
-  try { localStorage.setItem("mi-theme", thIdx); } catch (e) {}
-  if (toast) { const t = $("#thToast"); t.textContent = `테마: ${THEMES[thIdx][1]}  (T 키로 바꾸기 · 지금은 표지·3대 전략·리스크 장에 시범 적용)`; t.classList.add("on"); clearTimeout(thTimer); thTimer = setTimeout(() => t.classList.remove("on"), 2200); }
+  try { localStorage.setItem(TH_KEY, thIdx); } catch (e) {}
+  if (toast) { const t = $("#thToast"); t.textContent = `테마: ${THEMES[thIdx][1]}  (T 키로 바꾸기${document.documentElement.dataset.themeAll ? "" : " · 지금은 표지·3대 전략·리스크 장에 시범 적용"})`; t.classList.add("on"); clearTimeout(thTimer); thTimer = setTimeout(() => t.classList.remove("on"), 2200); }
 }
-(() => { const q = new URLSearchParams(location.search).get("theme"); let k = 0;
-  if (q) k = { glass: 1, "glass-dark": 2 }[q] || 0; else { try { k = +localStorage.getItem("mi-theme") || 0; } catch (e) {} }
+(() => { const q = new URLSearchParams(location.search).get("theme"); let k = +(document.documentElement.dataset.themeDefault || 0);
+  if (q) k = { glass: 1, "glass-dark": 2 }[q] || 0; else { try { const v = localStorage.getItem(TH_KEY); if (v !== null) k = +v; } catch (e) {} }
   setTheme(k, false); })();
 Reveal.addKeyBinding({ keyCode: 84, key: "T", description: "테마 바꾸기 (기본 · 유리 밝게 · 유리 어둡게)" }, () => setTheme(thIdx + 1, true));
 // 마우스 휠 = 장 넘김 (3D 그래프 위에서는 휠이 확대·축소). 터치패드 관성으로 여러 장 넘어가지 않게 한 번 멈췄다가 다음 장

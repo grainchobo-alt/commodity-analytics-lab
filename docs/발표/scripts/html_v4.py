@@ -32,9 +32,11 @@ import analytics as A  # noqa: E402
 import ls_strategies as LS  # noqa: E402
 
 NM = HERE / "node_modules"
-OUT = HERE.parent / "원자재_퀀트_MI_발표_v4.html"
-WEB = HERE.parent / "MI_quant_v4_web"                           # 폴더판 (index.html + assets/). zip 안 이름은 영문(압축 도구별 한글 깨짐 방지)
-ZIP = HERE.parent / "원자재_퀀트_MI_발표_v4_web"                 # → 원자재_퀀트_MI_발표_v4_web.zip
+GLASS = "--glass" in sys.argv                                    # --glass = 유리+에디토리얼 테마를 전 장에 입힌 별도 판 (기본판은 그대로 둠)
+SUF = "_유리" if GLASS else ""
+OUT = HERE.parent / f"원자재_퀀트_MI_발표_v4{SUF}.html"
+WEB = HERE.parent / ("MI_quant_v4_glass_web" if GLASS else "MI_quant_v4_web")   # 폴더판 (index.html + assets/). zip 안 이름은 영문(압축 도구별 한글 깨짐 방지)
+ZIP = HERE.parent / f"원자재_퀀트_MI_발표_v4{SUF}_web"           # → 원자재_퀀트_MI_발표_v4(_유리)_web.zip
 MIME = {".png": "image/png", ".mp4": "video/mp4"}
 IMGS = {}                                                        # 장에 쓰인 그림 이름 → 경로
 PLOTS = {"c47a_lasso3d": "lasso", "c47b_pca3d": "pca", "c47c_rf3d": "rf", "c47d_lstm3d": "lstm",
@@ -398,7 +400,8 @@ def slide_html(n, s, D):
     note = f'<aside class="notes">{H.escape(s.get("notes", ""))}</aside>'
     bg = ' data-background-color="#1E3A2F"' if dark else ""
     stems = {Path(it["opts"]["path"]).stem for it in s["items"] if it["kind"] == "image"}
-    pilot = ' class="pilot"' if n == 1 or stems & {"c55_mom3d", "c26_corr"} else ""          # 테마 시범 장: 표지 · 3대 전략 · 리스크
+    cls = (["pilot"] if GLASS or n == 1 or stems & {"c55_mom3d", "c26_corr"} else []) + (["cover"] if n == 1 else [])   # 테마 적용 장 (기본판 = 시범 3장, 유리판 = 전 장)
+    pilot = f' class="{" ".join(cls)}"' if cls else ""
     return f'<section data-slide="{n}"{bg}{pilot}><div class="cv{" dark" if dark else ""}">' + "".join(els) + f"</div>{note}</section>"
 
 
@@ -411,6 +414,8 @@ def main():
     S = json.loads(cap.read_text(encoding="utf-8"))["slides"]
     secs = [slide_html(n, s, D) for n, s in enumerate(S, 1)]
     tpl = (HERE / "html_v4_template.html").read_text(encoding="utf-8").replace("<!--@SLIDES-->", "\n".join(secs))
+    if GLASS:                                                    # 유리판: 처음부터 유리·밝게, 선택 기억은 기본판과 따로
+        tpl = tpl.replace('<html lang="ko">', '<html lang="ko" data-theme-default="1" data-theme-key="mi-theme-glass" data-theme-all="1">', 1).replace("<title>원자재 퀀트 MI 발표 v4</title>", "<title>원자재 퀀트 MI 발표 v4 (유리)</title>", 1)
     src = {"REVEAL_CSS": NM / "reveal.js/dist/reveal.css", "REVEAL_JS": NM / "reveal.js/dist/reveal.js", "NOTES_JS": NM / "reveal.js/plugin/notes/notes.js",
            "PLOTLY_JS": NM / "plotly.js-dist-min/plotly.min.js", "APP_JS": HERE / "html_v4_app.js", "THEME_CSS": HERE / "html_v4_theme.css"}
     data_js = "const D = " + json.dumps(D, ensure_ascii=False) + ";"

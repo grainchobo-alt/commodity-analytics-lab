@@ -37,7 +37,7 @@ html.th-dark { --glass: rgba(255,255,255,.075); --glass-line: rgba(255,255,255,.
 .th-glass.th-dark.on-pilot body, .th-glass.th-dark.on-pilot .reveal { background: #0C1913; }
 
 /* 표지: 제목 뒤 유리판 */
-.th-glass .pilot .cv.dark::before {
+.th-glass .pilot.cover .cv.dark::before {
   content: ""; position: absolute; left: calc(var(--u)*0.5); top: calc(var(--u)*1.2); width: calc(var(--u)*12.3); height: calc(var(--u)*2.85);
   background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.2); border-radius: calc(var(--u)*0.22);
   backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%); box-shadow: 0 20px 50px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.25);
@@ -82,3 +82,13 @@ html.th-dark { --glass: rgba(255,255,255,.075); --glass-line: rgba(255,255,255,.
 #thToast.on { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .th-glass .pilot .cv { animation: none; } }
 .th-glass.th-dark .pilot .sh.f-FBF4E1 { background: linear-gradient(120deg, rgba(200,162,74,.22), rgba(255,255,255,.05)) !important; border-color: rgba(200,162,74,.55) !important; }
+/* 어둡게: 흰색·연분홍 상자도 어두운 유리로 (밝은 글자가 묻히지 않게), 짙은 녹색 상자는 테두리로 구분 */
+.th-glass.th-dark .pilot .sh.f-FFFFFF, .th-glass.th-dark .pilot .sh.f-FBEDE7 { background: var(--glass) !important; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.th-glass.th-dark .pilot .sh.f-FBEDE7 { background: rgba(217,88,43,.16) !important; }
+.th-glass.th-dark .pilot .sh.f-1E3A2F { border: 1px solid rgba(255,255,255,.22) !important; }
+/* 어둡게: 나머지 진한 글자색 */
+.th-glass.th-dark .pilot .tx[style*="color:#4A4A45"], .th-glass.th-dark .pilot .tx [style*="color:#4A4A45"] { color: #C9D0CB !important; }
+.th-glass.th-dark .pilot .tx[style*="color:#000000"], .th-glass.th-dark .pilot .tx [style*="color:#000000"] { color: #ECEEE9 !important; }
+.th-glass.th-dark .pilot .tx[style*="color:#2E7D3E"], .th-glass.th-dark .pilot .tx [style*="color:#2E7D3E"] { color: #86D9A6 !important; }
+.th-glass.th-dark .pilot .tx[style*="color:#9A9A94"], .th-glass.th-dark .pilot .tx [style*="color:#9A9A94"] { color: #A9B5AD !important; }
+.th-glass.th-dark .pilot .tx[style*="color:#7A5D10"], .th-glass.th-dark .pilot .tx [style*="color:#7A5D10"] { color: #E2C27A !important; }
