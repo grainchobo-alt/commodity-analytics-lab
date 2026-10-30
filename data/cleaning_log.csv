@@ -1,0 +1,59 @@
+﻿id,name,date,value,action,reason
+ak:A0,DCE Soybean #1,2008-07-20,4878.0,삭제,주말 날짜 관측치
+ak:C0,DCE Corn,2008-07-20,1901.0,삭제,주말 날짜 관측치
+ak:M0,DCE Soybean Meal,2008-07-20,3925.0,삭제,주말 날짜 관측치
+ak:Y0,DCE Soybean Oil,2008-07-20,11186.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bci,BCI (Capesize),2001-02-11,1828.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bci,BCI (Capesize),2002-06-01,1231.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bci,BCI (Capesize),2006-04-09,3516.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bci,BCI (Capesize),2012-11-03,2327.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bci,BCI (Capesize),2012-12-08,1762.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bci,BCI (Capesize),2014-09-28,1922.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bci,BCI (Capesize),2015-12-20,512.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bci,BCI (Capesize),2019-03-31,150.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bci,BCI (Capesize),2019-05-26,1545.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bci,BCI (Capesize),2019-09-15,4547.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bci,BCI (Capesize),2021-07-17,3460.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bcti,BCTI (Dirty Tanker),2006-09-24,1157.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bcti,BCTI (Dirty Tanker),2008-10-04,1341.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bcti,BCTI (Dirty Tanker),2021-07-17,464.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bdi,BDI (Dry),2001-02-11,1449.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bdi,BDI (Dry),2002-06-01,1042.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bdi,BDI (Dry),2006-04-09,2514.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bdi,BDI (Dry),2012-11-03,985.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bdi,BDI (Dry),2012-12-08,937.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bdi,BDI (Dry),2014-09-28,1062.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bdi,BDI (Dry),2015-12-20,478.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bdi,BDI (Dry),2019-03-31,689.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bdi,BDI (Dry),2019-05-26,1066.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bdi,BDI (Dry),2019-09-15,2311.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bpi,BPI (Panamax),2001-02-11,1529.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bpi,BPI (Panamax),2002-06-01,1037.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bpi,BPI (Panamax),2006-04-09,2234.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bpi,BPI (Panamax),2012-11-03,732.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bpi,BPI (Panamax),2014-09-28,812.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bpi,BPI (Panamax),2015-12-20,426.0,삭제,주말 날짜 관측치
+ak:macro_shipping_bpi,BPI (Panamax),2021-07-17,3708.0,삭제,주말 날짜 관측치
+ak:A0,DCE Soybean #1,2005-10-31,3144.0,결측 처리,Sina 연속계약 급등 후 즉시 복귀 (+13.6% -> -11.7%)
+ak:A0,DCE Soybean #1,2006-07-05,2577.0,결측 처리,Sina 연속계약 급락 후 즉시 복귀 (-31%)
+ak:A0,DCE Soybean #1,2006-07-31,2421.0,결측 처리,Sina 연속계약 급락 후 즉시 복귀 (-41%)
+ak:A0,DCE Soybean #1,2006-08-04,2605.0,결측 처리,Sina 연속계약 급락 후 즉시 복귀 (-34%)
+ak:A0,DCE Soybean #1,2006-08-15,2526.0,결측 처리,Sina 연속계약 급락 후 즉시 복귀 (-34%)
+ak:A0,DCE Soybean #1,2008-05-12,5442.0,결측 처리,Sina 연속계약 급등 후 즉시 복귀 (+25%)
+ak:C0,DCE Corn,2012-06-13,2416.0,결측 처리,Sina 연속계약 급등 후 즉시 복귀
+ak:C0,DCE Corn,2012-06-18,2425.0,결측 처리,Sina 연속계약 급등 후 즉시 복귀
+ak:C0,DCE Corn,2015-09-07,2279.0,결측 처리,DCE 전 품목 동시 급등 후 복귀 (휴장 직후 오류 레코드)
+ak:C0,DCE Corn,2016-04-05,1715.0,결측 처리,Sina 연속계약 급등 후 즉시 복귀 (+18.5%)
+ak:I0,DCE Iron Ore,2015-09-07,467.0,결측 처리,DCE 전 품목 동시 급등 후 복귀 (휴장 직후 오류 레코드)
+ak:I0,DCE Iron Ore,2015-10-08,550.5,결측 처리,국경절 휴장 직후 +40.5% 후 즉시 복귀
+ak:J0,DCE Coke,2015-09-07,849.0,결측 처리,DCE 전 품목 동시 급등 후 복귀 (휴장 직후 오류 레코드)
+ak:JM0,DCE Coking Coal,2020-04-02,1119.0,결측 처리,Sina 연속계약 급락 후 즉시 복귀
+ak:M0,DCE Soybean Meal,2014-10-08,3117.0,결측 처리,국경절 휴장 직후 +13% 후 즉시 복귀
+ak:macro_shipping_bcti,BCTI (Dirty Tanker),2013-12-11,498.0,결측 처리,Baltic 지수는 평활 산출 - 1일 -22% 후 복귀는 입력 오류
+ak:macro_shipping_bcti,BCTI (Dirty Tanker),2014-10-27,932.0,결측 처리,Baltic 지수는 평활 산출 - 1일 +33% 후 복귀는 입력 오류
+ak:macro_shipping_bcti,BCTI (Dirty Tanker),2024-10-29,722.0,결측 처리,Baltic 지수는 평활 산출 - 1일 +28% 후 복귀는 입력 오류
+yf:KRW=X,USD/KRW,2007-05-01,891.6199951171875,결측 처리,Yahoo FX 잘못된 틱 (930 -> 892 -> 930)
+yf:KRW=X,USD/KRW,2014-05-19,999.8300170898438,결측 처리,Yahoo FX 잘못된 틱 (1028 -> 1000 -> 1022)
+yf:ZR=F,Rough Rice,2000-01-13,6.480000019073486,결측 처리,초기 Yahoo 데이터 급등 후 복귀
+yf:ZR=F,Rough Rice,2000-05-17,6.289999961853027,결측 처리,초기 Yahoo 데이터 급락 후 복귀
+yf:ZR=F,Rough Rice,2000-05-25,6.400000095367432,결측 처리,초기 Yahoo 데이터 급락 후 복귀

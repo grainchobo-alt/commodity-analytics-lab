@@ -6,7 +6,7 @@ __pycache__/
 .ipynb_checkpoints/
 node_modules/
 
-# ---- 비밀정보: API 키는 .env 에만 (형식은 .env.example) ----
+# ---- 비밀정보: API 키는 .env 에만 (형식은 .env.example) — GitHub에 올리지 않고 따로 옮김 ----
 .env
 .env.*
 !.env.example
@@ -17,44 +17,17 @@ node_modules/
 .vscode/
 .idea/
 
-# ---- 데이터: 수집 스크립트로 재생성 (setup.bat → run_daily.bat, 전체 이력은 collect.py --full)
-#      Yahoo·FRED·USDA·EIA·CFTC 등 제3자 원자료 재배포 방지 + 용량(약 300MB)
-data/*
-# 사람이 직접 관리하는 입력
-!data/cleaning_rules.csv
-# 비교 실험 결과 요약 (⑥ 실험 결과 탭이 바로 표시, 원자료 아님)
-!data/experiments_meta.json
-!data/*_compare.csv
+# ---- 데이터 (2026-10-30 사용자 결정: 회사 노트북으로 옮겨 바로 구동하도록 data/ 전체 추적 — 사내 정보 없음 확인) ----
+# 제외: 기관 리포트 원문(WASDE·STEO PDF·엑셀 약 1.1GB) — 대시보드는 파싱 결과(data/reports/*.parquet)만 읽음.
+#       원문이 필요하면 multimodal.py 수집으로 다시 받음.
+data/reports/raw/
 
-# ---- 생성물 ----
-dashboard.html
-source_test_result.csv
+# ---- 생성물 · 임시 ----
 *.log
+docs/발표/_demo_tmp/
 
 # ---- OS · 오피스 임시 파일 ----
 Thumbs.db
 desktop.ini
 .DS_Store
 ~$*
-
-# ---- 내부 문서 (기획서 등) ----
-*.docx
-*.pptx
-
-# ---- 발표 HTML (내부 수치 포함, html_v4.py로 재생성)
-docs/발표/*.html
-docs/발표/*_web/
-docs/발표/MI_quant_v4_web/
-docs/발표/*.zip
-docs/발표/*.mp4
-docs/발표/_demo_tmp/
-docs/발표/*.png
-# 예외: 최신 발표본 4개는 추적 (사용자 확인 2026-10-30 — 사내 비밀정보 없음). 재생성 후 다시 커밋
-!docs/발표/원자재_퀀트_MI_발표_v4.pptx
-!docs/발표/원자재_퀀트_MI_발표_v4_유리.pptx
-!docs/발표/원자재_퀀트_MI_발표_v4.html
-!docs/발표/원자재_퀀트_MI_발표_v4_유리.html
-# 예외: 학습 노트 워드 3개도 추적 (사용자 확인 2026-10-30 — 사내 비밀정보 없음). 다시 만들면 함께 커밋
-!docs/학습/모델도감_학습노트.docx
-!docs/학습/모델도감_학습노트_v2.docx
-!docs/학습/블랙숄즈_학습노트.docx

@@ -1,0 +1,70 @@
+﻿source,name,ok,last,rows,note
+yahoo,WTI (CL=F),True,2026-10-12,21,
+yahoo,Brent (BZ=F),True,2026-10-12,21,
+yahoo,NatGas (NG=F),True,2026-10-12,21,
+yahoo,HeatingOil (HO=F),True,2026-10-12,21,
+yahoo,Gasoline (RB=F),True,2026-10-12,21,
+yahoo,Gold (GC=F),True,2026-10-12,21,
+yahoo,Silver (SI=F),True,2026-10-12,21,
+yahoo,Platinum (PL=F),True,2026-10-12,21,
+yahoo,Palladium (PA=F),True,2026-10-12,21,
+yahoo,Aluminum (ALI=F),True,2026-10-12,21,
+yahoo,Copper (HG=F),True,2026-10-12,21,
+yahoo,Corn (ZC=F),True,2026-10-12,21,
+yahoo,Soybean (ZS=F),True,2026-10-12,21,
+yahoo,SoyMeal (ZM=F),True,2026-10-12,21,
+yahoo,SoyOil (ZL=F),True,2026-10-12,21,
+yahoo,Wheat_CBOT (ZW=F),True,2026-10-12,21,
+yahoo,Wheat_KC (KE=F),True,2026-10-12,21,
+yahoo,Oats (ZO=F),True,2026-10-12,21,
+yahoo,Rice (ZR=F),True,2026-10-12,21,
+yahoo,Wheat_MGEX (MWE=F),False,,0,empty
+yahoo,Coffee (KC=F),True,2026-10-12,21,
+yahoo,Sugar (SB=F),True,2026-10-12,21,
+yahoo,Cocoa (CC=F),True,2026-10-12,21,
+yahoo,Cotton (CT=F),True,2026-10-12,21,
+yahoo,OJ (OJ=F),True,2026-10-12,21,
+yahoo,LiveCattle (LE=F),True,2026-10-12,21,
+yahoo,FeederCattle (GF=F),True,2026-10-12,21,
+yahoo,LeanHogs (HE=F),True,2026-10-12,21,
+yahoo,Lumber (LBR=F),True,2026-10-12,21,
+yahoo,IronOre_SGX (TIO=F),True,2026-10-09,19,
+yahoo,Coal_Newc (MTF=F),False,,0,empty
+yahoo,BDRY_ETF (BDRY),True,2026-10-12,21,
+yahoo,DBA (DBA),True,2026-10-12,21,
+yahoo,DBB (DBB),True,2026-10-12,21,
+yahoo,Ethanol (EH=F),False,,0,empty
+yahoo,Rapeseed (RS=F),False,,0,empty
+yahoo,PalmOil (FCPO=F),False,,0,empty
+yahoo,Uranium_ETF (URA),True,2026-10-12,21,
+yahoo,Rotterdam_Coal (LQ=F),False,,0,empty
+fred,WTI_daily (DCOILWTICO),False,,0,"ConnectionError(ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed"
+fred,Brent_daily (DCOILBRENTEU),False,,0,"ReadTimeout(ReadTimeoutError(""HTTPSConnectionPool(host='fred.stlouisfed.org', port=443): R"
+fred,HenryHub_daily (DHHNGSP),False,,0,"ConnectionError(ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed"
+fred,Copper_IMF_m (PCOPPUSDM),False,,0,"ConnectionError(ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed"
+fred,Wheat_IMF_m (PWHEAMTUSDM),False,,0,"ReadTimeout(ReadTimeoutError(""HTTPSConnectionPool(host='fred.stlouisfed.org', port=443): R"
+fred,Maize_IMF_m (PMAIZMTUSDM),False,,0,"ConnectionError(ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed"
+fred,Soybean_IMF_m (PSOYBUSDM),False,,0,"ReadTimeout(ReadTimeoutError(""HTTPSConnectionPool(host='fred.stlouisfed.org', port=443): R"
+fred,SoyMeal_IMF_m (PSMEAUSDM),False,,0,"ConnectionError(ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed"
+fred,Coal_AU_IMF_m (PCOALAUUSDM),False,,0,"ReadTimeout(ReadTimeoutError(""HTTPSConnectionPool(host='fred.stlouisfed.org', port=443): R"
+fred,IronOre_IMF_m (PIORECRUSDM),False,,0,"ConnectionError(ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed"
+fred,Aluminum_IMF_m (PALUMUSDM),False,,0,"ConnectionError(ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed"
+fred,GlobalCommodityIdx (PALLFNFINDEXM),False,,0,"ReadTimeout(ReadTimeoutError(""HTTPSConnectionPool(host='fred.stlouisfed.org', port=443): R"
+fred,USDKRW (DEXKOUS),False,,0,"ReadTimeout(ReadTimeoutError(""HTTPSConnectionPool(host='fred.stlouisfed.org', port=443): R"
+fred,DXY_broad (DTWEXBGS),False,,0,"ConnectionError(ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed"
+worldbank,PinkSheet monthly xlsx link,True,,0,https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/related/C
+imf(dbnomics),Copper PCOPP monthly,True,2025-06,426,
+akshare,macro_shipping_bdi,True,2026-10-12,9558,"['日期', '最新值', '涨跌幅', '近3月涨跌幅', '近6月涨跌幅', '近1年涨跌幅', '近2年涨跌幅', '近3年涨跌幅']"
+akshare,macro_shipping_bci,True,2026-10-12,6878,"['日期', '最新值', '涨跌幅', '近3月涨跌幅', '近6月涨跌幅', '近1年涨跌幅', '近2年涨跌幅', '近3年涨跌幅']"
+akshare,macro_shipping_bpi,True,2026-10-12,6841,"['日期', '最新值', '涨跌幅', '近3月涨跌幅', '近6月涨跌幅', '近1年涨跌幅', '近2年涨跌幅', '近3年涨跌幅']"
+akshare,macro_shipping_bcti,True,2026-10-12,6038,"['日期', '最新值', '涨跌幅', '近3月涨跌幅', '近6月涨跌幅', '近1年涨跌幅', '近2年涨跌幅', '近3年涨跌幅']"
+akshare,DCE iron ore (I0),True,2026-10-12,3154,
+akshare,DCE soymeal (M0),True,2026-10-12,5296,
+akshare,DCE corn (C0),True,2026-10-12,5290,
+akshare,DCE soybean#1 (A0),True,2026-10-12,5293,
+akshare,DCE coking coal (JM0),True,2026-10-12,3286,
+akshare,ZCE thermal coal (ZC0),True,2022-12-30,1760,
+cftc,disaggregated futures-only,True,2026-10-06,1,
+usda,AMS MyMarketNews,False,,0,"ConnectionError(ProtocolError('Connection aborted.', RemoteDisconnected('Remote end closed"
+usda,FAS ESR api,False,,0,"HTTP 403 '""Bad API Key""'"
+usda,NASS quickstats(no key),False,,0,"HTTP 401 '{""error"":[""unauthorized""]}'"
