@@ -994,6 +994,14 @@ BACKLOG = [  # (날짜, 버전, 검증, 바꿔 본 것, 결과, 판단, 근거)
      "defer_plus2_compare.csv"),
     ("2026-10-27", "v1.35.0", "GDELT 뉴스 감성", "뉴스 헤드라인 FinBERT 감성을 텍스트 갈래에", "요청 제한(429)으로 하루에 옥수수 일부만 수집 — 시간상 불리",
      "중단 · 분석 제외", "data/mm/gdelt_titles.parquet"),
+    ("2026-11-02", "v1.47.0", "돌파 매매 (돈치안 55/20주)", "55주 고점 돌파 롱 · 저점 붕괴 숏 (20/10주도 사전 고정 시험)",
+     "Sharpe 0.45 (20/10주 0.21, 2017~ −0.14), 52주 모멘텀과 상관 0.84 — 같은 신호. 혼합의 모멘텀 자리 대체 시 0.88→0.80",
+     "시험 후 미채택", "quant16.py · data/quant16_compare.csv"),
+    ("2026-11-02", "v1.47.0", "PCA 잔차 통계적 차익 (Avellaneda-Lee 주간판)", "주성분 3개 제거 후 잔차 26주 이탈 s-점수 역방향 (진입 1.25 · 청산 0.5), 시장 중립",
+     "Sharpe −0.09 (연속판 −0.13), 가치와 상관 0.12 — 이탈이 되돌아오지 않음. 혼합에 넣으면 하락", "시험 후 미채택", "quant16.py · data/quant16_compare.csv"),
+    ("2026-11-02", "v1.47.0", "USDA 보고서 이벤트 (헤지 시점)", "WASDE·분기 보고서(3·6·9월 말) 날 변동 배수 · 99% VaR 초과율, 같은 평균 헤지 50%에서 '보고서 주 집중' vs 상시",
+     "분기 보고서 날 변동 1.3~2.9배(옥수수 최대), VaR 초과율 최대 33%(평소 1.5%). 보고서 주 헤지 집중은 상시보다 흔들림·최악 1% 모두 나쁨",
+     "부분 적용 — 헤지 랩 A1 VaR 보정에만 사용", "hedge_core.event_multipliers · data/quant16_events.csv"),
 ]
 
 
@@ -1023,6 +1031,11 @@ def procure_backlog(path=None):
             df = pd.read_csv(DATA / fn, encoding="utf-8-sig")
             sheets[f"{nm}_요약"] = _plus_summary(df)
             sheets[f"{nm}_품목별_시험AUC"] = df[df.기간 == "시험"].pivot_table(index="품목", columns="변수묶음", values="AUC").reset_index()
+    if (DATA / "quant16_compare.csv").exists():                      # 퀀트 전략 16개(옵션 2개 제외) 판정표 — quant16.py
+        Q = pd.read_csv(DATA / "quant16_compare.csv", encoding="utf-8-sig")
+        keep = ["번호", "행", "전략", "영문", "한 줄 설명", "대시보드 위치", "결과 1", "결과 2", "판단", "Sharpe", "Sharpe 2007–16", "Sharpe 2017–",
+                "52주 모멘텀과 상관", "혼합 Sharpe (10% 추가)", "혼합 차이 t", "혼합 차이 2007–16 (연 %p)", "혼합 차이 2017– (연 %p)", "시험 조건", "시험일"]
+        sheets["퀀트 전략 16"] = Q[[c for c in keep if c in Q]]
     if (DATA / "predict_grid_compare.csv").exists():
         T = pd.read_csv(DATA / "predict_grid_compare.csv", encoding="utf-8-sig")
         keep = [c for c in ["모델군", "모델", "설명변수", "예측 시작", "순위 롱숏 Sharpe", "순위 롱숏 위약 대비 차이 t", "방향 Sharpe", "방향 위약 대비 차이 t",

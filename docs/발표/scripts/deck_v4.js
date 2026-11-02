@@ -130,6 +130,38 @@ const SH = D.sharpe, VT = D.voltgt;
   foot(s, "어느 한 분야만으로는 부족 — 통계로 의심하고, 계량으로 구조를 보고, 머신러닝으로 패턴을 찾고, 프로그래밍으로 매일 반복. 겹치는 영역 = 두 분야가 만나 생긴 실무 기법.");
 }
 
+// ════════════════ 퀀트 전략 16개 — 시험해 보고 통과한 것만 (4행 × 4열, 카드마다 회전 3D · quant16.py · charts_q16.py)
+{
+  const s = base();
+  const Q = D.q16 || [];
+  const cnt = (k) => Q.filter((q) => q.판단.startsWith(k)).length;
+  header(s, "Ⅰ", "퀀트 전략 16개 — 우리 자료로 모두 시험, 통과한 것만 대시보드에",
+    `채택 ${cnt("●")} · 부분 적용 ${cnt("◐")} (위험 관리용) · 시험 후 미채택 ${cnt("✕")} · 해당 없음 ${cnt("—")}  (옵션 전략 2개 제외)`);
+  const BADGE = { "●": ["2E7D52", "채택"], "◐": ["B8901C", "부분 적용"], "✕": [RED, "미채택"], "—": ["9A9A94", "해당 없음"] };
+  const ROWS = [["추세", 1, 5, 14, 13], ["되돌림", 2, 4, 3, 9], ["비중\n위험", 15, 16, 8, 12], ["데이터\n실행", 17, 7, 18, 6]];
+  const x0 = 0.97, y0 = 1.58, cw = 2.91, ch = 1.265, gx = 0.08, gy = 0.07;
+  ROWS.forEach(([lab, ...nums], r) => {
+    const y = y0 + r * (ch + gy);
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y, w: 0.4, h: ch, fill: { color: G }, line: { color: G }, rectRadius: 0.05 });
+    s.addText(lab.split("\n").map((t, j, a) => ({ text: t, options: { breakLine: j < a.length - 1 } })),
+      { x: 0.5, y, w: 0.4, h: ch, fontFace: F, fontSize: 8, bold: true, color: WHITE, align: "center", valign: "middle", margin: 0 });
+    nums.forEach((n, c) => {
+      const q = Q.find((o) => o.번호 === n); if (!q) return;
+      const x = x0 + c * (cw + gx), [bc, bt] = BADGE[q.판단[0]] || BADGE["—"];
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w: cw, h: ch, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.05 });
+      s.addText(`${n}  ${q.전략}`, { x: x + 0.08, y: y + 0.04, w: cw - 0.95, h: 0.24, fontFace: F, fontSize: 9.5, bold: true, color: G, valign: "middle", margin: 0 });
+      s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: x + cw - 0.84, y: y + 0.06, w: 0.78, h: 0.2, fill: { color: bc }, line: { color: bc }, rectRadius: 0.04 });
+      s.addText(bt, { x: x + cw - 0.84, y: y + 0.06, w: 0.78, h: 0.2, fontFace: F, fontSize: 7, bold: true, color: WHITE, align: "center", valign: "middle", margin: 0 });
+      s.addImage({ path: path.join(__dirname, "img", `q16_${String(n).padStart(2, "0")}.gif`), x: x + 0.04, y: y + 0.31, w: 1.12, h: 0.91 });
+      s.addText([{ text: q["한 줄 설명"], options: { color: INK, breakLine: true } },
+                 { text: q["결과 1"], options: { color: G, bold: true, breakLine: true, fontSize: 6.8 } },
+                 { text: q["결과 2"], options: { color: MUTED, fontSize: 6.8 } }],
+        { x: x + 1.2, y: y + 0.3, w: cw - 1.26, h: ch - 0.34, fontFace: F, fontSize: 7.3, valign: "top", margin: 0, paraSpaceAfter: 2 });
+    });
+  });
+  foot(s, "롱숏 = 19품목 주간 · 비용 5bp · 목표 변동성 10% · 2007–2026, '혼합에 10%' = 기준 혼합(MinVar 50·모멘텀 25·가치 25, Sharpe 0.88)에 추가했을 때. 채택 조건 = 혼합 개선 t ≥ 2 & 두 기간 모두 개선. 그림은 회전 3D(HTML은 클릭하면 직접 돌려 볼 수 있음). 출처: quant16.py · 구매 판단 검증 백로그");
+}
+
 // ════════════════ 4 데이터 유형
 {
   const s = base();

@@ -351,7 +351,7 @@ Reveal.addKeyBinding({ keyCode: 84, key: "T", description: "테마 바꾸기 (�
 let wheelLast = 0, wheelFire = 0;
 addEventListener("wheel", (e) => {
   const now = Date.now(), gap = now - wheelLast; wheelLast = now;
-  if (e.ctrlKey || (e.target.closest && e.target.closest(".plot[data-spin]")) || Math.abs(e.deltaY) < 4) return;
+  if (e.ctrlKey || (e.target.closest && e.target.closest(".plot[data-spin], #q16m")) || Math.abs(e.deltaY) < 4) return;
   if (gap < 200 || now - wheelFire < 650) return;
   wheelFire = now; e.deltaY > 0 ? Reveal.next() : Reveal.prev();
 }, { passive: true });
@@ -382,3 +382,23 @@ document.querySelectorAll(".hx").forEach((box) => {
   g.addEventListener("mouseleave", () => { g.classList.remove("hl"); all.forEach((x) => x.classList.remove("on")); tip.style.display = "none"; });
 });
 addEventListener("resize", () => { fit(); const cur = Reveal.getCurrentSlide(); cur && cur.querySelectorAll(".plot[data-done]").forEach((el) => draw(el, true)); });
+
+// 퀀트 전략 16: 카드의 회전 그림을 누르면 큰 창에서 실시간 3D (WebGL을 하나만 쓰도록 창 하나에서 그림)
+(() => {
+  const m = document.getElementById("q16m"); if (!m || !D.q16) return;
+  const box = m.querySelector(".q16-plot");
+  const close = () => { m.classList.remove("on"); Plotly.purge(box); };
+  const ax = (t) => ({ title: { text: t, font: { size: 12 } }, tickfont: { size: 10 } });
+  document.querySelectorAll(".q16").forEach((el) => el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const sp = D.q16[el.dataset.q]; if (!sp) return;
+    m.querySelector(".q16-t").textContent = sp.title;
+    m.querySelector(".q16-c").textContent = (sp.real ? "실제 자료" : "개념도") + " · 끌어서 돌리기 · 휠로 확대 · Esc 또는 바깥을 누르면 닫힘";
+    m.classList.add("on");
+    Plotly.newPlot(box, sp.traces, { margin: { l: 0, r: 0, t: 0, b: 0 }, showlegend: false, paper_bgcolor: "rgba(0,0,0,0)",
+      scene: { xaxis: ax(sp.axes[0]), yaxis: ax(sp.axes[1]), zaxis: ax(sp.axes[2]), camera: { eye: { x: 1.55, y: -1.55, z: 0.85 } } } },
+      { displaylogo: false, responsive: true });
+  }));
+  m.addEventListener("click", (e) => { if (e.target === m || e.target.classList.contains("q16-x")) close(); });
+  addEventListener("keydown", (e) => { if (e.key === "Escape" && m.classList.contains("on")) { e.stopImmediatePropagation(); e.preventDefault(); close(); } }, true);
+})();

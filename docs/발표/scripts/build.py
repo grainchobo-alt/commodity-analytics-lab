@@ -66,6 +66,10 @@ def build_data():
     nums["voltgt"] = {"tgt": vt["목표 변동성 (%)"].astype(int).tolist(),
                       **{k: vt[c].round(1).tolist() for k, c in [("arith", "연수익 산술 (%)"), ("cagr", "연수익 복리 (%)"),
                                                                   ("mdd", "최대 낙폭 (%)"), ("realvol", "실현 변동성 (%)")]}}
+    q16 = ROOT / "data" / "quant16_compare.csv"                      # 퀀트 전략 16개 카드 (quant16.py)
+    if q16.exists():
+        Q = pd.read_csv(q16, encoding="utf-8-sig")
+        nums["q16"] = Q[["행", "번호", "전략", "영문", "한 줄 설명", "결과 1", "결과 2", "판단"]].to_dict("records")
     (HERE / "data.json").write_text(json.dumps(nums, ensure_ascii=False, indent=1), encoding="utf-8")
     print("data.json:", ", ".join(nums))
 
@@ -133,7 +137,7 @@ def main():
     print({1: "※ 발표 전 확인: 29번 장(횡단면 군집)·30번 장(이번 주 판단 카드)은 deck_v1.js에 직접 적은 값 -> 앱 화면 기준으로 갱신",
            2: "※ 발표 전 확인: 10번 장(이번 주 판단)·11번 장(물량 위험 금액)·2번 장 요약 숫자는 deck_v2.js에 직접 적은 값 -> 앱 화면 기준으로 갱신",
            3: "※ 발표 전 확인: 14번 장(이번 주 판단)·15번 장(물량 위험 금액)·2번 장 요약 숫자는 deck_v3.js에 직접 적은 값 -> 앱 화면 기준으로 갱신",
-           4: "※ 발표 전 확인: 16번 장(이번 주 판단)·17번 장(물량 위험 금액)·2번 장 요약 숫자는 deck_v4.js에 직접 적은 값 -> 앱 화면 기준으로 갱신"}.get(v, ""))
+           4: "※ 발표 전 확인: 17번 장(이번 주 판단)·18번 장(물량 위험 금액)·2번 장 요약 숫자는 deck_v4.js에 직접 적은 값 -> 앱 화면 기준으로 갱신"}.get(v, ""))
 
 
 if __name__ == "__main__":

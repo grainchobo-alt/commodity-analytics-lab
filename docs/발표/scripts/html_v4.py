@@ -37,7 +37,7 @@ SUF = "_유리" if GLASS else ""
 OUT = HERE.parent / f"원자재_퀀트_MI_발표_v4{SUF}.html"
 WEB = HERE.parent / ("MI_quant_v4_glass_web" if GLASS else "MI_quant_v4_web")   # 폴더판 (index.html + assets/). zip 안 이름은 영문(압축 도구별 한글 깨짐 방지)
 ZIP = HERE.parent / f"원자재_퀀트_MI_발표_v4{SUF}_web"           # → 원자재_퀀트_MI_발표_v4(_유리)_web.zip
-MIME = {".png": "image/png", ".mp4": "video/mp4"}
+MIME = {".png": "image/png", ".mp4": "video/mp4", ".gif": "image/gif"}
 IMGS = {}                                                        # 장에 쓰인 그림 이름 → 경로
 PLOTS = {"c47a_lasso3d": "lasso", "c47b_pca3d": "pca", "c47c_rf3d": "rf", "c47d_lstm3d": "lstm",
          "c48a_chronos3d": "chronos", "c48b_finbert3d": "finbert", "c48c_garch3d": "garch", "c48d_hmm3d": "hmm",
@@ -55,6 +55,9 @@ def r(x, n=2):
 def data():
     adj = A.load_levels(roll_adjusted=True); asof = adj.index.max()
     D = {"asof": f"{asof:%Y-%m-%d}", "built": f"{date.today():%Y-%m-%d}", "buy_asof": "2026-10-26"}
+    q16 = HERE / "img" / "q16_specs.json"                                # 퀀트 전략 16 카드의 실시간 3D 정의 (charts_q16.py)
+    if q16.exists():
+        D["q16"] = json.loads(q16.read_text(encoding="utf-8"))
     rng = np.random.default_rng(3)
     # 8장: 변수 고르기 · 판단 나무 숲 · 기억 비중 (charts_v4와 같은 예시 자료)
     from sklearn.ensemble import RandomForestRegressor
@@ -385,6 +388,10 @@ def slide_html(n, s, D):
                 h_ = heat_html(o, D["xs"])
             elif name == "c26_corr":
                 h_ = corr_html(o, D["corr"])
+            elif name.startswith("q16_"):                                  # 퀀트 전략 16 카드: 회전 GIF, 누르면 실시간 3D 창 (charts_q16.py)
+                IMGS[Path(o["path"]).name] = Path(o["path"])
+                h_ = (f'<div class="el im q16" data-q="{int(name[4:])}" title="누르면 직접 돌려 볼 수 있음" style="{box_style(o)}">'
+                      f'<img src="@IMG:{Path(o["path"]).name}" alt=""></div>')
             elif name in PLOTS:
                 key = PLOTS[name]
                 extra = ""
