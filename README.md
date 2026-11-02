@@ -23,6 +23,7 @@
 | `range_defer.py` | 범위 기반 일부 물량 미루기: P(4주 뒤 −5% 아래) ≥ q*면 50% 미룸(고정형 · 지정가형), 변동성 모형 확률, q*는 학습 기간에서 선택 → `data/range_defer_compare.csv` |
 | `wasde_world.py` | 보유 WASDE 원문(txt · xls, 1997–)에서 세계 수급표(옥수수 · 대두 · 밀) 국가별 값을 발표 시점 그대로 추출 → `data/reports/wasde_world.parquet` |
 | `foreign_test.py` | 해외 수급 수정 노드 9개(남미 · 흑해 생산, 중국 수입, 중국 뺀 해외 재고 등)로 온톨로지 3판 · 수정 뒤 4주 방향 · 구간 확률 · 구매 미루기 재시험 → `data/foreign_*.csv` |
+| `vol_ont.py` | 온톨로지 노드로 다음 4주 변동성 예측: EWMA · HAR · +보고서 일정 · +온톨로지 충격 크기 · +전부를 QLIKE로 비교 → `data/vol_ont_compare.csv` |
 | `docs/온톨로지_실험로그.md` | 곡물 2단 온톨로지 구조(그림) · 자료 · 백테스트 결과 · 결정 기록 |
 | `회사노트북_설치가이드.md` · `setup_check.py` | 다른 PC(회사 노트북)로 옮길 때: 받기 → setup.bat → 점검(`setup_check.py --net`, 필수 실패 0개면 준비 완료) → 실행. 회사망 차단 시 대처·플랜 B 포함 |
 | `옵션랩_열기.bat` | 옵션 랩(`options_lab.py`, 포트 8504, 기존 대시보드와 별개) — 블랙숄즈 원리(수식·3D), 금·은·WTI(GLD·SLV·USO) 내재변동성 스마일·곡면, 다른 원자재 CSV 추가 방법. 계산 `options_bs.py`, 점검 `tests/test_options_bs.py` |
