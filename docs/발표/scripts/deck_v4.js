@@ -236,9 +236,9 @@ function mcards(s, ms) {
     const x = 0.5 + i * 3.1, y = 1.6, w = 3.0, h = 5.25;
     s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.08 });
     s.addShape(pres.shapes.RECTANGLE, { x, y: y + 0.12, w: 0.08, h: 0.45, fill: { color: m[3] }, line: { color: m[3] } });
-    s.addText(m[0], { x: x + 0.2, y: y + 0.08, w: w - 0.3, h: 0.5, fontFace: F, fontSize: 13.5, bold: true, color: INK, margin: 0, valign: "middle" });
+    s.addText(m[0], { x: x + 0.2, y: y + 0.08, w: w - 0.3, h: 0.5, fontFace: F, fontSize: 12.5, bold: true, color: INK, margin: 0, valign: "middle" });
     s.addText(m[1], { x: x + 0.2, y: y + 0.62, w: w - 0.35, h: 0.72, fontFace: F, fontSize: 10.5, color: INK, margin: 0, valign: "top" });
-    s.addText(m[2], { x: x + 0.2, y: y + 1.34, w: w - 0.35, h: 0.3, fontFace: F, fontSize: 9, color: MUTED, margin: 0, valign: "top" });
+    s.addText(m[2], { x: x + 0.2, y: y + 1.3, w: w - 0.35, h: 0.36, fontFace: F, fontSize: 9, color: MUTED, margin: 0, valign: "top" });
     s.addShape(pres.shapes.RECTANGLE, { x: x + 0.08, y: y + 1.7, w: w - 0.16, h: 2.65, fill: { color: WHITE }, line: { color: WHITE } });
     img(s, m[4], x + 0.1, y + 1.72, w - 0.2, 2.6);
     s.addText(m[5], { x: x + 0.2, y: y + 4.4, w: w - 0.35, h: 0.8, fontFace: F, fontSize: 9.5, color: G, margin: 0, valign: "top" });
@@ -248,13 +248,13 @@ function mcards(s, ms) {
   const s = base();
   header(s, "Ⅱ", "활용한 모델 ① — 숫자 자료에서 패턴을 배우는 머신러닝", "가격·거시 지표 같은 숫자 자료로 '어떤 조건에서 어떻게 움직였나'를 학습");
   mcards(s, [
-    ["쓸모 있는 변수 고르기", "후보 지표가 많으면 우연히 맞은 지표까지 섞임 → 영향이 작은 지표를 0으로 지워 꼭 필요한 것만 남김", "Lasso · Ridge · Elastic Net", G, "c47a_lasso3d",
+    ["Variable Selection (Regularization)", "후보 지표가 많으면 우연히 맞은 지표까지 섞임 → 영향이 작은 지표를 0으로 지워 꼭 필요한 것만 남김", "Lasso · Ridge · Elastic Net", G, "c47a_lasso3d",
       "그림: 걸러내는 강도를 높일수록 회색(지워진 지표)이 늘고 원유·재고·포지션만 남음 (예시)"],
-    ["공통 흐름으로 요약", "함께 움직이는 품목들의 공통 움직임을 몇 개의 '큰 흐름'으로 압축", "PCA · PLS · 요인 모형", G, "c47b_pca3d",
+    ["Factor & Principal Component Models", "함께 움직이는 품목들의 공통 움직임을 몇 개의 '큰 흐름'으로 압축", "PCA · PLS = 자료가 흐름을 찾음(이름 없음)\n요인 모형 = 달러·금리 등 미리 정한 흐름", G, "c47b_pca3d",
       "그림: 실제 옥수수·대두·밀 주간 수익률 — 점들이 한 방향(빨간 축)으로 늘어서 공통 흐름 하나가 71%를 설명"],
-    ["판단 나무 숲 (랜덤 포레스트)", "조건('가격이 1년 범위 하위 25%인가?')으로 자료를 나누는 판단 나무 수백 개의 예측을 평균", "Random Forest · XGBoost · LightGBM", BLUE, "c47c_rf3d",
+    ["Tree Ensemble Models (Random Forest)", "조건('가격이 1년 범위 하위 25%인가?')으로 자료를 나누는 판단 나무 수백 개의 예측을 평균", "Random Forest · XGBoost · LightGBM", BLUE, "c47c_rf3d",
       "그림: 조건 구간마다 높이가 다른 계단 지형 — '아주 싸고 변동성 클 때만 반등' 같은 관계 포착 (예시)"],
-    ["순서를 기억하는 신경망", "과거 흐름을 순서대로 읽으며 무엇을 오래 기억할지 스스로 학습", "LSTM · TFT · PatchTST · iTransformer", BLUE, "c47d_lstm3d",
+    ["Neural Network Sequence Models", "과거 흐름을 순서대로 읽으며 무엇을 오래 기억할지 스스로 학습", "LSTM · TFT · PatchTST · iTransformer", BLUE, "c47d_lstm3d",
       "그림: 최근 몇 주와 1년 전(계절)을 많이 기억 — 출렁임이 큰 시기엔 최근에 더 집중 (예시)"]]);
   foot(s, "예시 = 개념 설명용 합성 자료, 실제 = 2007–2026 주간 자료. 복잡한 모델일수록 과거에 과하게 맞출 위험 → 모든 모델은 학습에 안 쓴 이후 기간으로 시험.");
 }
@@ -264,15 +264,15 @@ function mcards(s, ms) {
   const s = base();
   header(s, "Ⅱ", "활용한 모델 ② — 사전학습 AI · 문서 AI · 위험과 국면", "최신 AI는 '읽고 요약'하는 데, 통계 모형은 '위험의 크기와 국면'을 재는 데 강점");
   mcards(s, [
-    ["사전학습 AI", "수많은 시계열을 미리 학습한 '시계열판 ChatGPT' — 추가 학습 없이 바로 예측", "Chronos (아마존) · TimesFM (구글)", RED, "c48a_chronos3d",
+    ["Time-Series Foundation Models*", "수많은 시계열을 미리 학습한 '시계열판 ChatGPT' — 추가 학습 없이 바로 예측", "Chronos (아마존) · TimesFM (구글)", RED, "c48a_chronos3d",
       "그림: 답을 한 점이 아니라 '가능성 분포'로 냄 — 먼 미래일수록 넓게 퍼짐 (옥수수 출렁임 기준 예시)"],
-    ["문서를 읽는 AI", "USDA·EIA 보고서, 연준 경기 보고서 문장을 긍정·부정 점수로 바꿈", "FinBERT (금융 특화 언어 모델)", RED, "c48b_finbert3d",
+    ["Multimodal Text Analysis (NLP)", "USDA·EIA 보고서, 연준 경기 보고서 문장을 언어 모델이 읽어 긍정·부정 점수로 바꿈", "FinBERT (금융 특화 언어 모델)", RED, "c48b_finbert3d",
       "그림: 실제 USDA 수급 보고서(WASDE) 품목별 연평균 어조 — 초록 = 긍정, 주황 = 부정"],
-    ["위험 크기 예측", "큰 출렁임이 몰려오는 성질로 다음 기간의 위험 폭을 계산", "GARCH 계열 · MIDAS", GOLD, "c48c_garch3d",
+    ["Volatility Clustering Models", "큰 출렁임이 몰려오는 성질로 다음 기간의 위험 폭을 계산", "GARCH 계열 · MIDAS", GOLD, "c48c_garch3d",
       "그림: 실제 6개 품목의 GARCH 예측 위험 — 2008·2012 가뭄·2020·2022에 동시에 솟음"],
-    ["시장 국면 판별", "보이지 않는 평시·위기 국면을 수익률 움직임으로 확률 추정", "국면 전환 모형(HMM) · 칼만 필터", GOLD, "c48d_hmm3d",
+    ["Regime-Switching Models", "보이지 않는 평시·위기 국면을 수익률 움직임으로 확률 추정", "국면 전환 모형(HMM) · 칼만 필터", GOLD, "c48d_hmm3d",
       "그림: 실제 원자재 평균 수익률로 추정한 위기 확률 — 2008–09·2011·2022에 높음"]]);
-  foot(s, "최신 AI도 가격 '방향'을 꾸준히 맞히지는 못함 → 위험 계산·국면 판별·보조 신호로 활용, 시험 기간에 개선이 없는 모델은 채택하지 않음. 위험 = 주간 GARCH(1,1) 연율, 월평균.");
+  foot(s, "* Foundation Model = 방대한 자료로 미리 학습해 여러 과제에 추가 학습 없이 바로 쓰는 범용 AI (ChatGPT와 같은 부류). 최신 AI도 가격 '방향'은 꾸준히 못 맞혀 위험 계산·국면 판별·보조 신호로만 활용.");
 }
 
 // ════════════════ 멀티모달 흐름도
@@ -312,11 +312,11 @@ function mcards(s, ms) {
 // ════════════════ 8 포트폴리오 3대 전략
 {
   const s = base();
-  header(s, "Ⅲ", "포트폴리오 3대 전략 — 모멘텀 · 최소분산(평균-분산) · 가치", "성격이 다른 세 가지 규칙 — 잘 되는 시기가 서로 달라 섞을수록 안정적");
+  header(s, "Ⅲ", "포트폴리오 3대 전략 — Momentum · Minimum Variance · Value", "성격이 다른 세 가지 규칙 — 잘 되는 시기가 서로 달라 섞을수록 안정적");
   const st = [
-    ["모멘텀", "추세는 이어진다", "지난 1년(52주) 수익률이\n+인 품목은 사고, −인 품목은 팖", "'달리는 말에 올라탄다'\n공급 부족·과잉은 몇 달~몇 년 지속", SH["52주 모멘텀"], BLUE],
-    ["최소분산 (평균-분산)", "섞으면 출렁임이 준다", "19개 품목을 모두 사되, 함께 덜\n움직이는 조합으로 비중을 정해\n전체 출렁임을 최소화", "'달걀을 여러 바구니에'\n노벨경제학상 포트폴리오 이론(1990)", SH["최소분산"], G],
-    ["가치", "너무 싸면 돌아온다", "5년 평균 가격 대비 가장 싼 1/3은\n사고, 가장 비싼 1/3은 팖", "'고무줄은 당긴 만큼 돌아온다'\n생산·소비 조정으로 가격 회귀", SH["가치"], GOLD],
+    ["Time-Series Momentum", "추세는 이어진다", "지난 1년(52주) 수익률이\n+인 품목은 사고, −인 품목은 팖", "'달리는 말에 올라탄다'\n공급 부족·과잉은 몇 달~몇 년 지속", SH["52주 모멘텀"], BLUE],
+    ["Minimum Variance", "섞으면 출렁임이 준다", "19개 품목을 모두 사되, 함께 덜\n움직이는 조합으로 비중을 정해\n전체 출렁임을 최소화", "'달걀을 여러 바구니에'\n노벨경제학상 포트폴리오 이론(1990)", SH["최소분산"], G],
+    ["Value (Mean Reversion)", "너무 싸면 돌아온다", "5년 평균 가격 대비 가장 싼 1/3은\n사고, 가장 비싼 1/3은 팖", "'고무줄은 당긴 만큼 돌아온다'\n생산·소비 조정으로 가격 회귀", SH["가치"], GOLD],
   ];
   const VIS = ["c55_mom3d", "c56_minvar3d", "c57_value3d"];
   st.forEach((c, i) => {

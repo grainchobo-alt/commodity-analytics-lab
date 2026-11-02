@@ -3,6 +3,13 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.47.1 — 2026-11-02 — 발표: 퀀트 16장 회전 속도 · 모델·전략 영문 제목
+- 5장 회전 GIF: 2.5초에 한 바퀴 → 좌우 ±20° 천천히 흔들기(왕복 18초, 끝에서 부드럽게 방향 전환) — 8장 3D(초당 약 5°)와 비슷한 속도. 40장면·48색 (`charts_q16.py` `save_gif`)
+- 10·11장 모델 카드 제목 영문: Variable Selection (Regularization) · Factor & Principal Component Models · Tree Ensemble Models (Random Forest) · Neural Network Sequence Models · Time-Series Foundation Models* · Multimodal Text Analysis (NLP) · Volatility Clustering Models · Regime-Switching Models. 11장 주석에 Foundation Model 뜻
+- 10장 PCA와 요인 모형 차이 한 줄(자료가 흐름을 찾음 vs 미리 정한 흐름), 3D 점 크기 축소(HTML 1.8→0.8, PPT 그림 s 3→0.8)
+- 13장 전략 제목 영문: Time-Series Momentum · Minimum Variance · Value (Mean Reversion)
+- HTML 한 파일판 17.5 → 21.6MB (GIF 장면 증가)
+
 ## v1.47.0 — 2026-11-02 — 퀀트 전략 16개 검증 · 발표 5장 · 헤지 랩(초안) · USDA 보고서 VaR
 - `quant16.py`: 퀀트 전략 18개 중 옵션 2개를 뺀 16개를 같은 조건(19품목 주간·비용 5bp·목표 변동성 10%·2007–)으로 백테스트 + 기존 실험 결과 요약 → `data/quant16_compare.csv`. 채택 3(모멘텀·가치·분할 매수) · 부분 적용 3(리스크 패리티·국면 전환·이벤트) · 미채택 9 · 해당 없음 1(시장조성). 새로 시험: 돌파(55/20주, Sharpe 0.45·모멘텀과 상관 0.84), PCA 잔차 통계적 차익(−0.09), 단기 반전(−0.65) 등
 - USDA 보고서 이벤트: 분기 보고서(3·6·9월 말) 날 변동 1.3~2.9배, 99% VaR 초과율 최대 33% → `data/quant16_events.csv`. '보고서 주 헤지 집중'은 상시 헤지보다 나쁨 → VaR 보정에만 사용

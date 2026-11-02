@@ -28,7 +28,8 @@ import procurement as PR  # noqa: E402
 OUT = HERE / "img"; OUT.mkdir(exist_ok=True)
 plt.rcParams.update({"font.family": "Malgun Gothic", "axes.unicode_minus": False, "font.size": 6})
 G, GOLD, RED, BLUE, GREY = "#1E3A2F", "#C8A24A", "#D9582B", "#2F6E8F", "#9A9A94"
-FRAMES, SIZE, DPI = 18, (2.4, 1.95), 100
+FRAMES, SIZE, DPI = 40, (2.4, 1.95), 100
+SWAY, STEP_MS = 20, 450      # 좌우 ±20° 흔들기, 한 번 왕복 18초 — 발표 다른 장 3D(초당 약 5°)와 비슷한 느린 속도
 rng = np.random.default_rng(7)
 
 
@@ -91,6 +92,18 @@ def to_plotly(p):
     return out
 
 
+def save_gif(fig, ax, elev, num):
+    """천천히 좌우로 흔드는 GIF (사인 곡선 → 끝에서 부드럽게 방향 전환). 한 바퀴 회전은 느린 속도에서 장면 수가 너무 많아짐."""
+    frames = []
+    for k in range(FRAMES):
+        ax.view_init(elev, -60 + SWAY * np.sin(2 * np.pi * k / FRAMES))
+        fig.canvas.draw()
+        im = Image.frombuffer("RGBA", fig.canvas.get_width_height(), fig.canvas.buffer_rgba()).convert("RGB")
+        frames.append(im.quantize(colors=48, method=Image.Quantize.MEDIANCUT))
+    plt.close(fig)
+    frames[0].save(OUT / f"q16_{num:02d}.gif", save_all=True, append_images=frames[1:], duration=STEP_MS, loop=0, optimize=True, disposal=2)
+
+
 def render(num, title, prims, axes, real=False, elev=24):
     fig = plt.figure(figsize=SIZE, dpi=DPI); ax = fig.add_subplot(111, projection="3d")
     for p in prims:
@@ -100,14 +113,7 @@ def render(num, title, prims, axes, real=False, elev=24):
     for a in (ax.xaxis, ax.yaxis, ax.zaxis):
         a.pane.set_alpha(0.0)
     fig.subplots_adjust(0, 0, 1, 1)
-    frames = []
-    for k in range(FRAMES):
-        ax.view_init(elev, -60 + 360 * k / FRAMES)
-        fig.canvas.draw()
-        im = Image.frombuffer("RGBA", fig.canvas.get_width_height(), fig.canvas.buffer_rgba()).convert("RGB")
-        frames.append(im.quantize(colors=96, method=Image.Quantize.MEDIANCUT))
-    plt.close(fig)
-    frames[0].save(OUT / f"q16_{num:02d}.gif", save_all=True, append_images=frames[1:], duration=140, loop=0, optimize=True, disposal=2)
+    save_gif(fig, ax, elev, num)
     traces = sum((to_plotly(p) for p in prims), [])
     return dict(title=title, real=real, axes=list(axes), traces=traces)
 
@@ -230,12 +236,7 @@ def render_psurf(num, title, prims, axes):
     for a in (ax.xaxis, ax.yaxis, ax.zaxis):
         a.pane.set_alpha(0.0)
     fig.subplots_adjust(0, 0, 1, 1)
-    frames = []
-    for k in range(FRAMES):
-        ax.view_init(22, -60 + 360 * k / FRAMES); fig.canvas.draw()
-        frames.append(Image.frombuffer("RGBA", fig.canvas.get_width_height(), fig.canvas.buffer_rgba()).convert("RGB").quantize(colors=96, method=Image.Quantize.MEDIANCUT))
-    plt.close(fig)
-    frames[0].save(OUT / f"q16_{num:02d}.gif", save_all=True, append_images=frames[1:], duration=140, loop=0, optimize=True, disposal=2)
+    save_gif(fig, ax, 22, num)
     return dict(title=title, real=True, axes=list(axes), traces=traces)
 
 

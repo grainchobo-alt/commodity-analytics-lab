@@ -100,7 +100,7 @@ ev, evec = np.linalg.eigh(np.cov(Z3.T)); pc1 = evec[:, -1] * np.sign(evec[:, -1]
 share = ev[-1] / ev.sum()
 f, ax = ax3d()
 proj = Z3 @ pc1
-ax.scatter(Z3[:, 0], Z3[:, 1], Z3[:, 2], c=proj, cmap="viridis", s=3, alpha=0.5)
+ax.scatter(Z3[:, 0], Z3[:, 1], Z3[:, 2], c=proj, cmap="viridis", s=0.8, alpha=0.6)
 for sgn in (-1, 1):
     ax.plot(*[[0, sgn * 3.6 * pc1[i]] for i in range(3)], color=RED, lw=2.6)
 ax.text(*(3.9 * pc1), f"공통 흐름 1\n({share:.0%} 설명)", color=RED, fontsize=8, fontweight="bold")

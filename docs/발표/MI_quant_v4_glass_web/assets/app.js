@@ -48,7 +48,7 @@ P.lasso = (el) => {
 };
 P.pca = (el) => {
   const p = D.pca, L = 3.8, proj = p.x.map((_, q) => p.x[q] * p.pc1[0] + p.y[q] * p.pc1[1] + p.z[q] * p.pc1[2]);
-  return [[{ type: "scatter3d", mode: "markers", x: p.x, y: p.y, z: p.z, text: p.d, marker: { size: 1.8, color: proj, colorscale: "Viridis", opacity: 0.6 }, hovertemplate: "%{text}<br>옥수수 %{x:.1f} · 대두 %{y:.1f} · 밀 %{z:.1f}<extra></extra>" },
+  return [[{ type: "scatter3d", mode: "markers", x: p.x, y: p.y, z: p.z, text: p.d, marker: { size: 0.8, color: proj, colorscale: "Viridis", opacity: 0.75 }, hovertemplate: "%{text}<br>옥수수 %{x:.1f} · 대두 %{y:.1f} · 밀 %{z:.1f}<extra></extra>" },
     { type: "scatter3d", mode: "lines+text", x: [-L * p.pc1[0], L * p.pc1[0]], y: [-L * p.pc1[1], L * p.pc1[1]], z: [-L * p.pc1[2], L * p.pc1[2]], text: ["", `공통 흐름 ${Math.round(p.share * 100)}%`],
       line: { color: C.red, width: 7 }, textfont: { color: C.red, size: Math.max(9, unit() * 0.11) }, hoverinfo: "skip" }],
     { scene: { xaxis: ax3("옥수수", { range: [-4, 4] }), yaxis: ax3("대두", { range: [-4, 4] }), zaxis: ax3("밀", { range: [-4, 4] }), camera: { eye: { x: 1.45, y: -1.45, z: 0.7 } } } }];
