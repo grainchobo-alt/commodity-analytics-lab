@@ -1,4 +1,4 @@
-// 발표 자료 v4: v3 + 퀀트 학문 지도 정밀판 · AI 카드별 3D 그림 8개 · 연도별 효율적 투자선(겹침 제거) · 품목군 기준 확장 비전 (본문 20장 + 별첨 2장)
+// 발표 자료 v4: v3 + 퀀트 학문 지도 정밀판 · AI 카드별 3D 그림 8개 · 연도별 효율적 투자선(겹침 제거) · 품목군 기준 확장 비전 · 온톨로지 · LLM 동향 2장 (본문 23장 + 별첨 2장)
 const pptxgen = require("pptxgenjs");
 const fs = require("fs");
 const path = require("path");
@@ -307,6 +307,96 @@ function mcards(s, ms) {
     if (i < 2) arrow(s, 11.25, y + 1.42, 11.25, y + 1.68, MUTED); });
   s.addText([{ text: "검증 결과  ", options: { bold: true, color: RED } }, { text: "멀티모달을 더해도 가격 정보만 쓴 3대 전략 혼합(Sharpe 0.88)을 넘지 못함 → 화면에 '보조 신호'로 표시 (갈래 중 시장 포지션 COT가 가장 유용)" }],
     { x: 0.5, y: 6.98, w: 12.3, h: 0.36, fontFace: F, fontSize: 10.5, color: INK, margin: 0, valign: "middle" });
+}
+
+// ════════════════ 연구·업계 동향 — 인과 추론 · 온톨로지 · LLM 전망을 '확률'로 결합
+{
+  const s = base();
+  header(s, "Ⅱ", "연구·업계 동향 — 인과 추론 · 온톨로지 · LLM 전망을 확률로 결합", "가격을 한 점으로 맞히는 대신, 원인 구조와 전문가 텍스트를 '확률 · 신뢰도'로 바꿔 채점받는 방향");
+  const steps = [["① 숫자 자료", "가격 · WASDE · 작황 · 위성 · 수출 판매 · 기상", G],
+    ["② 2단 온톨로지 (공급망 관계도)", "원인 → 1단 수급 → 2단 가공·대체 (대두 → 대두박 · 대두유)", G],
+    ["③ 역방향 인과 추론", "가격 변동(결과)에서 원인 · 경로로 거슬러 올라가 분해", BLUE],
+    ["④ LLM 텍스트 계층", "StoneX · S&P 등 기관 리포트 · 전문가 코멘트 → 방향 점수(−1~+1) · 신뢰도", RED],
+    ["⑤ 확률로 답하고 채점", "'4주 뒤 −5% 아래 확률 30%' + 근거 경로 → Brier · RPS 점수로 검증", GOLD]];
+  steps.forEach(([t, sub, col], i) => {
+    const y = 1.65 + i * 0.92;
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y, w: 5.55, h: 0.76, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.06 });
+    s.addShape(pres.shapes.RECTANGLE, { x: 0.5, y: y + 0.1, w: 0.08, h: 0.56, fill: { color: col }, line: { color: col } });
+    s.addText([{ text: t, options: { bold: true, fontSize: 12.5, color: col, breakLine: true } }, { text: sub, options: { fontSize: 10, color: INK } }],
+      { x: 0.72, y, w: 5.25, h: 0.76, fontFace: F, valign: "middle", margin: 0 });
+    if (i < 4) arrow(s, 3.27, y + 0.77, 3.27, y + 0.91, MUTED);
+  });
+  table(s, [["사례 (출처)", "무엇을 하나", "우리와 관계"],
+    ["PCMCI\n(Runge 외, Science Advances 2019)", "시차를 고려해 시계열 사이 인과 연결을 찾음", "③ 직접 구현해 시험"],
+    ["CausalImpact\n(Google, 2015)", "이벤트가 없었을 때의 가상 가격과 비교", "정책 이벤트 6건 시험"],
+    ["Double ML\n(Chernozhukov 외, 2018)", "머신러닝으로 잡음을 걷고 인과 효과 추정", "미적용 (후보)"],
+    ["Palantir Foundry 온톨로지", "기업 데이터를 객체 · 관계로 묶는 상용 플랫폼", "② 구조 설계 참고"],
+    ["RavenPack · Bloomberg 뉴스 감성", "뉴스를 점수로 바꿔 운용사가 신호로 사용", "FinBERT 문서 점수와 같은 계열"],
+    ["LLM 뉴스 점수\n(Lopez-Lira · Tang, 2023)", "헤드라인의 ChatGPT 점수가 다음 날 주가 수익률을 설명", "④ 텍스트 → 점수"],
+    ["LLM 확률 예측\n(Halawi 외 2024 · ForecastBench)", "검색 + LLM 확률 예측이 사람 군중 예측에 근접, Brier로 채점", "⑤ 채점 방식"]],
+    { x: 6.3, y: 1.65, w: 6.55, colW: [2.35, 2.55, 1.65], fontSize: 9, rowH: 0.5, boldFirst: true });
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 6.3, w: 12.35, h: 0.58, fill: { color: "FBF4E1" }, line: { color: GOLD, width: 1 }, rectRadius: 0.06 });
+  s.addText([{ text: "우리 위치  ", options: { bold: true, color: RED } }, { text: "①②③ 직접 구축 · ④는 USDA · EIA · 연준 문서의 FinBERT 점수까지 (유료 기관 리포트는 미구축) · ⑤ 채점 방식으로 다음 장 결과를 검증" }],
+    { x: 0.7, y: 6.3, w: 12.0, h: 0.58, fontFace: F, fontSize: 11.5, color: INK, valign: "middle", margin: 0 });
+  foot(s, "사례는 공개 논문 · 제품 소개 기준 요약이며 성과 수치는 각 출처의 주장 — 우리 자료로 재현한 결과는 다음 장.");
+}
+
+// ════════════════ 우리 온톨로지 실험 — 구조 그림 + 8가지 백테스트
+{
+  const s = base();
+  header(s, "Ⅱ", "우리 온톨로지 실험 — 2단 연결은 뚜렷, 예측력은 없음", "공개 수급 정보는 발표 즉시 가격에 반영 → 온톨로지는 '왜 움직였나'를 설명하는 데 씀");
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 1.62, w: 5.95, h: 4.48, fill: { color: TINT }, line: { color: TINT }, rectRadius: 0.08 });
+  s.addText("원인 (바깥 충격 · 1단 수급)", { x: 0.65, y: 1.68, w: 2.2, h: 0.3, fontFace: F, fontSize: 9, bold: true, color: MUTED, margin: 0 });
+  s.addText("1단 가격", { x: 3.1, y: 1.68, w: 1.3, h: 0.3, fontFace: F, fontSize: 9, bold: true, color: MUTED, margin: 0, align: "center" });
+  s.addText("2단 가공 · 대체", { x: 4.85, y: 1.68, w: 1.5, h: 0.3, fontFace: F, fontSize: 9, bold: true, color: MUTED, margin: 0, align: "center" });
+  const causes = ["기상 · 위성 지수", "작황 · WASDE 재고율", "해외 수급 수정", "수출 판매 · 운임", "원유 · 달러 · 헤알"];
+  causes.forEach((t, i) => {
+    const y = 2.05 + i * 0.7;
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.68, y, w: 1.9, h: 0.5, fill: { color: WHITE }, line: { color: LINE, width: 0.75 }, rectRadius: 0.05 });
+    s.addText(t, { x: 0.68, y, w: 1.9, h: 0.5, fontFace: F, fontSize: 10, color: INK, align: "center", valign: "middle", margin: 0 });
+    if (i < 4) s.addShape(pres.shapes.LINE, { x: 2.58, y: y + 0.25, w: 0.22, h: 0, line: { color: MUTED, width: 1, dashType: "dash" } });
+  });
+  s.addShape(pres.shapes.LINE, { x: 2.8, y: 2.3, w: 0, h: 2.1, line: { color: MUTED, width: 1, dashType: "dash" } });
+  const node = (x, y, w, t, sub, col, fill) => {
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h: 0.62, fill: { color: fill }, line: { color: col, width: 1 }, rectRadius: 0.06 });
+    s.addText([{ text: t, options: { bold: true, fontSize: 12, color: col, breakLine: true } }, { text: sub, options: { fontSize: 8.5, color: INK } }],
+      { x, y, w, h: 0.62, fontFace: F, align: "center", valign: "middle", margin: 0 });
+  };
+  node(3.15, 2.15, 1.25, "옥수수", "설명 9%", BLUE, "E3EEF3");
+  node(3.15, 3.85, 1.25, "대두", "설명 14%", BLUE, "E3EEF3");
+  node(4.95, 1.98, 1.35, "밀", "설명 43%", G, "E4EDE7");
+  node(4.95, 3.4, 1.35, "대두박", "설명 61%", G, "E4EDE7");
+  node(4.95, 4.62, 1.35, "대두유", "설명 40%", G, "E4EDE7");
+  const dashArrow = (x1, y1, x2, y2) => s.addShape(pres.shapes.LINE, { x: x1, y: y1, w: x2 - x1, h: y2 - y1, line: { color: MUTED, width: 1, dashType: "dash", endArrowType: "triangle" } });
+  dashArrow(2.8, 2.46, 3.13, 2.46); dashArrow(2.8, 4.16, 3.13, 4.16);
+  const strong = (x1, y1, x2, y2, lab, lx, ly) => {
+    s.addShape(pres.shapes.LINE, { x: x1, y: y1, w: x2 - x1, h: y2 - y1, line: { color: RED, width: 2.5, endArrowType: "triangle" } });
+    if (lab) s.addText(lab, { x: lx, y: ly, w: 0.6, h: 0.22, fontFace: F, fontSize: 9, bold: true, color: RED, margin: 0, align: "center" });
+  };
+  strong(4.4, 2.38, 4.93, 2.3, "0.76", 4.38, 2.05);
+  strong(4.4, 4.05, 4.93, 3.75, "0.90", 4.38, 3.62);
+  strong(4.4, 4.3, 4.93, 4.88, "0.60", 4.7, 4.36);
+  strong(2.58, 5.1, 4.93, 5.1, "", 0, 0);
+  s.addText("원유 0.16", { x: 3.3, y: 5.13, w: 1.0, h: 0.22, fontFace: F, fontSize: 9, bold: true, color: RED, margin: 0 });
+  s.addShape(pres.shapes.LINE, { x: 0.7, y: 5.62, w: 0.45, h: 0, line: { color: RED, width: 2.5 } });
+  s.addText("두 기간 유의 + 자료로도 확인 (숫자 = 연결 강도)", { x: 1.2, y: 5.5, w: 2.9, h: 0.24, fontFace: F, fontSize: 8.5, color: INK, margin: 0 });
+  s.addShape(pres.shapes.LINE, { x: 0.7, y: 5.88, w: 0.45, h: 0, line: { color: MUTED, width: 1, dashType: "dash" } });
+  s.addText("약한 연결 — 새 자료를 넣어도 설명 +0~1%p · 해외 밀 재고 → 밀만 두 기간 유의", { x: 1.2, y: 5.76, w: 5.2, h: 0.24, fontFace: F, fontSize: 8.5, color: INK, margin: 0 });
+  table(s, [["시험 (2017– 시험 기간)", "결과", "판정"],
+    ["① 정책 이벤트 6건", "러-우 침공 밀 +19.5%만 유의 · 인도 밀 금지 등은 예상과 반대", "일부"],
+    ["② 원인 분해", "주간 변동 설명: 대두박 61% · 밀 43% · 대두유 40% / 대두 14% · 옥수수 9%", "설명용"],
+    ["③ 자료로 연결 확인 (PCMCI)", "2단 4개 확인 (옥수수→밀 · 대두→대두박·대두유 · 원유→대두유), 1단 사슬 미확인", "2단만"],
+    ["④ 4 · 13주 가격 구간 확률", "온톨로지 넣으면 대부분 악화 (−0~−4%), 변동성만 개선", "✕"],
+    ["⑤ 2 · 4주 구매 미루기", "시험 AUC 0.46–0.54, 최선 후보는 KC 밀에서 재현 실패", "✕"],
+    ["⑥ −5% 확률로 50% 미루기", "밀 −13~−30bp · 대두유 −31bp, 대두 + 는 사례 3번뿐", "✕"],
+    ["⑦ 해외 수급 수정 (WASDE 세계표 348개)", "발표 뒤 4주 지연 반응은 2008–16에만, 2017– 소멸", "✕"],
+    ["⑧ 다음 4주 변동성", "온톨로지 충격 크기를 더해도 개선 없음", "✕"]],
+    { x: 6.65, y: 1.62, w: 6.2, colW: [1.95, 3.45, 0.8], fontSize: 9, rowH: 0.49, boldFirst: true });
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.5, y: 6.2, w: 12.35, h: 0.7, fill: { color: "FBF4E1" }, line: { color: GOLD, width: 1 }, rectRadius: 0.06 });
+  s.addText([{ text: "결론  ", options: { bold: true, color: RED, fontSize: 13 } },
+    { text: "공개 수급 정보(WASDE · 작황 · 위성 · 수출 판매 · 해외 수급)는 발표 즉시 가격에 반영 → 다음 주 · 다음 달 방향의 근거가 되지 못함. 온톨로지는 '이번 주 왜 움직였나' 설명 · 보고에, 판단은 검증된 변동성 · 분할 매수에 맡김", options: { fontSize: 11, color: INK } }],
+    { x: 0.7, y: 6.2, w: 12.0, h: 0.7, fontFace: F, valign: "middle", margin: 0 });
+  foot(s, "채택 기준은 돌리기 전 고정 · 시험 = 학습에 안 쓴 2017– 기간. 자료 2008–2026 주간. 코드 causal_grain · range_bt · defer_ont · range_defer · foreign_test · vol_ont.");
 }
 
 // ════════════════ 8 포트폴리오 3대 전략

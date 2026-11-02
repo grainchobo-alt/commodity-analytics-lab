@@ -184,7 +184,7 @@ footer{color:var(--ink3);font-size:12.5px;border-top:1px solid var(--line);paddi
   <div class="row">
    <div>
     <h1>Commodity Analytics Lab — 시스템 구조도</h1>
-    <div class="meta">작성일 2026-11-02 · 대상 폴더 <code>C:\Users\user\Desktop\Commodity</code> · 기준 커밋 <code>aa43163</code> (+ 미커밋 <code>hedge_core.py</code>·<code>hedge_lab.py</code>·<code>헤지랩_열기.bat</code>) · 코드를 직접 읽고 확인한 내용만 적음 (추측은 "추정", 못 본 것은 "확인 안 됨")</div>
+    <div class="meta">작성일 2026-11-02 · 대상 폴더 <code>C:\Users\user\Desktop\Commodity</code> · 기준 커밋 <code>v1.49.1</code> (2026-11-02 갱신: 헤지 랩 커밋 · 퀀트 16 · 온톨로지/인과 실험 · 추가 수집 원천 3곳) · 코드를 직접 읽고 확인한 내용만 적음 (추측은 "추정", 못 본 것은 "확인 안 됨")</div>
    </div>
    <div style="display:flex;gap:6px;align-items:center">
     <button class="btn" id="themeBtn" title="밝게 / 어둡게">◐ 화면 밝기</button>
@@ -308,7 +308,7 @@ const NODES = [
  {id:"bat_opt",cat:"tool",x:22,y:334,w:206,h:46,t:"옵션랩_열기.bat",s:"옵션 랩 · 포트 8504",
   info:{d:"options_lab.py를 8504 포트로 실행. 기존 대시보드와 별개. 옵션 시세는 인터넷(Yahoo)이 필요.",f:["옵션랩_열기.bat"],r:"이 PC · cmd 창",i:"더블클릭",o:"Streamlit 서버(8504)"}},
  {id:"bat_hedge",cat:"tool",x:22,y:390,w:206,h:46,t:"헤지랩_열기.bat",s:"헤지 랩 초안 · 포트 8507",
-  info:{d:"hedge_lab.py를 8507 포트로 실행. 아직 git에 커밋되지 않은 새 파일(초안).",f:["헤지랩_열기.bat (미커밋)"],r:"이 PC · cmd 창",i:"더블클릭",o:"Streamlit 서버(8507)"}},
+  info:{d:"hedge_lab.py를 8507 포트로 실행 (초안 화면, v1.47.0 커밋).",f:["헤지랩_열기.bat"],r:"이 PC · cmd 창",i:"더블클릭",o:"Streamlit 서버(8507)"}},
  {id:"bat_daily",cat:"tool",x:22,y:692,w:206,h:52,t:"run_daily.bat",s:"일일 자료 수집 6단계",
   info:{d:"자료 갱신 배치. collect → clean → roll_adjust → data_quality → export_excel → build_dashboard 순서로 실행하고, 하나라도 실패하면 멈춘 뒤 'FAILED' 표시. 끝나면 dashboard.html을 엽니다. 자동 예약(Windows 작업 스케줄러 등) 설정은 코드·문서에서 찾지 못함 → 사람이 더블클릭해 실행(확인 안 됨: PC에 별도 예약이 있는지).",
   f:["run_daily.bat"],fn:[".venv\\Scripts\\python.exe collect.py || goto :err","… clean.py · roll_adjust.py · data_quality.py > data\\data_quality_console.txt · export_excel.py · build_dashboard.py","start \"\" dashboard.html"],
@@ -332,8 +332,8 @@ const NODES = [
   info:{d:"별도 대시보드. 탭 ① 블랙숄즈 원리(수식·3D 곡면·민감도), ② 금(GLD)·은(SLV)·WTI(USO) ETF 옵션의 내재변동성 스마일·3D 곡면, ③ 다른 원자재를 CSV로 추가하는 방법(파일 올리기).",
   f:["options_lab.py (265줄)"],fn:["surf_fig() — go.Surface 3D","_chain(nm) @st.cache_data(ttl=3600) → O.load_chain","show_market() — 스마일 곡선·곡면·표","「오늘 시세 저장」 버튼 → O.save_snapshot"],p:["streamlit","plotly","numpy","pandas"],r:"이 PC · Python 프로세스(포트 8504)",i:"브라우저 선택, Yahoo 옵션 시세(1시간 캐시), 올린 CSV",o:"화면, data/options/*.csv(버튼 누를 때)"}},
  {id:"st_hedge",cat:"screen",x:266,y:334,w:228,h:58,t:"hedge_lab.py — 헤지 랩 (초안)",s:"8507 · 선물 헤지 A1~A4",logo:"streamlit",
-  info:{d:"별도 대시보드(미커밋 초안). A1 헤지 비율→VaR 곡선, A2 최적 헤지 비율·효과(walk-forward 최소분산·칼만 β), A3 헤지 수단 추천, A4 대두 크러시 묶음 헤지. VaR는 ◆ 리스크 탭과 같은 risk.py 함수를 재사용.",
-  f:["hedge_lab.py (256줄, 미커밋)"],fn:["levels() → A.load_levels() 두 번(롤 보정/실제가)","vol(i, model) → RK.vol_models","H.hedge_curve · H.wf_minvar · H.kalman_beta · H.compare_hedges · H.best_pairs · H.board_crush","RK.position_risk"],p:["streamlit","plotly","pandas","numpy"],r:"이 PC · Python 프로세스(포트 8507)",i:"data/daily_adj·daily_clean.parquet",o:"화면"}},
+  info:{d:"별도 대시보드(초안, 기존 대시보드 미반영). A1에 'USDA 보고서 포함 기간' VaR 보정. A1 헤지 비율→VaR 곡선, A2 최적 헤지 비율·효과(walk-forward 최소분산·칼만 β), A3 헤지 수단 추천, A4 대두 크러시 묶음 헤지. VaR는 ◆ 리스크 탭과 같은 risk.py 함수를 재사용.",
+  f:["hedge_lab.py (279줄)"],fn:["levels() → A.load_levels() 두 번(롤 보정/실제가)","vol(i, model) → RK.vol_models","H.hedge_curve · H.wf_minvar · H.kalman_beta · H.compare_hedges · H.best_pairs · H.board_crush","RK.position_risk"],p:["streamlit","plotly","pandas","numpy"],r:"이 PC · Python 프로세스(포트 8507)",i:"data/daily_adj·daily_clean.parquet",o:"화면"}},
  {id:"dash_html",cat:"screen",x:266,y:420,w:228,h:58,t:"dashboard.html (정적 화면)",s:"run_daily가 만드는 한 파일",logo:"plotly",
   info:{d:"서버 없이 더블클릭으로 여는 요약 대시보드. build_dashboard.py가 템플릿의 /*__DATA__*/null 자리에 가격·변동성·COT·수집 상태 JSON을 통째로 넣어 만듭니다. 차트 라이브러리 plotly.js는 파일 안에 없고 jsDelivr CDN에서 불러옵니다.",
   f:["dashboard.html (생성물)","dashboard_template.html"],fn:["<script src=\"https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js\">"],p:["plotly.js 2.35.2 (CDN)"],r:"사용자 브라우저 (file://)",i:"파일 안에 들어 있는 JSON",o:"화면",n:"인터넷이 끊기면 plotly.js를 못 불러와 차트가 안 그려질 것(추정 — 직접 시험하지 않음)."}},
@@ -360,7 +360,7 @@ const NODES = [
   info:{d:"옵션 랩 전용 계산(165줄). 블랙숄즈·Black-76 가격과 그릭스, 시장가에서 변동성을 거꾸로 푸는 내재변동성(brentq 근 찾기), yfinance 옵션 체인을 표준 열(CSV_COLS)로 변환, 만기별 2차 스마일 곡선.",
   f:["options_bs.py","tests/test_options_bs.py"],fn:["SOURCES = {금 (GLD), 은 (SLV), WTI 원유 (USO)}","bs_price · b76_price · greeks","implied_vol(price, S, K, T, r, model) — brentq","chain_yfinance(ticker, targets=(30,60,90,180,270,365))","chain_csv · load_chain · save_snapshot","iv_points(chain, r, model, max_spread, min_oi) · smile_fit"],p:["yfinance","scipy (brentq, norm)","numpy","pandas"],r:"이 PC · 옵션 랩 프로세스 안",i:"Yahoo 옵션 체인 또는 CSV",o:"내재변동성 점·곡선, data/options/*.csv"}},
  {id:"m_hedge",cat:"server",x:530,y:548,w:176,h:52,t:"hedge_core.py",s:"헤지 비율 · VaR 곡선",logo:"python",
-  info:{d:"헤지 랩 계산(158줄, 미커밋). 주간 $ 가격, walk-forward 최소분산 헤지 비율, 칼만 필터 β, 헤지 효과(HE), 계약 수, 헤지 비율별 VaR 곡선, 대두 보드 크러시.",f:["hedge_core.py (미커밋)"],fn:["weekly_usd · log_ret","wf_minvar(s, F, window=104)","kalman_beta(s, f, delta=1e-3)","he · he_by_period · compare_hedges · best_pairs","contracts · hedge_curve · board_crush"],p:["numpy","pandas","procurement(내부)","risk(내부)"],r:"이 PC · 헤지 랩 프로세스 안",i:"가격 표",o:"헤지 비율·효과 표"}},
+  info:{d:"헤지 랩 계산(216줄). USDA 보고서 일정(wasde_dates · quarterly_dates · report_calendar)과 보고서 날 변동 배수(event_multipliers · event_scale) 포함. 주간 $ 가격, walk-forward 최소분산 헤지 비율, 칼만 필터 β, 헤지 효과(HE), 계약 수, 헤지 비율별 VaR 곡선, 대두 보드 크러시.",f:["hedge_core.py (미커밋)"],fn:["weekly_usd · log_ret","wf_minvar(s, F, window=104)","kalman_beta(s, f, delta=1e-3)","he · he_by_period · compare_hedges · best_pairs","contracts · hedge_curve · board_crush"],p:["numpy","pandas","procurement(내부)","risk(내부)"],r:"이 PC · 헤지 랩 프로세스 안",i:"가격 표",o:"헤지 비율·효과 표"}},
  {id:"m_pred",cat:"server",x:716,y:82,w:176,h:66,t:"predict_lab.py 외 4개",s:"④ 수익률 예측 (ML·패널·메타)",logo:"python",
   info:{d:"④ 수익률 예측 탭의 엔진 묶음: predict_lab.py(대안 시계열·멀티모달 설명변수·전략 그리드), models_ml.py(GP·커널 릿지·LightGBM), models_dense.py(변수를 버리지 않는 기법), metasel.py(모델 선택 메타 전략), panel.py(36품목 패널 회귀). 결론: 수익률 방향 예측은 OOS R²≈0 (HANDOFF).",
   f:["predict_lab.py","models_ml.py","models_dense.py","metasel.py","panel.py"],fn:["PL.run_alt_single(label, D, ann, r) → _zero_shot(kind…) — Chronos-2를 화면에서 바로 실행","PL.mm_features() — data/mm/features_2026-10-26.pkl","models_ml.run_ml","PanelOLS (linearmodels)"],p:["scikit-learn","lightgbm","linearmodels","torch","chronos-forecasting","neuralforecast","prophet","joblib"],r:"이 PC · 화면 서버 프로세스 안 (CPU)",i:"가격 패널, 멀티모달 특성",o:"예측·성과 표, runs/ 기록"}},
@@ -373,6 +373,14 @@ const NODES = [
   p:["scikit-learn","lightgbm","torch","chronos-forecasting","timesfm","tirex-ts","joblib"],r:"이 PC · 화면 서버 프로세스 안(재실행 버튼) 또는 터미널",i:"가격·멀티모달 자료",o:"data/*_compare.csv, experiments_meta.json, data/fm/*.npz, data/*_preds.pkl"}},
  {id:"m_atlas",cat:"server",x:716,y:310,w:176,h:52,t:"model_atlas.py",s:"⑦ 모델 도감 (1,562줄)",logo:"python",
   info:{d:"모델 40여 개를 작은 예시 자료로 직접 돌려 보여 주는 학습용 도감(2D·일부 3D). Prophet·Neural ODE(torchdiffeq) 등도 화면에서 작게 실행.",f:["model_atlas.py","tests/test_atlas.py"],fn:["render()","viz_nonconvex · … (모델별 viz 함수)"],p:["plotly","scikit-learn","statsmodels","hmmlearn","torch","torchdiffeq","prophet"],r:"이 PC · 화면 서버 프로세스 안",i:"예시 자료·일부 실제 가격",o:"도감 화면"}},
+ {id:"m_quant16",cat:"server",x:716,y:376,w:176,h:52,t:"quant16.py",s:"퀀트 전략 16개 검증",logo:"python",
+  info:{d:"퀀트 전략 18개 중 옵션 2개를 뺀 16개를 같은 조건(19품목 주간 · 비용 5bp · 목표 변동성 10%)으로 백테스트하고, 혼합에 10% 섞었을 때 개선 t ≥ 2 & 두 기간 개선이면 채택. 발표 5장 카드와 검증 백로그 '퀀트 전략 16' 시트의 숫자 원천.",f:["quant16.py (214줄)","docs/발표/scripts/charts_q16.py"],fn:["donchian_weights · pca_resid_weights","ls_metrics · blend_test","run() → data/quant16_compare.csv · quant16_events.csv"],p:["pandas","numpy","statsmodels"],r:"이 PC · 터미널 실행",i:"data/daily_adj.parquet",o:"data/quant16_*.csv"}},
+ {id:"m_causal",cat:"server",x:716,y:440,w:176,h:76,t:"온톨로지 · 인과 실험 6개",s:"causal_grain · range_bt · defer_ont 외",logo:"python",
+  info:{d:"곡물 2단 온톨로지(노드 33개)와 역방향 인과 추론 실험. 구조 모형 역사적 분해(결과 → 원인 · 경로), PCMCI(직접 구현), 정책 이벤트 반사실, 구간 확률 예측(RPS · Brier), 구매 미루기 · 범위 기반 미루기, 해외 수급 수정, 변동성 예측. 결론: 2단 연결(대두→대두박 · 대두유, 옥수수→밀, 원유→대두유)은 뚜렷하나 예측력 없음 → 대시보드 미반영, 설명용. 기록: docs/온톨로지_실험로그.md.",f:["causal_grain.py (450줄)","range_bt.py","defer_ont.py","range_defer.py","foreign_test.py","vol_ont.py"],fn:["CG.nodes(L) · fit_scm · decompose · backtrace · pcmci · event_study","RB.run_one(P, X, feats, h) — 구간 확률","PR.fc_walkforward · backtest_defer (기존 함수 재사용)","FT.foreign(idx) — 해외 수정 노드"],p:["pandas","numpy","scipy","scikit-learn"],r:"이 PC · 터미널 실행 (오프라인)",i:"가격 · data/mm · data/reports",o:"data/causal_* · range_* · defer_ont · foreign_* · vol_ont_compare.csv"}},
+ {id:"p_causal",cat:"server",x:716,y:528,w:176,h:62,t:"causal_data · wasde_world",s:"위성 · 수출 판매 · 운임 · 세계 수급",logo:"python",
+  info:{d:"온톨로지용 추가 자료 수집(수동, 키 불필요): NOAA STAR 위성 식생건강지수(경작지 VHI, 20개 주), USDA AgTransport 주간 수출 판매 · 걸프→일본 운임, FAS PSD 세계 수급(연간 현재값). wasde_world.py는 이미 받은 WASDE 원문 348개(txt · xls)에서 세계 수급표 국가별 값을 발표 시점 그대로 추출(인터넷 불필요).",f:["causal_data.py (95줄)","wasde_world.py (110줄)"],fn:["vhi_fetch · export_sales_fetch · freight_fetch · psd_fetch","wasde_world.collect() · parse_table(text, title)"],p:["requests","pandas","xlrd"],r:"이 PC · 터미널 실행",i:"NOAA STAR · AgTransport · FAS PSD · data/reports/raw",o:"data/mm/vhi · export_sales · freight · psd.parquet, data/reports/wasde_world.parquet"}},
+ {id:"x_agt",cat:"ext",x:1396,y:642,w:224,h:44,t:"USDA AgTransport · FAS · NOAA STAR",s:"수출 판매 · 운임 · 세계 수급 · 위성",
+  info:{d:"키 없이 받는 공개 자료: AgTransport(Socrata API) 주간 수출 판매 wnn7-29tu · 운임 ehs5-yac3, FAS PSD 묶음 zip, NOAA STAR 주(州)별 VHI 시계열.",fn:["causal_data.vhi_fetch · export_sales_fetch · freight_fetch · psd_fetch"],r:"인터넷",i:"데이터셋 ID · 지역 번호",o:"JSON · CSV(zip) · 텍스트"}},
  // ---- 배치 파이프라인
  {id:"p_collect",cat:"server",x:266,y:692,w:228,h:64,t:"collect.py — 증분 수집",s:"Yahoo·FRED·WB·CFTC·akshare·NASS",logo:"python",
   info:{d:"매일 자료 수집(347줄). 시리즈별 마지막 저장일에서 14일 겹쳐 받는 증분 방식(--full이면 전체 재다운로드). 원천마다 try/except로 실패를 기록하고, 실패한 시리즈는 기존 값을 그대로 둠(upsert).",
@@ -406,9 +414,9 @@ const NODES = [
  {id:"s_cache",cat:"store",x:926,y:338,w:206,h:56,t:"계산 캐시 npz · pkl",s:"data/fm · *_preds.pkl · frozen",
   info:{d:"다시 계산하면 수십 분~수 시간 걸리는 결과 보관. data/fm/*.npz(파운데이션 모델 예측 17개, 106MB — 입력이 같으면 재사용), data/*_preds.pkl(대안 시계열·그리드 예측), data/frozen/*_2026-10-26.pkl(⑤ 롱숏 등 고정 결과 3.2MB).",f:["data/fm/Chronos-2_*.npz · Chronos-Bolt-small_* · TimesFM-2.5_* · TiRex_logprice.npz","data/alt_ts_preds.pkl 외","data/frozen/*.pkl"],fn:["forecast_lab.fm_forecast (sig 일치 시 재사용)","app._frozen(key, fn)"],p:["numpy","pickle"],r:"이 PC 파일",i:"experiments·forecast_lab·app",o:"화면·실험"}},
  {id:"s_mm",cat:"store",x:926,y:404,w:206,h:50,t:"data/mm/",s:"멀티모달 원자료·점수 캐시 (64MB)",logo:"parquet",
-  info:{d:"weather·openmeteo·cot19·eia_weekly·metals·nass_condition_raw·fred_extra·wasde_text·steo_text·beige(FinBERT 점수)·gdelt_titles/scored parquet, CFTC 역사 zip, 특성 고정본 features_2026-10-26.pkl. reddit_posts.parquet는 없음(Reddit 수집 기록 없음).",f:["data/mm/*.parquet","data/mm/deacot1986_2016.zip","data/mm/features_2026-10-26.pkl"],r:"이 PC 파일",i:"multimodal.py",o:"predict_lab.mm_features, multimodal.features"}},
+  info:{d:"weather·openmeteo·cot19·eia_weekly·metals·nass_condition_raw·fred_extra·wasde_text·steo_text·beige(FinBERT 점수)·gdelt_titles/scored parquet, CFTC 역사 zip, 특성 고정본 features_2026-10-26.pkl. 2026-11-02 추가: vhi(위성 식생지수) · export_sales(주간 수출 판매) · freight(해상 운임) · psd(FAS 세계 수급). reddit_posts.parquet는 없음(Reddit 수집 기록 없음).",f:["data/mm/*.parquet","data/mm/deacot1986_2016.zip","data/mm/features_2026-10-26.pkl"],r:"이 PC 파일",i:"multimodal.py",o:"predict_lab.mm_features, multimodal.features"}},
  {id:"s_reports",cat:"store",x:926,y:464,w:206,h:50,t:"data/reports/",s:"WASDE·STEO 파싱 + 원문 1.1GB",logo:"parquet",
-  info:{d:"wasde_long/wasde_features·steo_long/steo_features parquet(파싱 결과). raw/ 하위에 원문 PDF·엑셀 약 1.1GB(.gitignore로 GitHub 제외, 재다운로드 없이 캐시).",f:["data/reports/wasde_features.parquet","data/reports/steo_features.parquet","data/reports/raw/ (git 제외)"],r:"이 PC 파일",i:"reports.py",o:"procurement.fundamentals, multimodal.features"}},
+  info:{d:"wasde_long/wasde_features·steo_long/steo_features parquet(파싱 결과), wasde_world.parquet(세계 수급표 국가별, 1997–). raw/ 하위에 원문 PDF·엑셀 약 1.1GB(.gitignore로 GitHub 제외, 재다운로드 없이 캐시).",f:["data/reports/wasde_features.parquet","data/reports/steo_features.parquet","data/reports/raw/ (git 제외)"],r:"이 PC 파일",i:"reports.py",o:"procurement.fundamentals, multimodal.features"}},
  {id:"s_runs",cat:"store",x:926,y:524,w:206,h:50,t:"runs/ · ui_settings.json",s:"실행 기록 · 화면 설정 · last_test",
   info:{d:"runs/registry.jsonl·verdicts.jsonl(④ 실행 기록·판정), data/ui_settings.json(⑨ 배경색 설정), data/last_test.txt(마지막 전체 앱 테스트 결과 한 줄).",f:["runs/","data/ui_settings.json","data/last_test.txt"],r:"이 PC 파일",i:"runlog.py, app.py ⑨, tests/test_app.py",o:"app.py, push_check.py"}},
  {id:"s_options",cat:"store",x:926,y:584,w:206,h:50,t:"data/options/*.csv",s:"옵션 시세 저장 (아직 없음)",
@@ -489,6 +497,7 @@ const EDGES = [
  ["st_app","p_collect","🔄 업데이트 subprocess","proc"],
  ["st_opt","m_opt","O.load_chain·iv_points","call"],
  ["st_hedge","m_hedge","H.hedge_curve 등","call"],["st_hedge","m_risk","RK.position_risk","call"],["m_hedge","m_proc","PR.usd_t","call"],
+ ["m_quant16","m_port","LS · LX 전략 함수","call"],["m_causal","m_proc","PR.backtest_defer 재사용","call"],["m_causal","m_analytics","A.load_levels","call"],["m_causal","s_compare","causal_* · foreign_* 등","file"],["p_causal","x_agt","HTTP (키 없음)","http"],["p_causal","s_mm","vhi · export_sales · freight · psd","file"],["p_causal","s_reports","wasde_world.parquet","file"],
  ["m_proc","m_risk","risk 공용 함수","call"],
  ["m_analytics","s_daily","parquet 읽기","file"],["m_analytics","s_monthly","cot.parquet 읽기","file"],
  ["m_proc","s_reports","WASDE 맥락 읽기","file"],["m_regime","s_monthly","거시 월간 읽기","file"],
@@ -984,6 +993,10 @@ const EXT = [
  {s:"PyPI · PyTorch 인덱스",h:"pypi.org · download.pytorch.org/whl/cpu",d:"파이썬 패키지 설치 파일",a:"없음",w:"setup.bat (pip install), setup_check.py --net",fq:"설치 때 1회",x:"설치 실패 → 'Setup failed' 안내",st:"dev"},
  {s:"npm registry",h:"registry.npmjs.org (package-lock.json의 resolved)",d:"pptxgenjs·docx·reveal.js·playwright·plotly.js 설치",a:"없음",w:"docs/발표/scripts에서 npm install",fq:"처음 1회",x:"발표·학습 빌드만 영향",st:"dev"},
  {s:"GitHub",h:"github.com/grainchobo-alt/commodity-analytics-lab (private)",d:"코드·데이터(data/ 포함, 리포트 원문·.env 제외) 원격 저장",a:"git 자격 증명(사용자 PC에 저장, 코드에 없음)",w:"git push (개발자), gh CLI · push_check.py는 로컬 git만 조회",fq:"사용자 승인 후 수동",x:"앱 동작과 무관",st:"dev"},
+ {s:"NOAA STAR 식생건강지수 (VHI)",h:"www.star.nesdis.noaa.gov/smcd/emb/vci/VH/get_TS_admin.php",d:"주(州)별 경작지 위성 식생건강지수 · 평활 NDVI 주간 1981~ (미국 · 브라질 · 아르헨티나 · 러시아 · 우크라이나 20곳)",a:"없음",w:"causal_data.py: vhi_fetch",fq:"수동",x:"지역 번호는 VHI_REG에 고정, data/mm/vhi.parquet",st:"ok"},
+ {s:"USDA AgTransport (Socrata)",h:"agtransport.usda.gov/resource/wnn7-29tu.json · /ehs5-yac3.json",d:"주간 수출 판매(옥수수 · 대두 · 밀, 1999~) · 걸프 · PNW → 일본 곡물 운임(월간 1996~)",a:"없음",w:"causal_data.py: export_sales_fetch, freight_fetch",fq:"수동",x:"서버에서 주 · 품목 합계로 받음",st:"ok"},
+ {s:"USDA FAS PSD",h:"apps.fas.usda.gov/psdonline/downloads/psd_{grains_pulses,oilseeds}_csv.zip",d:"172개국 연간 생산 · 수출 · 재고(현재 추정치만, 과거 발표 시점 값 없음)",a:"없음",w:"causal_data.py: psd_fetch",fq:"수동",x:"참고용 — 주간 모형에는 WASDE 원문 세계표(wasde_world.py) 사용",st:"ok"},
+ {s:"NOAA NCEI CDO (키만 보관)",h:"www.ncei.noaa.gov/cdo-web/api/v2/",d:"기상 관측소 자료 — 현재 사용 코드 없음",a:"NOAA_TOKEN (.env)",w:"없음 (2026-11-02 키만 저장)",fq:"—",x:"Open-Meteo로 대체 중",st:"none"},
  {s:"개발 점검 전용 원천",h:"api.db.nomics.world (IMF) · mymarketnews.ams.usda.gov · apps.fas.usda.gov/OpenData/api/esr",d:"접속 가능 여부만 확인(실제 수집 안 함)",a:"없음",w:"test_sources.py",fq:"개발 때 수동",x:"결과 source_test_result.csv",st:"dev"},
  {s:"사내 시스템 (ERP·DB·메일 등)",h:"—",d:"—",a:"—",w:"없음 (코드에서 확인 안 됨)",fq:"—",x:"—",st:"none"},
  {s:"LLM API · MCP 서버 · AI 에이전트 · 클라우드 DB",h:"—",d:"—",a:"—",w:"없음 — anthropic·openai·MCP·DB 드라이버 import 없음",fq:"—",x:"—",st:"none"}
@@ -1029,10 +1042,10 @@ function renderStore(){
 
 /* ============================== 파일 지도 ============================== */
 const TREE = ["Commodity/","프로젝트 루트",[
- ["app.py","메인 대시보드 (12탭, 8501)"],["app_glass.py","유리 테마판 (8502)"],["options_lab.py · options_bs.py","옵션 랩 화면 · 계산 (8504)"],["hedge_lab.py · hedge_core.py","헤지 랩 초안 화면 · 계산 (8507, 미커밋)"],
+ ["app.py","메인 대시보드 (12탭, 8501)"],["app_glass.py","유리 테마판 (8502)"],["options_lab.py · options_bs.py","옵션 랩 화면 · 계산 (8504)"],["hedge_lab.py · hedge_core.py","헤지 랩 초안 화면 · 계산 (8507)"],
  ["analytics.py","자료 읽기·공용 모형"],["procurement.py","★ 구매 신호·점수·더 쌀 확률"],["risk.py","◆ 변동성·VaR·꼬리 (공용)"],["regime.py · regime_mv.py","② 레짐"],["mvgarch.py · midas.py","③ DCC·BEKK·GARCH-MIDAS"],
  ["predict_lab.py · models_ml.py · models_dense.py · metasel.py · panel.py","④ 수익률 예측"],["portfolio.py · ls_strategies.py · ls_extra.py · crosssec.py · alt_ts.py","⑤ 포트폴리오·롱숏·횡단면·대안 시계열"],
- ["experiments.py · forecast_lab.py · validation.py","⑥ 실험·파운데이션 모델·과적합 검정"],["model_atlas.py","⑦ 모델 도감"],["runlog.py","실행 기록 (runs/)"],["multimodal.py · reports.py · collect_reddit.py","멀티모달·기관 리포트 수집 (수동)"],
+ ["experiments.py · forecast_lab.py · validation.py","⑥ 실험·파운데이션 모델·과적합 검정"],["model_atlas.py","⑦ 모델 도감"],["quant16.py","퀀트 전략 16개 검증 (발표 5장)"],["causal_data.py · wasde_world.py","온톨로지 자료 수집 · WASDE 세계표 추출 (수동)"],["causal_grain.py · range_bt.py · defer_ont.py · range_defer.py · foreign_test.py · vol_ont.py","온톨로지 · 역방향 인과 · 확률 예측 실험 (docs/온톨로지_실험로그.md)"],["runlog.py","실행 기록 (runs/)"],["multimodal.py · reports.py · collect_reddit.py","멀티모달·기관 리포트 수집 (수동)"],
  ["collect.py · collect_carry.py","자료 수집 (일일 · 수동)"],["clean.py · roll_adjust.py · data_quality.py · export_excel.py","정제·롤 보정·품질·엑셀"],["build_dashboard.py · dashboard_template.html → dashboard.html","정적 대시보드"],
  ["corr_group_backtest.py","상관 묶음 백테스트 (기록용)"],["test_sources.py · source_test_result.csv","원천 연결 점검"],["push_check.py","push 전 테스트 필요 여부"],["setup.bat · setup_check.py · requirements.txt","설치·점검"],
  ["대시보드_열기.bat · 대시보드_유리_열기.bat · 옵션랩_열기.bat · 헤지랩_열기.bat · run_lab.bat · run_daily.bat","실행 파일"],
