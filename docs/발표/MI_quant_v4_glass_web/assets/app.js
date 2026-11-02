@@ -351,7 +351,7 @@ Reveal.addKeyBinding({ keyCode: 84, key: "T", description: "테마 바꾸기 (�
 let wheelLast = 0, wheelFire = 0;
 addEventListener("wheel", (e) => {
   const now = Date.now(), gap = now - wheelLast; wheelLast = now;
-  if (e.ctrlKey || (e.target.closest && e.target.closest(".plot[data-spin], #q16m")) || Math.abs(e.deltaY) < 4) return;
+  if (e.ctrlKey || (e.target.closest && e.target.closest(".plot[data-spin], #q16m, #ontm")) || Math.abs(e.deltaY) < 4) return;
   if (gap < 200 || now - wheelFire < 650) return;
   wheelFire = now; e.deltaY > 0 ? Reveal.next() : Reveal.prev();
 }, { passive: true });
@@ -398,6 +398,25 @@ addEventListener("resize", () => { fit(); const cur = Reveal.getCurrentSlide(); 
     Plotly.newPlot(box, sp.traces, { margin: { l: 0, r: 0, t: 0, b: 0 }, showlegend: false, paper_bgcolor: "rgba(0,0,0,0)",
       scene: { xaxis: ax(sp.axes[0]), yaxis: ax(sp.axes[1]), zaxis: ax(sp.axes[2]), camera: { eye: { x: 1.55, y: -1.55, z: 0.85 } } } },
       { displaylogo: false, responsive: true });
+  }));
+  m.addEventListener("click", (e) => { if (e.target === m || e.target.classList.contains("q16-x")) close(); });
+  addEventListener("keydown", (e) => { if (e.key === "Escape" && m.classList.contains("on")) { e.stopImmediatePropagation(); e.preventDefault(); close(); } }, true);
+})();
+
+// 별첨 5 온톨로지 그림: 상자 · 화살표를 누르면 그 연결 · 품목의 시험 결과 숫자 (D.ont = 실험 결과 CSV에서 생성)
+(() => {
+  const m = document.getElementById("ontm"); if (!m || !D.ont) return;
+  const tb = m.querySelector(".ont-tb");
+  const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  const close = () => { m.classList.remove("on"); document.querySelectorAll(".ont-hot.sel").forEach((x) => x.classList.remove("sel")); };
+  document.querySelectorAll(".ont-hot").forEach((el) => el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const o = D.ont[el.dataset.k]; if (!o) return;
+    el.classList.add("sel");
+    m.querySelector(".ont-t").textContent = o.t;
+    tb.innerHTML = o.rows.map((r) => `<tr><td>${esc(r[0])}</td><td>${esc(r[1])}</td></tr>`).join("");
+    m.querySelector(".ont-n").textContent = o.note + " · Esc 또는 바깥을 누르면 닫힘";
+    m.classList.add("on");
   }));
   m.addEventListener("click", (e) => { if (e.target === m || e.target.classList.contains("q16-x")) close(); });
   addEventListener("keydown", (e) => { if (e.key === "Escape" && m.classList.contains("on")) { e.stopImmediatePropagation(); e.preventDefault(); close(); } }, true);

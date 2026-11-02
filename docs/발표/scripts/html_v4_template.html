@@ -119,6 +119,16 @@ html, body { background:#fff; }
 .q16-h { display: flex; justify-content: space-between; align-items: center; font: 600 17px "Malgun Gothic", sans-serif; color: #1E3A2F; }
 .q16-x { cursor: pointer; font-size: 26px; line-height: 1; color: #6B6B66; padding: 0 6px; }
 .q16-plot { flex: 1; min-height: 0; }
+.ont-hot { cursor: pointer; border: 1.5px dashed rgba(200,162,74,.55); border-radius: 6px; background: rgba(200,162,74,.04); transition: background .15s, border-color .15s; }
+.ont-hot:hover, .ont-hot.sel { background: rgba(200,162,74,.18); border-color: #C8A24A; }
+#ontm { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; background: rgba(12,25,19,.35); }
+#ontm.on { display: flex; }
+.ont-box { width: min(78vw, 760px); max-height: 80vh; overflow: auto; background: #FBFBF8; border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.35); padding: 14px 20px 16px; }
+.ont-tb { width: 100%; border-collapse: collapse; margin-top: 10px; font: 14px "Malgun Gothic", sans-serif; color: #222; }
+.ont-tb td { padding: 7px 8px; border-bottom: 1px solid #E5E7E1; vertical-align: top; }
+.ont-tb td:first-child { color: #6B6B66; width: 46%; }
+.ont-tb td:last-child { font-variant-numeric: tabular-nums; font-weight: 600; color: #1E3A2F; }
+.ont-n { margin-top: 10px; font: 12.5px "Malgun Gothic", sans-serif; color: #6B6B66; }
 .q16-c { font: 12px "Malgun Gothic", sans-serif; color: #6B6B66; text-align: right; }
 </style>
 <style>/*@THEME_CSS*/</style>
@@ -133,6 +143,7 @@ html, body { background:#fff; }
 </div></div>
 <div id="stamp"></div>
 <div id="thToast"></div>
+<div id="ontm"><div class="ont-box"><div class="q16-h"><b class="ont-t"></b><span class="q16-x" title="닫기">×</span></div><table class="ont-tb"></table><div class="ont-n"></div></div></div>
 <div id="q16m"><div class="q16-box"><div class="q16-h"><b class="q16-t"></b><span class="q16-x" title="닫기">×</span></div><div class="q16-plot"></div><div class="q16-c"></div></div></div>
 <script>/*@REVEAL_JS*/</script>
 <script>/*@NOTES_JS*/</script>

@@ -51,6 +51,74 @@ def r(x, n=2):
     return np.round(np.asarray(x, float), n).tolist()
 
 
+# ════════════════════════════════════════ 별첨 5 온톨로지 그림 — 누르는 자리(인치, deck_v4.js 좌표)와 근거 숫자
+ONT_HOT = {"c_wx": (0.68, 2.05, 1.9, 0.5), "c_crop": (0.68, 2.75, 1.9, 0.5), "c_foreign": (0.68, 3.45, 1.9, 0.5), "c_trade": (0.68, 4.15, 1.9, 0.5),
+           "c_macro": (0.68, 4.85, 1.9, 0.5), "weak": (2.6, 2.2, 0.53, 2.3), "n_옥수수": (3.15, 2.15, 1.25, 0.62), "n_대두": (3.15, 3.85, 1.25, 0.62),
+           "n_밀": (4.95, 1.98, 1.35, 0.62), "n_대두박": (4.95, 3.4, 1.35, 0.62), "n_대두유": (4.95, 4.62, 1.35, 0.62),
+           "e_옥수수_밀": (4.4, 2.05, 0.55, 0.42), "e_대두_대두박": (4.4, 3.58, 0.55, 0.52), "e_대두_대두유": (4.4, 4.32, 0.55, 0.58), "e_원유_대두유": (2.62, 4.98, 2.3, 0.3)}
+ONT_GROUPS = {"c_wx": ("기상 · 위성 지수", ["미국 기상", "남미 기상", "흑해 기상", "미국 위성", "남미 위성", "흑해 위성", "미국 밀 위성"]),
+              "c_crop": ("작황 · WASDE 재고율", ["옥수수 작황", "대두 작황", "옥수수 재고율 수정", "대두 재고율 수정", "밀 재고율 수정"]),
+              "c_trade": ("수출 판매 · 운임", ["옥수수 수출 판매", "대두 수출 판매", "밀 수출 판매", "해상 운임"]),
+              "c_macro": ("원유 · 달러 · 헤알", ["원유", "달러 강세", "헤알 약세"])}
+
+
+def ont_data() -> dict:
+    """결과 CSV → 상자 · 화살표별 근거 (제목 · [항목, 값] 줄 · 한 줄 해석). 숫자는 실험 스크립트 결과 그대로."""
+    d = lambda f, **k: pd.read_csv(ROOT / "data" / f, **k)                              # noqa: E731
+    E, P, S = d("causal_scm_edges.csv"), d("causal_pcmci.csv"), d("causal_scm_share.csv").set_index("가격")
+    FE, B = d("foreign_scm_edges.csv"), d("causal_backtrace.csv")
+    RB, DF, VO = d("range_bt_compare.csv"), d("defer_ont_compare.csv"), d("vol_ont_compare.csv")
+    FS = d("foreign_scm_share.csv", header=[0, 1], index_col=0)
+    PR = ["옥수수", "대두", "밀", "대두박", "대두유"]
+    f2 = lambda b, t: f"{b:+.2f} (t {t:+.1f})"                                          # noqa: E731
+    pc = dict(zip(P.연결, P.PCMCI))
+    out = {}
+
+    def edge_rows(r):
+        both = abs(r.t_2008_16) > 2 and abs(r.t_2017_) > 2 and np.sign(r.계수_2008_16) == np.sign(r.계수_2017_)
+        return [["연결 강도 (전체 2008–2026)", f2(r.계수, r.t)], ["2008–16", f2(r.계수_2008_16, r.t_2008_16)], ["2017– (시험)", f2(r.계수_2017_, r.t_2017_)],
+                ["자료로 확인 (PCMCI)", pc.get(r.연결, "—")], ["판정", "두 기간 유의 · 같은 부호" if both else "두 기간 유의 아님"]]
+    for k, (a, b) in {"e_옥수수_밀": ("옥수수", "밀"), "e_대두_대두박": ("대두", "대두박"), "e_대두_대두유": ("대두", "대두유"), "e_원유_대두유": ("원유", "대두유")}.items():
+        r = E[E.연결 == f"{a} → {b}"].iloc[0]
+        cases = B[(B.대상 == b) & (B.원인 == a)]
+        rows = edge_rows(r) + [[f"사례 · {c.사례}", f"{b} {c.실제_누적:+.1f}% 중 {a} 경로 {c.기여:+.1f}%p"] for c in cases.itertuples()][:3]
+        out[k] = dict(t=f"{a} → {b}", rows=rows, note="같은 주 함께 움직이는 관계(설명용). 지난주 대두로 다음 주 대두박을 맞히는 데는 쓰이지 않음.")
+    for p in PR:
+        rows = [["주간 변동 설명 몫 (1판 → 2판 → 3판)", f"{S.loc[p, '설명_몫_전체_1판']:.0%} → {S.loc[p, '설명_몫_전체_2판']:.0%} → {FS.loc[p, ('설명몫', '3')]:.0%}"],
+                ["시험 R² 2017– (2판)", f"{S.loc[p, '시험_R2_2017__2판']:+.2f}"]]
+        for h in ("4주", "13주"):
+            g = RB[(RB.기간 == h) & (RB.품목 == p) & (RB.모형 == "M2 온톨로지")]
+            if len(g):
+                rows.append([f"④ {h} 구간 확률 (변동성 대비)", f"RPS {g['RPS_개선%'].iloc[0]:+.1f}% (t {g.t_NW.iloc[0]:+.1f})"])
+        g = DF[(DF.품목 == p) & (DF.미룸주 == 2) & (DF.기간 == "2017–")].set_index("정보")
+        if len(g):
+            rows.append(["⑤ 2주 미루기 시험 AUC (기본 → +원인)", f"{g.loc['기본', 'AUC']:.3f} → {g.loc['+원인', 'AUC']:.3f}"])
+        g = VO[(VO.가격 == p) & (VO.모형 == "V3 +온톨로지")]
+        if len(g):
+            rows.append(["⑧ 4주 변동성 (온톨로지 추가)", f"QLIKE {g.개선pct.iloc[0]:+.1f}% (t {g.t_NW.iloc[0]:+.1f})"])
+        top = B[(B.대상 == p) & (B.사례 != "최근 4주")].sort_values("기여", key=abs, ascending=False)
+        top = top[top.원인 != "상수"].head(2)
+        rows += [[f"사례 · {c.사례}", f"{c.실제_누적:+.1f}% 중 {c.원인} {c.기여:+.1f}%p"] for c in top.itertuples()]
+        out[f"n_{p}"] = dict(t=f"{p} — 설명은 되지만 예측은 안 됨", rows=rows, note="+ = 좋아짐. 예측 시험은 모두 학습에 안 쓴 2017– 기간.")
+    for k, (t, srcs) in ONT_GROUPS.items():
+        g = E[E.연결.str.split(" → ").str[0].isin(srcs) & E.연결.str.split(" → ").str[1].isin(PR)].copy()
+        g["m"] = g[["t_2008_16", "t_2017_"]].abs().min(axis=1)
+        rows = [[r.연결, f"{r.계수_2008_16:+.2f} (t {r.t_2008_16:+.1f}) / {r.계수_2017_:+.2f} (t {r.t_2017_:+.1f})"] for r in g.sort_values("m", ascending=False).head(7).itertuples()]
+        out[k] = dict(t=f"{t} → 가격", rows=[["연결", "2008–16 / 2017– 계수 (t)"]] + rows, note="두 기간 모두 |t| > 2 이고 같은 부호여야 '확인'. 가격 주간 변동 설명 몫은 +0~1%p.")
+    rows = [[r.연결, f"{r.계수_08_16:+.2f} (t {r.t_08_16:+.1f}) / {r.계수_17_:+.2f} (t {r.t_17_:+.1f})"] for r in FE.itertuples()]
+    out["c_foreign"] = dict(t="해외 수급 수정 (WASDE 세계표 348개) → 가격", rows=[["연결", "2008–16 / 2017– 계수 (t)"]] + rows,
+                            note="두 기간 같은 부호 · 유의: 해외 밀 재고 → 밀만. 발표 뒤 4주 지연 반응은 2008–16에만, 2017– 소멸.")
+    out["weak"] = dict(t="1단 원인 → 가격: 약한 연결", rows=[["가격", "설명 몫 1판 → 2판 → 3판 · 시험 R² 2017–"]] +
+                       [[p, f"{S.loc[p, '설명_몫_전체_1판']:.1%} → {S.loc[p, '설명_몫_전체_2판']:.1%} → {FS.loc[p, ('설명몫', '3')]:.1%} · {S.loc[p, '시험_R2_2017__2판']:+.2f}"] for p in PR],
+                       note="1판 = 기상 · 작황 · WASDE, 2판 = + 위성 · 수출 판매 · 운임, 3판 = + 해외 수급 수정. 자료를 늘려도 거의 그대로.")
+    return out
+
+
+def ont_hotspots(D) -> str:
+    return "".join(f'<div class="el ont-hot" data-k="{k}" title="누르면 근거 숫자" style="left:{U(x)};top:{U(y)};width:{U(w)};height:{U(h)}"></div>'
+                   for k, (x, y, w, h) in ONT_HOT.items() if k in D.get("ont", {}))
+
+
 # ════════════════════════════════════════ 데이터
 def data():
     adj = A.load_levels(roll_adjusted=True); asof = adj.index.max()
@@ -58,6 +126,8 @@ def data():
     q16 = HERE / "img" / "q16_specs.json"                                # 퀀트 전략 16 카드의 실시간 3D 정의 (charts_q16.py)
     if q16.exists():
         D["q16"] = json.loads(q16.read_text(encoding="utf-8"))
+    if (ROOT / "data" / "causal_scm_edges.csv").exists():                 # 별첨 5 온톨로지 그림: 누르면 근거 숫자 (causal_grain 등 결과)
+        D["ont"] = ont_data()
     rng = np.random.default_rng(3)
     # 8장: 변수 고르기 · 판단 나무 숲 · 기억 비중 (charts_v4와 같은 예시 자료)
     from sklearn.ensemble import RandomForestRegressor
@@ -404,6 +474,8 @@ def slide_html(n, s, D):
                 IMGS[Path(o["path"]).name] = Path(o["path"])                # 폴더판은 파일로, 한 파일판은 base64로 (main에서 치환)
                 h_ = f'<div class="el im" style="{box_style(o)}"><img src="@IMG:{Path(o["path"]).name}" alt=""></div>'
         els.append(h_.replace('class="el ', f'class="el {a} ', 1).replace('style="', f'style="{style_i};', 1))
+    if any(it["kind"] == "text" and it.get("text") == "원인 (바깥 충격 · 1단 수급)" for it in s["items"]):
+        els.append(ont_hotspots(D))                                         # 별첨 5: 그림의 상자 · 화살표를 누르면 근거 창
     note = f'<aside class="notes">{H.escape(s.get("notes", ""))}</aside>'
     bg = ' data-background-color="#1E3A2F"' if dark else ""
     stems = {Path(it["opts"]["path"]).stem for it in s["items"] if it["kind"] == "image"}
