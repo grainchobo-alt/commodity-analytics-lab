@@ -18,6 +18,7 @@
 | `quant16.py` | 퀀트 전략 16개(옵션 2개 제외) 같은 조건 백테스트 + 기존 실험 요약 → `data/quant16_compare.csv` (발표 5장 카드 · 검증 백로그 '퀀트 전략 16' 시트) |
 | `causal_data.py` | 곡물 온톨로지용 추가 자료 수집(키 불필요): NOAA 위성 식생건강지수(VHI) 주산지 20곳 · USDA 주간 수출 판매 · 걸프→일본 운임 · FAS PSD 세계 수급 → `data/mm/` |
 | `causal_grain.py` | 곡물 2단 온톨로지 역방향 인과 추론: ① 정책 이벤트 반사실(위약 p값) ② 구조 모형 역사적 분해(결과 → 원인·경로) ③ PCMCI(직접 구현) 연결 검증 → `data/causal_*.csv` |
+| `range_bt.py` | 가격 '구간 확률' 예측 백테스트(ForecastBench 방식): 4·13주 뒤 5구간 확률 · 오를 확률 · 80% 범위를 RPS·Brier·적중률로 채점, 과거 분포 vs 변동성 vs 온톨로지 vs 전부 넣기 → `data/range_bt_compare.csv` |
 | `회사노트북_설치가이드.md` · `setup_check.py` | 다른 PC(회사 노트북)로 옮길 때: 받기 → setup.bat → 점검(`setup_check.py --net`, 필수 실패 0개면 준비 완료) → 실행. 회사망 차단 시 대처·플랜 B 포함 |
 | `옵션랩_열기.bat` | 옵션 랩(`options_lab.py`, 포트 8504, 기존 대시보드와 별개) — 블랙숄즈 원리(수식·3D), 금·은·WTI(GLD·SLV·USO) 내재변동성 스마일·곡면, 다른 원자재 CSV 추가 방법. 계산 `options_bs.py`, 점검 `tests/test_options_bs.py` |
 | `대시보드_열기.bat` | **평소에 이것만 더블클릭** — 앱이 꺼져 있으면 켜고(최소화 창) 준비되면 브라우저 열기, 켜져 있으면 브라우저만 열기 |
