@@ -421,3 +421,21 @@ addEventListener("resize", () => { fit(); const cur = Reveal.getCurrentSlide(); 
   m.addEventListener("click", (e) => { if (e.target === m || e.target.classList.contains("q16-x")) close(); });
   addEventListener("keydown", (e) => { if (e.key === "Escape" && m.classList.contains("on")) { e.stopImmediatePropagation(); e.preventDefault(); close(); } }, true);
 })();
+
+// 별첨 6 시스템 구조도: 구조도 페이지(가로 1500px 기준)를 장 안 상자에 맞게 축소 · ▲▼ = 창 안 스크롤 (휠도 창 안에서 스크롤)
+(() => {
+  const boxes = document.querySelectorAll(".arch"); if (!boxes.length) return;
+  const VW = 1500;
+  const fit = () => boxes.forEach((b) => { const f = b.querySelector("iframe"), s = b.clientWidth / VW; if (!s) return;
+    f.style.width = VW + "px"; f.style.height = b.clientHeight / s + "px"; f.style.transform = `scale(${s})`; });
+  fit(); addEventListener("resize", fit); if (window.Reveal && Reveal.on) Reveal.on("slidechanged", fit);
+  const toMap = () => { const cur = window.Reveal && Reveal.getCurrentSlide(); if (!cur) return;   // 그 장에 처음 들어오면 구조도 그림 위치로 (설명 글은 위로 스크롤)
+    cur.querySelectorAll(".arch:not([data-moved]) iframe").forEach((f) => { try { const w = f.contentWindow, el = w.document.querySelector(".svgbox");
+      if (el && el.getBoundingClientRect().height) { w.scrollTo(0, el.getBoundingClientRect().top + w.scrollY - 110); f.parentNode.dataset.moved = "1"; } } catch (err) { /* 폴더판 file://는 처음부터 */ } }); };
+  if (window.Reveal && Reveal.on) Reveal.on("slidechanged", () => setTimeout(toMap, 300));
+  boxes.forEach((b) => b.querySelector("iframe").addEventListener("load", () => setTimeout(toMap, 300)));
+  boxes.forEach((b) => b.querySelectorAll(".arch-nav button").forEach((btn) => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    try { const w = b.querySelector("iframe").contentWindow; w.scrollBy({ top: +btn.dataset.d * w.innerHeight * 0.7, behavior: "smooth" }); } catch (err) { /* 폴더판 file://에서는 휠로 스크롤 */ }
+  })));
+})();

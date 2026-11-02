@@ -114,6 +114,11 @@ def ont_data() -> dict:
     return out
 
 
+def arch_doc() -> str:
+    """docs/architecture.html — 발표 안 창에서는 구조도 상자의 높이 제한을 풀어 페이지 전체를 스크롤로 봄."""
+    return (ROOT / "docs" / "architecture.html").read_text(encoding="utf-8").replace("</head>", "<style>.svgbox{max-height:none!important}</style></head>", 1)
+
+
 def ont_hotspots(D) -> str:
     return "".join(f'<div class="el ont-hot" data-k="{k}" title="누르면 근거 숫자" style="left:{U(x)};top:{U(y)};width:{U(w)};height:{U(h)}"></div>'
                    for k, (x, y, w, h) in ONT_HOT.items() if k in D.get("ont", {}))
@@ -458,6 +463,9 @@ def slide_html(n, s, D):
                 h_ = heat_html(o, D["xs"])
             elif name == "c26_corr":
                 h_ = corr_html(o, D["corr"])
+            elif name == "arch_map":                                       # 별첨 6: 구조도 페이지를 그대로 넣음 (마우스로 흐름 · 스크롤), PPT는 캡처 그림
+                h_ = (f'<div class="el arch" style="{box_style(o)}"><iframe class="archf" @ARCH title="시스템 구조도"></iframe>'
+                      '<div class="arch-nav"><button data-d="-1" title="위로">▲</button><button data-d="1" title="아래로">▼</button></div></div>')
             elif name.startswith("q16_"):                                  # 퀀트 전략 16 카드: 회전 GIF, 누르면 실시간 3D 창 (charts_q16.py)
                 IMGS[Path(o["path"]).name] = Path(o["path"])
                 h_ = (f'<div class="el im q16" data-q="{int(name[4:])}" title="누르면 직접 돌려 볼 수 있음" style="{box_style(o)}">'
@@ -506,6 +514,7 @@ def main():
     one = one.replace("/*@DATA*/", data_js.replace("</", "<\\/"))
     for nm, p in IMGS.items():
         one = one.replace(f"@IMG:{nm}", f"data:{MIME.get(p.suffix, 'image/png')};base64," + base64.b64encode(p.read_bytes()).decode())
+    one = one.replace("@ARCH", f'srcdoc="{H.escape(arch_doc(), quote=True)}"')   # 한 파일판: 구조도 페이지를 속성 안에 통째로
     OUT.write_text(one, encoding="utf-8")
     # ② 폴더판: index.html(작음) + assets/ → zip으로 전달, 받은 쪽은 압축을 푼 뒤 index.html을 염 (file://에서도 동작: fetch 없이 <script src>만 사용)
     if WEB.exists():
@@ -518,6 +527,8 @@ def main():
     assert "/*@" not in page, "템플릿 자리표시자 치환 누락"
     for nm, p in IMGS.items():
         page = page.replace(f"@IMG:{nm}", f"assets/img/{nm}"); shutil.copy(p, WEB / "assets" / "img" / nm)
+    page = page.replace("@ARCH", 'src="assets/architecture.html"')
+    (WEB / "assets" / "architecture.html").write_text(arch_doc(), encoding="utf-8")
     (WEB / "index.html").write_text(page, encoding="utf-8")
     for k, fn in (("REVEAL_CSS", "reveal.css"), ("THEME_CSS", "theme.css"), ("REVEAL_JS", "reveal.js"), ("NOTES_JS", "notes.js"), ("PLOTLY_JS", "plotly.min.js"), ("APP_JS", "app.js")):
         shutil.copy(src[k], WEB / "assets" / fn)
