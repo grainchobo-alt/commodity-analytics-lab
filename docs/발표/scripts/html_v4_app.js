@@ -13,9 +13,7 @@ function fit() {                                                                
 fit();
 
 (function stamp() {
-  const days = Math.floor((Date.now() - new Date(D.asof + "T00:00:00")) / 864e5), el = $("#stamp");
-  el.textContent = `자료 기준일 ${D.asof} · 구매 판단 ${D.buy_asof} · 생성 ${D.built}`;
-  if (days > 7) { el.classList.add("stale"); el.textContent += ` · ⚠ 자료가 ${days}일 지남 — 15·16장·요약 숫자 갱신 필요`; }
+  $("#stamp").textContent = `자료 기준일 ${D.asof} · 구매 판단 ${D.buy_asof} · 생성 ${D.built}`;   // 경과일 경고는 쓰지 않음 (발표 자료는 매일 갱신하지 않음)
 })();
 
 // ── 3D 도우미: 직육면체 막대 · 곡선 아래 커튼
