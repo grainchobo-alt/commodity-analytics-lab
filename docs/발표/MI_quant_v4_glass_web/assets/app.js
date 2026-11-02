@@ -245,12 +245,38 @@ P.value = () => {                                                               
 function pptChart(id) {
   const c = D.charts[id], o = c.opts, cols = (o.chartColors || [C.g, C.red]).map((x) => "#" + x);
   const tr = c.data.map((s, q) => c.type === "bar"
-    ? { type: "bar", x: s.labels, y: s.values, marker: { color: s.values.map((_, k) => cols[k % cols.length]) }, text: o.showValue ? s.values.map((v) => (v > 0 ? "+" : "") + v) : undefined, textposition: "outside", hoverinfo: "skip", cliponaxis: false }
+    ? { type: "bar", x: s.labels, y: s.values, name: s.name, marker: { color: c.data.length > 1 ? cols[q % cols.length] : s.values.map((_, k) => cols[k % cols.length]) }, text: o.showValue ? s.values.map((v) => (v > 0 ? "+" : "") + v) : undefined, textposition: "outside", hoverinfo: "skip", cliponaxis: false }
     : { type: "scatter", mode: "lines+markers", x: s.labels, y: s.values, name: s.name, line: { color: cols[q], width: 2.5 }, marker: { size: 6 }, hovertemplate: `${s.name} %{y}<extra>%{x}</extra>` });
   return [tr, { showlegend: !!o.showLegend, legend: { orientation: "h", y: -0.18 }, margin: { l: o.valAxisHidden ? 6 : 40, r: 8, t: o.showTitle ? 30 : 6, b: 30 },
     title: o.showTitle ? { text: o.title, font: { size: Math.max(10, unit() * 0.13), color: C.g }, x: 0.02 } : undefined,
     yaxis: { visible: !o.valAxisHidden, gridcolor: "#E5E5E0", zeroline: true }, xaxis: { gridcolor: "rgba(0,0,0,0)" } }];
 }
+
+// ── 별첨 7: 시계열 분해 3D 세 장 (품목 선택 상자 하나로 함께 바뀜)
+let ts7Key = D.ts7 ? Object.keys(D.ts7)[0] : null;
+const yfrac = (d) => { const t = new Date(d); return t.getFullYear() + (t - new Date(t.getFullYear(), 0, 1)) / 31557600000; };
+const ts7Redraw = () => document.querySelectorAll('.plot[data-plot="stl3d"], .plot[data-plot="season3d"], .plot[data-plot="resid3d"]').forEach((el) => { if (el.dataset.done) draw(el, true); });
+P.stl3d = (el) => {
+  const pick = $(".ts7-pick", el.parentNode);
+  if (pick && !pick.options.length) { pick.innerHTML = Object.keys(D.ts7).map((k) => `<option>${k}</option>`).join(""); pick.onchange = () => { ts7Key = pick.value; ts7Redraw(); }; }
+  const T = D.ts7[ts7Key], x = T.d.map(yfrac), names = ["원가격(평균 뺌)", "추세", "계절성", "잔차"], cols = [C.g, C.blue, C.gold, C.red];
+  return [[T.y, T.tr, T.se, T.re].map((z, k) => ({ type: "scatter3d", mode: "lines", x, y: x.map(() => k), z, name: names[k], line: { color: cols[k], width: 4 },
+    hovertemplate: `${names[k]}<br>%{x:.1f}년 · %{z:.1f}%<extra></extra>` })),
+    { showlegend: false, scene: { xaxis: ax3("연도"), yaxis: ax3("", { tickvals: [0, 1, 2, 3], ticktext: names }), zaxis: ax3("로그가격 차이 (%)"),
+      aspectmode: "manual", aspectratio: { x: 2.4, y: 1.2, z: 0.8 }, near: true, camera: { eye: { x: -0.9, y: -1.9, z: 0.8 } } } }];
+};
+P.season3d = () => {
+  const T = D.ts7[ts7Key];
+  return [[{ type: "surface", x: T.gw, y: T.gy, z: T.gz, colorscale: "RdYlGn", reversescale: true, showscale: false, hovertemplate: "%{y}년 %{x}주차<br>추세 뺀 가격 %{z:.1f}%<extra></extra>" }],
+    { scene: { xaxis: ax3("연중 주차"), yaxis: ax3("연도"), zaxis: ax3("추세 뺀 가격 (%)"), camera: { eye: { x: -1.4, y: -1.5, z: 0.9 } } } }];
+};
+P.resid3d = () => {
+  const T = D.ts7[ts7Key];
+  return [[{ type: "surface", x: T.rd.map(yfrac), y: T.wins.map((_, k) => k), z: T.rm, surfacecolor: T.rs, colorscale: "YlOrRd", showscale: false,
+    hovertemplate: "%{x:.1f}년<br>이동 평균 %{z:.1f}%<extra></extra>" }],
+    { scene: { xaxis: ax3("연도"), yaxis: ax3("이동창", { tickvals: T.wins.map((_, k) => k), ticktext: T.wins.map((w) => w + "주") }), zaxis: ax3("잔차 이동 평균 (%)"),
+      camera: { eye: { x: -1.4, y: -1.6, z: 0.8 } } } }];
+};
 
 // ── 그리기 · 자동 회전 · 숫자 세기
 function draw(el, again) {

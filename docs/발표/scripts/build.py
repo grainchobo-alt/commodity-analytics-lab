@@ -70,6 +70,10 @@ def build_data():
     if q16.exists():
         Q = pd.read_csv(q16, encoding="utf-8-sig")
         nums["q16"] = Q[["행", "번호", "전략", "영문", "한 줄 설명", "결과 1", "결과 2", "판단"]].to_dict("records")
+    ts7 = HERE / "img" / "ts7.json"                                     # 별첨 7 시계열 분해 표 (charts_ts7.py)
+    if ts7.exists():
+        T7 = json.loads(ts7.read_text(encoding="utf-8"))
+        nums["ts7"] = {"tests": T7["tests"], "share": T7["share"], "spur": T7["spur"]}
     (HERE / "data.json").write_text(json.dumps(nums, ensure_ascii=False, indent=1), encoding="utf-8")
     print("data.json:", ", ".join(nums))
 
@@ -121,6 +125,7 @@ def main():
         subprocess.run([py, str(HERE / "charts_v3.py")], cwd=ROOT, check=True)
     if v >= 4:
         subprocess.run([py, str(HERE / "charts_v4.py")], cwd=ROOT, check=True)
+        subprocess.run([py, str(HERE / "charts_ts7.py")], cwd=ROOT, check=True)
     step("2/3 data.json (nums.json + 목표 변동성 표)")
     build_data()
     step("3/3 슬라이드 조립 (pptxgenjs)")

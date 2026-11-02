@@ -44,7 +44,8 @@ PLOTS = {"c47a_lasso3d": "lasso", "c47b_pca3d": "pca", "c47c_rf3d": "rf", "c47d_
          "c49a_frontier_grid": "ef3d", "c49b_frontier_ribbon": "efyear", "c51_ml_overfit3d": "ovf",
          "c41_randomwalk": "rw", "c42_brownian": "mc", "c09_volatility": "vol", "c16_strategies": "strat",
          "c52_split3d": "split", "c53_linfit3d": "linfit", "c54_mlfit3d": "mlfit",
-         "c55_mom3d": "mom", "c56_minvar3d": "minvar", "c57_value3d": "value"}   # 마지막 4개 = 선이 그려지는 2D
+         "c55_mom3d": "mom", "c56_minvar3d": "minvar", "c57_value3d": "value",
+         "c71_stl3d": "stl3d", "c72_season3d": "season3d", "c73_resid3d": "resid3d"}   # 마지막 4개 = 선이 그려지는 2D
 
 
 def r(x, n=2):
@@ -131,6 +132,9 @@ def data():
     q16 = HERE / "img" / "q16_specs.json"                                # 퀀트 전략 16 카드의 실시간 3D 정의 (charts_q16.py)
     if q16.exists():
         D["q16"] = json.loads(q16.read_text(encoding="utf-8"))
+    ts7 = HERE / "img" / "ts7.json"                                       # 별첨 7 시계열 분해 3D (charts_ts7.py)
+    if ts7.exists():
+        D["ts7"] = json.loads(ts7.read_text(encoding="utf-8"))["items"]
     if (ROOT / "data" / "causal_scm_edges.csv").exists():                 # 별첨 5 온톨로지 그림: 누르면 근거 숫자 (causal_grain 등 결과)
         D["ont"] = ont_data()
     rng = np.random.default_rng(3)
@@ -475,6 +479,8 @@ def slide_html(n, s, D):
                 extra = ""
                 if key == "ef3d":
                     extra = '<select class="ef-pick"></select>'
+                if key == "stl3d":
+                    extra = '<select class="ts7-pick" title="품목 바꾸기 (세 그림 함께)"></select>'
                 if key == "efyear":
                     extra = '<div class="ey-ctl"><button class="ey-play">▶</button><input class="ey-yr" type="range"><b class="ey-lab"></b><span class="ey-gap"></span></div>'
                 h_ = plot_item(o, key, extra)

@@ -657,5 +657,63 @@ function mcards(s, ms) {
   foot(s, "원본 = docs/architecture.html (코드를 직접 읽고 확인한 내용, 2026-11-02 기준). 사내 시스템 · 외부 AI API 연동 없음 — 모든 계산은 이 PC에서.");
 }
 
+// ════════════════ 별첨 7: 시계열 분해 — 추세 · 계절성 · 잔차(정상성) (charts_ts7.py, 숫자 = data.json ts7)
+if (D.ts7) {
+  const s = base();
+  header(s, "별첨", "별첨 7 — 시계열 분해: 추세 · 계절성 · 잔차(정상성)", "가격 = 추세 + 계절성 + 잔차 — 가격 수준은 떠돌고(비정상), 수익률 · 잔차는 평균이 일정(정상), 계절성은 해마다 모양이 바뀜");
+  img(s, "c71_stl3d", 0.35, 1.5, 6.6, 3.15);
+  s.addText("① 분해 리본 (옥수수 주간, STL 52주): 원가격 = 추세(파랑) + 계절성(금) + 잔차(주황)", { x: 0.5, y: 4.64, w: 6.4, h: 0.26, fontFace: F, fontSize: 9.5, bold: true, color: G, margin: 0 });
+  img(s, "c72_season3d", 7.0, 1.5, 2.95, 2.25);
+  img(s, "c73_resid3d", 10.0, 1.5, 2.95, 2.25);
+  s.addText("② 계절 지형: 같은 주차에 해마다 같은 골이면 계절성 — 실제로는 연도마다 모양이 흔들림", { x: 7.05, y: 3.77, w: 2.85, h: 0.44, fontFace: F, fontSize: 8.5, color: INK, margin: 0, valign: "top" });
+  s.addText("③ 잔차 정상성: 평균 면이 0 근처로 평평 = 정상 · 진한 색 = 변동성 몰림(2008 · 2012 · 2022)", { x: 10.05, y: 3.77, w: 2.85, h: 0.44, fontFace: F, fontSize: 8.5, color: INK, margin: 0, valign: "top" });
+  const T = D.ts7.tests, SH = D.ts7.share;
+  table(s, [["④ 정상성", "가격 수준", "수익률", "STL 잔차"]].concat(T.map((t) => [t.품목, `${t.레벨} (${t.레벨p})`, `${t.수익률} (${t.수익률p})`, `${t.잔차} (${t.잔차p})`])),
+    { x: 0.4, y: 4.93, w: 6.55, colW: [1.15, 1.8, 1.8, 1.8], fontSize: 8, rowH: 0.22, boldFirst: true });
+  s.addText("⑤ 계절성: 그림에서 보이는 몫 vs 같은 모양으로 2017– 설명", { x: 7.05, y: 4.22, w: 5.85, h: 0.28, fontFace: F, fontSize: 10, bold: true, color: G, margin: 0 });
+  s.addChart(pres.charts.BAR, [{ name: "STL 계절 몫 (같은 기간, %)", labels: SH.map((x) => x.품목), values: SH.map((x) => x.계절성) },
+    { name: "계절 모양으로 2017– 설명 (시험 R², %)", labels: SH.map((x) => x.품목), values: SH.map((x) => x.계절_시험R2) }],
+    C({ x: 7.0, y: 4.5, w: 5.9, h: 1.92, barDir: "col", barGrouping: "clustered", chartColors: [GOLD, RED], showLegend: true, legendPos: "b", legendFontSize: 8.5,
+      showValue: true, dataLabelFontSize: 8, dataLabelFormatCode: "0", valAxisLabelFontSize: 8, catAxisLabelFontSize: 9, valGridLine: { color: "E5E5E0", size: 0.5 } }));
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.4, y: 6.47, w: 12.5, h: 0.46, fill: { color: "FBF4E1" }, line: { color: GOLD, width: 1 }, rectRadius: 0.06 });
+  s.addText([{ text: "결론  ", options: { bold: true, color: RED } }, { text: "가격 수준은 비정상 → 모델은 수익률로 학습 · 계절성은 그림보다 약하고 해마다 바뀜(같은 모양으로 2017– 설명하면 오히려 악화) → 구매 점수에 15% 보조로만 · 잔차 변동성은 시기별로 몰림 → GARCH로 위험 크기 예측" }],
+    { x: 0.55, y: 6.47, w: 12.3, h: 0.46, fontFace: F, fontSize: 10, color: INK, valign: "middle", margin: 0 });
+  foot(s, "④ 괄호 = ADF p / KPSS p (ADF < 0.05 & KPSS > 0.05 = 정상) · STL 계절 평활 51 · 계절 모양 = 주차 더미, 2008–16 학습 → 2017– 시험 · 왜 · 어떻게는 별첨 8");
+}
+
+// ════════════════ 별첨 8: 왜 잔차의 정상성을 만드나 — 추세 · 계절 보정
+if (D.ts7) {
+  const s = base();
+  const SP = D.ts7.spur;
+  header(s, "별첨", "별첨 8 — 왜 잔차의 정상성을 만드나: 추세 · 계절 보정", "정상성 = 평균 · 분산 · 자기상관이 시간에 따라 일정 → '과거로 배운 규칙이 미래에도 통한다'는 모든 모델의 전제");
+  const flow = [["원가격", "떠돎 (비정상)", MUTED], ["① 추세 보정", "차분 · 추세선 빼기", BLUE], ["② 계절 보정", "STL · X-13 · 사인/코사인", GOLD], ["잔차", "평균 · 분산 일정 (정상)", G], ["모델 · 검정 · 위험", "학습 · AUC · VaR", RED]];
+  flow.forEach(([t, sub, col], i) => {
+    const x = 0.5 + i * 2.5;
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 1.62, w: 2.15, h: 0.78, fill: { color: WHITE }, line: { color: col, width: 1.5 }, rectRadius: 0.06 });
+    s.addText([{ text: t, options: { bold: true, fontSize: 12.5, color: col, breakLine: true } }, { text: sub, options: { fontSize: 9, color: INK } }],
+      { x, y: 1.62, w: 2.15, h: 0.78, fontFace: F, align: "center", valign: "middle", margin: 0 });
+    if (i < 4) arrow(s, x + 2.17, 2.01, x + 2.48, 2.01, MUTED);
+  });
+  card(s, 0.5, 2.62, 4.0, 3.0, "왜 정상성이 필요한가", `• 비정상이면 과거의 평균 · 출렁임이 미래와 달라, 학습한 규칙이 그대로 깨짐
+• 가짜 상관: 서로 전혀 무관한 무작위 가격 ${SP.pairs.toLocaleString()}쌍 중 ${SP.level_gt05}%가 가격 수준 상관 0.5 초과 → 수익률로 바꾸면 상관 0.1 초과는 ${SP.ret_gt01}%
+• t검정 · 신뢰구간 · AUC 같은 통계 판단이 모두 정상성을 전제
+• 비정상이면 예측 범위가 시간에 따라 끝없이 벌어짐`, RED, { hs: 13, bs: 10 });
+  card(s, 4.67, 2.62, 4.0, 3.0, "① 추세 보정 방법", `• 차분 — 오늘 − 어제 (로그 차분 = 수익률): 가장 흔하고 우리 기본
+• 추세선 빼기 — 직선 · 다항 회귀의 잔차 (추세가 확정적일 때)
+• 필터 — 이동평균 · HP 필터 · STL 추세
+• 공적분 — 함께 떠도는 두 가격의 차이(스프레드)는 정상 → 상대가치 · 헤지 비율
+• 판단: 추세가 무작위(단위근)면 차분, 확정적이면 추세선 빼기 — ADF · KPSS로 확인`, BLUE, { hs: 13, bs: 10 });
+  card(s, 8.84, 2.62, 4.0, 3.0, "② 계절 보정 방법", `• STL — 국소 회귀(LOESS)로 추세 · 계절 · 잔차 분리, 주기 자유 · 이상치에 강함
+• X-13ARIMA-SEATS — 미 인구조사국 공식, 월 · 분기 통계(고용 · 물가) 표준, 영업일 · 명절 효과까지
+• 사인 · 코사인(푸리에 항) — 1년 · 반년 파동을 회귀 설명변수로
+• 계절 더미 · 계절 차분 — 월 · 주차별 평균 빼기 / 1년 전 값과의 차이`, GOLD, { hs: 13, bs: 10 });
+  table(s, [["대시보드에서는", "처리"], ["모든 예측 · 전략 모델", "가격이 아니라 수익률(로그 차분)로 학습 — 5품목 수익률 모두 정상 (별첨 7)"],
+    ["구매 점수 · 가격 위치", "최근 범위 안 위치(0~1)로 변환 · 계절 요소 = 과거 월별 평균(최근 5년 반감 가중), 비중 15%"],
+    ["구매 미루기 모형", "선택 시 사인 · 코사인 계절 특성 추가 (품목별로 학습 기간에서 고름)"],
+    ["남은 문제: 분산이 시기별로 변함", "변동성 군집 → GARCH · EWMA로 위험 크기를 따로 예측 (VaR · 헤지)"]],
+    { x: 0.5, y: 5.72, w: 12.35, colW: [3.0, 9.35], fontSize: 9, rowH: 0.2, boldFirst: true });
+  foot(s, `가짜 상관 모의실험: 서로 독립인 랜덤워크 ${SP.pairs.toLocaleString()}쌍, 길이 ${SP.n}주(우리 주간 자료와 같음). 수준 상관 중앙값 ${SP.level_med} vs 수익률 ${SP.ret_med}. 코드 charts_ts7.py.`);
+}
+
 pres.writeFile({ fileName: OUT }).then((f) => console.log("written", f, "slides", page));
 if (NOTES.length !== page) console.warn(`발표자 노트 ${NOTES.length}개 ≠ 장 수 ${page}`);
