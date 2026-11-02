@@ -20,6 +20,7 @@
 | `causal_grain.py` | 곡물 2단 온톨로지 역방향 인과 추론: ① 정책 이벤트 반사실(위약 p값) ② 구조 모형 역사적 분해(결과 → 원인·경로) ③ PCMCI(직접 구현) 연결 검증 → `data/causal_*.csv` |
 | `range_bt.py` | 가격 '구간 확률' 예측 백테스트(ForecastBench 방식): 4·13주 뒤 5구간 확률 · 오를 확률 · 80% 범위를 RPS·Brier·적중률로 채점, 과거 분포 vs 변동성 vs 온톨로지 vs 전부 넣기 → `data/range_bt_compare.csv` |
 | `defer_ont.py` | 구매 '지금 살까, 미룰까' + 온톨로지 특성(원인 노드 · 원인 분해) 백테스트, 대시보드와 같은 규칙 → `data/defer_ont_compare.csv` |
+| `range_defer.py` | 범위 기반 일부 물량 미루기: P(4주 뒤 −5% 아래) ≥ q*면 50% 미룸(고정형 · 지정가형), 변동성 모형 확률, q*는 학습 기간에서 선택 → `data/range_defer_compare.csv` |
 | `docs/온톨로지_실험로그.md` | 곡물 2단 온톨로지 구조(그림) · 자료 · 백테스트 결과 · 결정 기록 |
 | `회사노트북_설치가이드.md` · `setup_check.py` | 다른 PC(회사 노트북)로 옮길 때: 받기 → setup.bat → 점검(`setup_check.py --net`, 필수 실패 0개면 준비 완료) → 실행. 회사망 차단 시 대처·플랜 B 포함 |
 | `옵션랩_열기.bat` | 옵션 랩(`options_lab.py`, 포트 8504, 기존 대시보드와 별개) — 블랙숄즈 원리(수식·3D), 금·은·WTI(GLD·SLV·USO) 내재변동성 스마일·곡면, 다른 원자재 CSV 추가 방법. 계산 `options_bs.py`, 점검 `tests/test_options_bs.py` |
