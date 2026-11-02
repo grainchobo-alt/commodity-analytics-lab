@@ -3,6 +3,11 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.48.0 — 2026-11-02 — 곡물 2단 온톨로지 · 역방향 인과 추론 실험
+- `causal_data.py`(신규): 키 없이 받는 자료 4종 — NOAA STAR 위성 식생건강지수(VHI·평활 NDVI, 경작지, 주간 1981–; 미국 콘벨트·남미 6주·흑해 9주·미국 밀 2주), USDA 주간 수출 판매(AgTransport `wnn7-29tu`, 1999–), 걸프·PNW→일본 운임(`ehs5-yac3`, 월간 1996–), FAS PSD 세계 수급(연간, 현재 추정치만 → 주간 모형 미사용)
+- `causal_grain.py`(신규): ① 정책 이벤트 6건 반사실(곡물 밖 13품목 대조, 위약 400회) — 러-우 침공 밀 5일 +19.5%(p<0.001)만 유의, 중국 보복관세 대두 20일 −11.7%(p 0.03) ② 2단 온톨로지 선형 구조 모형 + 역사적 분해(원인 충격·경로별, 검산 오차 1e−14) — 설명 몫 대두박 61%·밀 43%·대두유 40%·대두 14%·옥수수 9%; 위성·수출 판매·운임 추가(2판)는 +0~1%p, 시험 R² 개선 없음 ③ PCMCI(ParCorr, tigramite 없이 구현) — 2단 연결(옥수수→밀, 대두→대두박·대두유, 원유→대두유)·기상→위성은 확인, 1단(작황·재고율→가격)은 미확인
+- NOAA 토큰(NCEI CDO, 기상 관측소용)을 `.env`의 `NOAA_TOKEN`에 저장 — 이번 분석에는 미사용
+
 ## v1.47.1 — 2026-11-02 — 발표: 퀀트 16장 회전 속도 · 모델·전략 영문 제목
 - 5장 회전 GIF: 2.5초에 한 바퀴 → 좌우 ±20° 천천히 흔들기(왕복 18초, 끝에서 부드럽게 방향 전환) — 8장 3D(초당 약 5°)와 비슷한 속도. 40장면·48색 (`charts_q16.py` `save_gif`)
 - 10·11장 모델 카드 제목 영문: Variable Selection (Regularization) · Factor & Principal Component Models · Tree Ensemble Models (Random Forest) · Neural Network Sequence Models · Time-Series Foundation Models* · Multimodal Text Analysis (NLP) · Volatility Clustering Models · Regime-Switching Models. 11장 주석에 Foundation Model 뜻
