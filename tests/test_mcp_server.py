@@ -22,6 +22,11 @@ async def main():
         assert names == {f.__name__ for f in T.READ_TOOLS + T.WRITE_TOOLS}, names
         ann = {t.name: t.annotations for t in tl}
         assert all(ann[f.__name__].read_only_hint for f in T.READ_TOOLS) and ann["save_expert_view"].read_only_hint is False
+        assert not any(ann[f.__name__].open_world_hint for f in T.READ_TOOLS)                       # 읽기 도구는 외부 접속 없음
+        assert ann["refresh_data"].read_only_hint is False and ann["refresh_data"].open_world_hint is True
+        r = await s.call_tool("refresh_data", {"target": "prices"})                                  # confirm 없이 = 계획만, 실행 안 함
+        d = json.loads(r.content[0].text)
+        assert d["executed"] is False and d["needs_approval"] and "collect.py" in d["plan"]["steps"]
         sch = {t.name: t.input_schema for t in tl}
         assert all(t.description for t in tl) and {"item", "model", "horizon"} <= set(sch["vol_forecast"]["properties"])   # 감싼 함수의 인자 형식 유지
         ok(f"서버 기동 · 도구 {len(tl)}개 (읽기 {len(T.READ_TOOLS)} · 쓰기 {len(T.WRITE_TOOLS)}, 설명·입력 형식 있음)")
@@ -36,7 +41,7 @@ async def main():
         assert "찾지 못함" in d["error"]
         ok("잘못된 입력 → 오류 문장 전달 (LLM이 고쳐 다시 부를 수 있게)")
     L = LOG.read_text(encoding="utf-8").splitlines()[n0:]
-    assert [json.loads(x)["tool"] for x in L] == ["vol_forecast", "get_prices"] and json.loads(L[1])["ok"] is False
+    assert [json.loads(x)["tool"] for x in L] == ["refresh_data", "vol_forecast", "get_prices"] and json.loads(L[2])["ok"] is False
     ok("호출 기록 data/llm_logs/tool_calls.jsonl (성공·실패 모두)")
 
 asyncio.run(main())

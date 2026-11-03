@@ -29,8 +29,8 @@ ok(f"조회: 품목 목록 · 가격 요약 (현재가 = 정제본 마지막 값
 
 o = T.vol_forecast("옥수수", "GJR"); chk(o, ["persistence", "vol_now_ann_pct"])
 assert 0.8 < o["persistence"] < 1 and 5 < o["vol_now_ann_pct"] < 80
-r = RK.returns(A.load_levels()["yf:ZC=F"]).loc["2010-01-01":]
-assert abs(o["riskmetrics_ann_pct"] - float(np.sqrt(RK.ewma_var(r).iloc[-1] * 252))) < 1e-2
+r = T._panel(["yf:ZC=F"])["yf:ZC=F"]                                                # 대시보드 기본 패널 (주간 2000~)
+assert abs(o["riskmetrics_ann_pct"] - float(np.sqrt(RK.ewma_var(r).iloc[-1] * 52))) < 1e-2 and "half_life_weeks" in o
 for m in ("GARCH", "EGARCH"):
     chk(T.vol_forecast("밀", m))
 ok(f"변동성: GJR 지속성 {o['persistence']} · 연 {o['vol_now_ann_pct']}% (EWMA 값 대시보드 함수와 일치), GARCH·EGARCH도")
@@ -50,10 +50,13 @@ o2 = T.correlation(["옥수수", "밀", "대두"]); chk(o2, ["recent"]); assert 
 ok(f"요인: PC1 몫 {o['explained_ratio']['PC1']}, 스필오버 총 {o['spillover_total_pct']}% · 상관 표")
 
 o = T.buy_signal(["옥수수", "대두박"]); chk(o, ["table"])
-ref = PR.today_table(A.load_levels(), A.load_levels(roll_adjusted=False), ["yf:ZC=F"]).iloc[0]
+P0 = PR.PRESETS[T.BUY_PRESET]                                                        # ★ 탭 기본 = '추천' 프리셋 (대조 전체는 test_llm_parity)
+ref = PR.today_table(A.load_levels(), A.load_levels(roll_adjusted=False), ["yf:ZC=F"], P0["w"], P0["k"], risk=P0["risk"], season=P0["season"],
+                     lookback=PR.item_lookback("yf:ZC=F", int(P0["lookback"]))).iloc[0]
 assert abs(o["table"][0]["매수 점수"] - ref["매수 점수"]) < 1e-2 and 0 <= o["table"][1]["매수 점수"] <= 100
 chk(T.fundamentals(["옥수수"]), ["table"])
-ok(f"구매 판단: 옥수수 점수 {o['table'][0]['매수 점수']} = 대시보드 today_table과 같음 · 펀더멘털")
+assert o["dashboard"]["match"] == "같음" if "dashboard" in o else True
+ok(f"구매 판단: 옥수수 점수 {o['table'][0]['매수 점수']} = ★ 추천 프리셋 계산 · 펀더멘털")
 
 o = T.get_results(); chk(o, ["available"]); assert "procurement_lump" in o["available"]
 o = T.get_results("procurement_lump"); chk(o, ["table"]); assert len(o["table"]) <= T.MAX_ROWS

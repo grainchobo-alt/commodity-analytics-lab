@@ -16,9 +16,15 @@ graph TD;
 	extract_view(extract_view)
 	approve_view(approve_view)
 	save_view(save_view)
+	check_data(check_data)
+	approve_refresh(approve_refresh)
+	run_refresh(run_refresh)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> classify;
+	approve_refresh --> run_refresh;
 	approve_view --> save_view;
+	check_data --> approve_refresh;
+	classify -.-> check_data;
 	classify -.-> extract_view;
 	classify -.-> numeric;
 	compose --> verify;
@@ -31,6 +37,7 @@ graph TD;
 	verify -.-> finish;
 	fallback --> __end__;
 	finish --> __end__;
+	run_refresh --> __end__;
 	save_view --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0

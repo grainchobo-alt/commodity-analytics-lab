@@ -256,8 +256,8 @@ function mcards(s, ms) {
   s.addText("입력 6갈래", { x: 0.5, y: 6.68, w: 2.75, h: 0.28, fontFace: F, fontSize: 10, bold: true, color: MUTED, align: "center", margin: 0 });
   // 문서 → LLM 필터
   const ty = 1.7 + 5 * 0.83;
-  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 3.5, y: ty - 0.05, w: 1.5, h: 0.8, fill: { color: "FBEDE7" }, line: { color: RED, width: 1.25 }, rectRadius: 0.08 });
-  s.addText([{ text: "LLM 필터", options: { bold: true, fontSize: 11, color: RED, breakLine: true } }, { text: "FinBERT: 문장 →\n긍정·부정 점수", options: { fontSize: 8.5, color: INK } }], { x: 3.5, y: ty - 0.05, w: 1.5, h: 0.8, fontFace: F, align: "center", valign: "middle", margin: 0 });
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 3.5, y: ty - 0.2, w: 1.5, h: 1.1, fill: { color: "FBEDE7" }, line: { color: RED, width: 1.25 }, rectRadius: 0.08 });
+  s.addText([{ text: "LLM 필터", options: { bold: true, fontSize: 11, color: RED, breakLine: true } }, { text: "FinBERT: 문장 →\n긍정·부정 점수", options: { fontSize: 8.5, color: INK } }], { x: 3.5, y: ty - 0.2, w: 1.5, h: 1.1, fontFace: F, align: "center", valign: "middle", margin: 0 });
   arrow(s, 3.27, ty + 0.35, 3.47, ty + 0.35, RED); arrow(s, 5.02, ty + 0.35, 5.15, ty + 0.35, RED);
   // 숫자로 정리
   const col = (x, w, head, body, c) => { s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 1.7, w, h: 4.9, fill: { color: TINT }, line: { color: c, width: 1.25 }, rectRadius: 0.08 });

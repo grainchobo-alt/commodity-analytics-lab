@@ -3,6 +3,15 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.56.0 — 2026-11-03 — LLM 도구 대시보드 전 기능 연결 · 대시보드 숫자 대조 테스트 · 자료 갱신(조회/승인 후 실행) · 발표 7장 3D 수정
+- `llm/tools.py`: 도구 24개(읽기 22 · 쓰기 2). 새 도구 — `dcc_correlation`(③ DCC) · `bekk_spillover`(③ BEKK) · `kalman_beta`(② Kalman TVP) · `ml_models`(④ 27종 시험 성적) · `strategy_weights`(MinVar · 모멘텀 · 가치 · 평균회귀 · 가치 혼합 이번 주 비중) · `text_sentiment`(FinBERT STEO · 베이지북 · WASDE) · `data_status`(읽기, 갱신 필요 여부) · `refresh_data`(쓰기 · 외부 접속, confirm=False면 계획만)
+- 대시보드 대조: 도구 → 탭 대조표 `DASH` + 결과에 `dashboard` 표시. `tests/test_llm_parity.py`(신규)가 '같음' 15개를 대시보드 호출 경로로 재현해 일치 확인. 이때 어긋남 3개 발견 → 수정: `buy_signal`(★ 기본 '추천' 프리셋 · 품목별 창으로, 대두박 10.9 → 35.1점 · 대두 23.1 → 43.2점), `vol_forecast`(③과 같은 주간 2000~), `var_es`(◆와 같은 σ GARCH(1,1) · 평가 2010~)
+- `llm/graph.py`: 새 질문 유형(DCC · BEKK · 칼만 · 머신러닝 · 전략 비중 · 감성 · 자료 기준일) 사실 생성, 자료 갱신 경로 check_data → approve_refresh(사람 확인) → run_refresh. 'minvar'가 VaR로 잡히던 분류 수정
+- `llm/mcp_server.py`: refresh_data는 openWorldHint=True, 읽기 도구는 외부 접속 없음 표시. 흐름도 `docs/LLM_graph.html` · `.mmd` 다시 생성(노드 14개)
+- 발표 HTML: 7장 등 3D 그림이 덱을 넘긴 뒤 빈칸이 되던 문제 수정(브라우저 WebGL 약 16개 한도 → 다른 장의 3D는 전환 후 해제, 다시 오면 새로 그림). 'LLM 필터' 상자 글자 넘침 수정(상자 높이 0.8 → 1.1in)
+- ⑧ 방법론 Q&A: 효율적 투자선의 점 수천 개 = 무작위 비중 × 실제 평균·공분산(그 비중의 매주 리밸런싱 백테스트와 같은 값, 단 전체 기간은 사후)
+- 테스트: test_llm_parity(신규) · test_llm_tools · test_mcp_server(도구 24개) · test_llm_graph(자료 갱신 승인/거절 포함) · test_expert_bt — 통과. 평가 세트(llm/eval)는 buy_signal 수정 전 값이라 다시 돌려야 함(미실행)
+
 ## v1.55.0 — 2026-11-03 — LangGraph 흐름 보기 화면 · ② 전문가 의견 백테스트 · 평가 세트 30문항 (대시보드·발표 미반영)
 - `docs/LLM_graph.html`(신규, `llm/viewer.py`로 생성): 실제 그래프에서 그린 흐름도, 상자를 누르면 하는 일 · 계층 · LLM 사용 · 코드 위치. 인터넷 없이 열림
 - `llm/expert_bt.py`(신규): 의견 방향 vs 이후 4주 수익률(진입 = 의견을 알 수 있었던 첫 종가), 채택 규칙(표본 ≥ 20 · NW t > 2 · 위약 p < 0.05 · 두 기간 +). 사내 의견 0건 → 공개 의견원으로 검증: USDA 가격 전망 수정 996건(적중 53.8%, t 0.4), CFTC 펀드 포지션 변화 5,035건(적중 49.9%) — 전 품목 설명용(최고 CFTC 대두박 t 1.9). 무작위 의견 오채택률 5%

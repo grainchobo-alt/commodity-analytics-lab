@@ -286,11 +286,12 @@ function draw(el, again) {
   }
   if (l.scene) { l.hovermode = el.dataset.hov === "1" ? "closest" : false; l.scene.hovermode = l.hovermode; }   // 3D 말풍선은 마우스를 움직였을 때만
   (again ? Plotly.react : Plotly.newPlot)(el, tr, lay(l), CFG);
-  if (!again && tr.some((t) => t.type === "mesh3d" || t.type === "surface" || t.type === "scatter3d")) spinCtl(el);
+  if (!again && tr.some((t) => t.type === "mesh3d" || t.type === "surface" || t.type === "scatter3d")) { el.dataset.gl = 1; if (!el.dataset.ctl) spinCtl(el); }
   if (!again && isSweep(key)) sweep(el);
 }
 // 3D 회전 제어: 끌기·휠 = 멈추고 조작, 끌지 않고 한 번 클릭 = 멈춤 ↔ 다시 회전
 function spinCtl(el) {
+  el.dataset.ctl = 1;
   const box = el.parentNode, tip = document.createElement("div"); tip.className = "spin-tip"; box.appendChild(tip);
   const set = (on) => { el.dataset.spin = on ? "1" : "0"; tip.textContent = on ? "⟳ 회전 중 · 클릭하면 멈춤" : "❚❚ 멈춤 · 클릭하면 다시 회전"; box.classList.toggle("paused", !on); };
   let sx = 0, sy = 0, was = true;
@@ -335,6 +336,16 @@ function countUp(sl) {
     setTimeout(() => requestAnimationFrame(step), 300);
   });
 }
+// 3D(WebGL)는 브라우저가 동시에 약 16개까지만 유지 → 넘어가면 먼저 그린 장(예: 7장)의 3D가 빈칸이 됨.
+// 장을 옮기고 전환이 끝나면 다른 장의 3D를 해제하고, 다시 오면 새로 그림
+let glT;
+function freeGL() {
+  const cur = Reveal.getCurrentSlide();
+  document.querySelectorAll(".plot[data-gl]").forEach((el) => {
+    if (cur && cur.contains(el)) return;
+    el.dataset.hov = "0"; Plotly.purge(el); delete el.dataset.gl; delete el.dataset.done;
+  });
+}
 let doneT;
 function show(sl) {
   if (!sl) return;
@@ -344,7 +355,8 @@ function show(sl) {
     if (!el.dataset.done) { el.dataset.done = 1; setTimeout(() => draw(el), 250); }
     else { Plotly.Plots.resize(el); if (isSweep(el.dataset.plot)) setTimeout(() => sweep(el), 250); }
   });
-  document.querySelectorAll(".plot[data-spin]").forEach((el) => hovOff(el));             // 장을 옮기면 3D 말풍선 끔
+  document.querySelectorAll(".plot[data-spin]").forEach((el) => el._fullLayout && hovOff(el));   // 장을 옮기면 3D 말풍선 끔
+  clearTimeout(glT); glT = setTimeout(freeGL, 900);
   document.documentElement.classList.toggle("on-pilot", sl.classList.contains("pilot"));   // 테마 시범 장에서만 바깥 여백색도 바꿈
   countUp(sl);
   document.querySelectorAll("video").forEach((v) => { if (!sl.contains(v)) v.pause(); });   // 다른 장의 영상은 멈춤

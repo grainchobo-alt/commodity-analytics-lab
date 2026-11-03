@@ -1,9 +1,10 @@
 """commodity-lab MCP 서버 — llm/tools.py의 도구를 MCP로 노출 (로컬 전용, stdio).
 
   · 전송: stdio — 네트워크 포트를 열지 않음. 클라이언트(LangGraph·Claude Desktop 등)가 이 프로세스를 직접 띄움.
-  · 읽기 도구 14개(readOnlyHint) + 쓰기 도구 1개(save_expert_view, 클라이언트가 사용자 승인을 받도록 destructiveHint=False·readOnlyHint=False).
+  · 읽기 도구 22개(readOnlyHint) + 쓰기 도구 2개(readOnlyHint=False — 클라이언트가 사용자 승인을 받도록):
+    save_expert_view(사내 의견 추가) · refresh_data(외부 수집, openWorldHint=True, confirm=False면 계획만 돌려줌).
   · 감사 기록: 모든 호출(시각·도구·인자·성공 여부·소요 시간)을 data/llm_logs/tool_calls.jsonl에 추가 (사내 질의 포함 가능 → git 제외).
-  · 외부 접근 없음: 도구는 data/의 로컬 파일만 읽음.
+  · 외부 접근: 읽기 도구는 data/의 로컬 파일만 읽음. refresh_data(confirm=True)만 수집기(collect.py · reports.py)를 실행해 외부 사이트에 접속.
 
 실행 (보통은 클라이언트가 띄움):  .venv\\Scripts\\python.exe -m llm.mcp_server
 점검 (클라이언트로 띄워 보기):     .venv\\Scripts\\python.exe tests\\test_mcp_server.py
@@ -46,8 +47,9 @@ def _logged(fn):
 
 for f in T.READ_TOOLS:
     mcp.add_tool(_logged(f), annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
-for f in T.WRITE_TOOLS:
-    mcp.add_tool(_logged(f), annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=False))
+for f in T.WRITE_TOOLS:                                          # 쓰기: 클라이언트가 사용자 승인을 받게. refresh_data는 외부 접속(openWorldHint)
+    mcp.add_tool(_logged(f), annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False,
+                                                         openWorldHint=f.__name__ in T.OPEN_WORLD))
 
 
 if __name__ == "__main__":

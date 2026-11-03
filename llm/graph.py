@@ -2,11 +2,13 @@
 
 흐름
   classify ─┬─ (의견 기록) extract_view → approve_view[사람 확인] → save_view ─────────────┐
+            ├─ (자료 갱신) check_data → approve_refresh[사람 확인] → run_refresh(외부 수집) ──┤
             └─ (질문)  numeric(①) → expert(②) → ontology(③) → compose(④) → verify ─┬─ 통과 → finish
                                                                     ↑ 숫자 불일치(최대 2회) ┘    ↓ 2회 실패 → 사실 목록 답변
   · 숫자는 도구(llm/tools.py)만 만든다. LLM은 '사실 목록'을 문장으로 엮기만 하고, verify가 답변 숫자를 사실 목록과 대조한다.
   · 질문 분류·품목 추출은 키워드 규칙(작은 로컬 모델의 오분류 방지). LLM은 답변 작성 · 의견 문장 → JSON 추출에만 쓴다.
   · 로컬 LLM = Ollama(127.0.0.1). 꺼져 있거나 실패하면 사실 목록 답변으로 대체 — 클라우드로 넘어가는 경로 없음.
+  · 외부 접속은 자료 갱신 경로 하나 — 갱신 필요 여부를 로컬에서 먼저 보고, 사람이 계획(단계 · 접속 사이트)을 승인해야만 수집기를 실행.
   · 도구 호출: 기본 direct(같은 프로세스에서 import) · --mcp 면 MCP 서버(stdio)를 거침 — 결과는 같음.
   · LangSmith 추적은 강제로 끔(LANGCHAIN_TRACING_V2 등 제거).
 
@@ -45,9 +47,9 @@ ROOT = Path(__file__).resolve().parents[1]
 # ============================================================================
 class S(TypedDict, total=False):
     question: str
-    route: str                 # lookup · decision · explain · direction · expert_add
+    route: str                 # lookup · decision · explain · direction · expert_add · refresh
     items: list[str]           # 품목 id
-    intents: list[str]         # prices · vol · var · regime · factors · corr · buy · fund
+    intents: list[str]         # prices · vol · var · regime · factors · corr · buy · fund · dcc · spill · kalman · ml · strategy · text · status
     params: dict
     numeric: dict              # ① 도구 결과
     expert: dict               # ② 의견 조회 결과
@@ -59,6 +61,7 @@ class S(TypedDict, total=False):
     answer: str
     view: dict                 # 저장할 전문가 의견
     approved: bool
+    plan: dict                 # 자료 갱신 계획 (대상 · 단계 · 접속 사이트 · 갱신 필요 자료)
     trace: list[str]           # 지나간 노드 (감사·테스트용)
 
 
@@ -112,9 +115,13 @@ def llm(messages: list[dict], fmt: dict | str | None = None, timeout: int = 180)
 ALIASES = {"옥수수": "yf:ZC=F", "소맥": "yf:ZW=F", "밀": "yf:ZW=F", "대두박": "yf:ZM=F", "대두유": "yf:ZL=F", "대두": "yf:ZS=F", "콩": "yf:ZS=F",
            "원유": "yf:CL=F", "wti": "yf:CL=F", "브렌트": "yf:BZ=F", "금": "yf:GC=F", "은": "yf:SI=F", "구리": "yf:HG=F", "천연가스": "yf:NG=F",
            "철광석": "yf:TIO=F", "커피": "yf:KC=F", "원당": "yf:SB=F", "면화": "yf:CT=F", "corn": "yf:ZC=F", "wheat": "yf:ZW=F", "soybean": "yf:ZS=F"}
-KW = {"vol": r"변동성|garch|gjr|출렁", "var": r"var|es\b|손실|위험 금액|리스크 금액|최대 손실", "regime": r"레짐|국면|위기 확률",
-      "factors": r"요인|pca|스필오버|전이|동조", "corr": r"상관", "prices": r"가격|시세|얼마|현재가", "buy": r"살까|사야 할까|사야 하나|사야 해\?|뭐부터 사|매수|구매 판단|미룰|사도|타이밍",
-      "fund": r"wasde|재고|수급|cot|포지션"}
+KW = {"vol": r"변동성|garch|gjr|출렁", "var": r"(?<![a-z])var(?![a-z])|(?<![a-z])es(?![a-z])|손실|위험 금액|리스크 금액|최대 손실", "regime": r"레짐|국면|위기 확률",
+      "factors": r"요인|pca|스필오버|동조", "corr": r"상관", "prices": r"가격|시세|얼마|현재가", "buy": r"살까|사야 할까|사야 하나|사야 해\?|뭐부터 사|매수|구매 판단|미룰|사도|타이밍",
+      "fund": r"wasde|재고|수급|cot|포지션", "dcc": r"dcc|동적 상관|상관.{0,4}(추이|변화|높아|낮아|커졌|줄었)", "spill": r"bekk|변동성 전이|충격 전이|전이 효과",
+      "kalman": r"칼만|kalman|민감도|베타|β|헤지 비율", "ml": r"머신러닝|ml 모델|lasso|라쏘|ridge|릿지|xgboost|lightgbm|lstm|부스팅|예측 모델|모델 비교|모델 성능",
+      "strategy": r"포트폴리오|비중|minvar|최소분산|모멘텀|가치 전략|평균회귀|전략", "text": r"감성|finbert|텍스트|베이지북|steo|문서",
+      "status": r"자료 기준일|데이터 기준일|언제 자료|최신 자료|갱신 필요|업데이트 필요"}
+REFRESH_Q = r"(자료|데이터|시세|리포트|보고서|wasde|steo).{0,8}(갱신|업데이트|새로 받|다운로드|받아)"   # 실행 요청 (필요 여부만 물으면 status 조회)
 
 
 def find_items(q: str) -> list[str]:
@@ -154,6 +161,8 @@ def classify(st: S) -> dict:
     intents = [k for k, pat in KW.items() if re.search(pat, ql)]
     if re.search(r"의견 (저장|기록)|코멘트 (저장|기록)|전문가 의견\s*:", q):
         route = "expert_add"
+    elif re.search(REFRESH_Q, ql) and not re.search(r"필요|해야|언제|됐|되었", q):
+        route = "refresh"
     elif re.search(r"오를까|내릴까|떨어질까|상승할까|하락할까|오를 것|떨어질 것|방향|목표가|얼마까지", q):
         route, intents = "direction", ["buy", "var"]             # 방향은 단정하지 않고 범위·판단 근거로 대신 답
     elif re.search(r"왜|원인|이유|기여|때문", q):
@@ -163,7 +172,7 @@ def classify(st: S) -> dict:
         route = "decision"; intents = sorted(set(intents) | {"fund"})
     else:
         route = "lookup"; intents = intents or ["prices"]
-    if not items and route != "lookup":
+    if not items and (route not in ("lookup", "refresh") or set(intents) & {"vol", "var", "regime", "kalman", "ml"}):
         items = ["yf:ZC=F"]                                     # 품목 없으면 대표 품목(옥수수) — 답변에 밝힘
         params["default_item"] = True
     return {"route": route, "items": items, "intents": intents, "params": params, "attempts": 0, "trace": ["classify"]}
@@ -202,6 +211,43 @@ def numeric_layer(st: S, tools: Tools) -> dict:
                 if row.get("재고/사용비율 (%)") is not None:
                     facts.append(f"{row['품목']} WASDE 재고/사용비율 {_f(row['재고/사용비율 (%)'])}% (발표 {row.get('WASDE 발표일')}, 전월 대비 {_f(row.get('전월 대비 (%p)'), 2)}%p) — 매수 점수 계산에는 넣지 않는 맥락 정보")
             continue
+        if it == "dcc":
+            r = tools("dcc_correlation", items=ids if len(ids) >= 2 else None); out["dcc"] = r
+            if "error" not in r:
+                mine = {T.name_of(i) for i in ids}
+                pr = [x for x in r["pairs"] if len(mine) < 2 or set(x["쌍"].split("–")) <= mine][:3]
+                facts.append(f"DCC 동적 상관 평균 {_f(r['avg_corr_now'], 2)} (1년 전 {_f(r['avg_corr_1y_ago'], 2)}, 전체 평균 {_f(r['avg_corr_mean'], 2)}), 지속성 {_f(r['persistence'], 3)} (기준일 {r['asof']}, 대시보드 ③)")
+                facts += [f"{x['쌍']} 동적 상관 {_f(x['현재'], 2)} (1년 전 {_f(x['1년 전'], 2)}, 과거 분위 {_f(x['현재 분위(%)'], 0)}%)" for x in pr]
+            continue
+        if it == "spill":
+            r = tools("bekk_spillover", items=ids if 2 <= len(ids) <= 5 else None); out["spill"] = r
+            if "error" not in r:
+                sig = [x for x in r["spillover"] if x.get("유의(5%)")]
+                facts.append(f"BEKK 전이({', '.join(r['items'])}, 수렴 {'예' if r['converged'] else '아니오 — 결과 주의'}): "
+                             + ("; ".join(f"{x['유형'].split(' (')[0]} {x['from → to']} 계수 {_f(x['계수'], 3)}(t {_f(x['t값'], 1)})" for x in sig) if sig else "5% 유의한 전이 없음")
+                             + f" (기준일 {r['asof']}, 대시보드 ③)")
+            continue
+        if it == "strategy":
+            r = tools("strategy_weights"); out["strategy"] = r
+            if "error" not in r:
+                mix = r["weights_pct"].get("가치 혼합 순 비중 (50/25/25)", {})
+                pick = {k: v for k, v in mix.items() if not ids or k in {T.name_of(i) for i in ids}} or mix
+                facts.append("가치 혼합(MinVar 50 · 모멘텀 25 · 가치 25) 이번 주 순 비중: " + ", ".join(f"{k} {_f(v)}%" for k, v in list(pick.items())[:6])
+                             + f" (+ 롱 · − 숏, 기준일 {r['asof']}, 롱숏 탭 규칙 · 최신 자료)")
+            continue
+        if it == "text":
+            r = tools("text_sentiment"); out["text"] = r
+            if "error" not in r:
+                for src, d in r["sources"].items():
+                    last = {k: (list(v.values())[-1] if isinstance(v, dict) else v) for k, v in d["tone"].items()}
+                    facts.append(f"{src} 문서 감성(−1~+1): " + ", ".join(f"{k} {_f(v, 2)}" for k, v in last.items() if v is not None) + f" (기준 {str(d['asof'])[:10]}, 방향 예측력 검증 안 됨)")
+            continue
+        if it == "status":
+            r = tools("data_status"); out["status"] = r
+            if "error" not in r:
+                facts.append("자료 기준일: " + ", ".join(f"{x['자료']} {x['마지막 날짜']}({x['지난 영업일']}영업일 전)" for x in r["table"])
+                             + (f" → 갱신 필요: {', '.join(r['stale'])} ('자료 갱신해줘'로 요청하면 승인 후 실행)" if r["stale"] else " → 모두 최신"))
+            continue
         for i in ids:
             nm = T.name_of(i)
             if it == "prices":
@@ -212,7 +258,7 @@ def numeric_layer(st: S, tools: Tools) -> dict:
             elif it == "vol":
                 r = tools("vol_forecast", item=i, horizon=p.get("horizon", 20)); out[f"vol:{i}"] = r
                 if "error" not in r:
-                    facts.append(f"{nm} 연 변동성 현재 {_f(r['vol_now_ann_pct'])}% (GJR-GARCH), 1년 평균 {_f(r['vol_1y_avg_ann_pct'])}%, 지속성 {_f(r['persistence'], 3)}, 반감기 {_f(r['half_life_days'], 0)}일 (기준일 {r['asof']})")
+                    facts.append(f"{nm} 연 변동성 현재 {_f(r['vol_now_ann_pct'])}% (GJR-GARCH 주간, 대시보드 ③), 1년 평균 {_f(r['vol_1y_avg_ann_pct'])}%, 지속성 {_f(r['persistence'], 3)}, 반감기 {_f(r['half_life_weeks'], 0)}주 (기준일 {r['asof']})")
             elif it == "var":
                 kw = {k: p[k] for k in ("alpha", "notional_usd", "side") if k in p}
                 r = tools("var_es", item=i, horizon=p.get("horizon", 20), **kw); out[f"var:{i}"] = r
@@ -227,6 +273,19 @@ def numeric_layer(st: S, tools: Tools) -> dict:
                 if "error" not in r:
                     hi = r["current"].get("레짐2")
                     facts.append(f"{nm} 현재 {r['current_regime']}(레짐1 = 잔잔한 국면), 고변동 레짐 확률 {_f(100 * hi if hi is not None else None)}% (기준일 {r['asof']}, 사후 평활 확률 — 설명용)")
+            elif it == "kalman":
+                r = tools("kalman_beta", item=i); out[f"kalman:{i}"] = r
+                if "error" not in r:
+                    facts.append(f"{nm} 칼만 시변 민감도(같은 주, 설명변수 1σ당 %): " + ", ".join(f"{b['변수']} {_f(b['현재 β(필터)'], 2)}(1년 전 {_f(b['1년 전 β(평활)'], 2)})" for b in r["betas"][:4])
+                                 + f" (기준일 {r['asof']}, 대시보드 ② Kalman TVP)")
+            elif it == "ml":
+                r = tools("ml_models", item=i); out[f"ml:{i}"] = r
+                if "error" not in r:
+                    ok_ = [x for x in r["table"] if "오류" not in x]
+                    best = max(ok_, key=lambda x: x["OOS R² (vs 학습평균)"] or -9) if ok_ else None
+                    pos = sum((x["OOS R² (vs 학습평균)"] or 0) > 0 for x in ok_)
+                    if best:
+                        facts.append(f"{nm} 머신러닝 {len(ok_)}개 모델 시험 구간({r['test']}) 다음 주 수익률 예측: OOS R² 0 초과 {pos}개, 최고 {best['모델']} OOS R² {_f(best['OOS R² (vs 학습평균)'], 3)} · 방향 적중률 {_f(100 * best['방향 적중률'])}% (대시보드 ④, 0 이하면 평균으로 찍기보다 못함)")
     if st["params"].get("default_item"):
         facts.append("질문에 품목이 없어 옥수수 기준으로 답함")
     return {"numeric": out, "facts": facts, "trace": st["trace"] + ["numeric"]}
@@ -428,6 +487,45 @@ def save_view(st: S, tools: Tools) -> dict:
 
 
 # ============================================================================
+# 자료 갱신 경로 — 로컬 조회(필요 여부 · 계획) → 사람 확인 → 외부 수집 실행
+# ============================================================================
+def check_data(st: S, tools: Tools) -> dict:
+    """인터넷 접속 없이 data_status로 갱신 필요 자료를 보고, 질문에 맞는 대상(가격 · 리포트)과 실행 계획을 만든다."""
+    ql = st["question"].lower()
+    s_ = tools("data_status")
+    if re.search(r"리포트|보고서|wasde|steo|usda|eia", ql):
+        tg = ["reports"]
+    elif re.search(r"가격|시세|거시|cot", ql):
+        tg = ["prices"]
+    else:
+        tg = s_.get("suggest_refresh") or ["prices"]
+    plans = {t: tools("refresh_data", target=t)["plan"] for t in tg}    # confirm 없이 = 계획만 (실행 안 함)
+    return {"plan": {"targets": tg, "plans": plans, "stale": s_.get("stale", []), "status": s_.get("table", [])},
+            "trace": st["trace"] + ["check_data"]}
+
+
+def approve_refresh(st: S) -> dict:
+    p = st["plan"]
+    ok = interrupt({"확인": "아래 계획대로 외부 사이트에 접속해 자료를 갱신할까요? (data/ 파일을 덮어씀)", "plan": p})
+    return {"approved": bool(ok), "trace": st["trace"] + ["approve_refresh"]}
+
+
+def run_refresh(st: S, tools: Tools) -> dict:
+    p = st["plan"]
+    if not st.get("approved"):
+        stale = ", ".join(p["stale"]) or "없음"
+        return {"answer": f"갱신하지 않았습니다(사용자 취소). 현재 갱신 필요 자료: {stale}", "trace": st["trace"] + ["run_refresh"]}
+    msgs = []
+    for t in p["targets"]:
+        r = tools("refresh_data", target=t, confirm=True)
+        if "error" in r:
+            msgs.append(f"{t}: 실패 — {r['error']}"); continue
+        fail = next((x for x in r["log"] if not x["ok"]), None)
+        msgs.append(f"{t}: {'완료' if r['ok'] else '실패 — ' + fail['step'] + ' 단계'} ({len(r['log'])}단계, {sum(x['sec'] for x in r['log']):.0f}초)")
+    return {"answer": "자료 갱신 결과 — " + " · ".join(msgs), "trace": st["trace"] + ["run_refresh"]}
+
+
+# ============================================================================
 # 그래프 조립
 # ============================================================================
 def build(backend: str = "direct", checkpointer=None):
@@ -444,8 +542,12 @@ def build(backend: str = "direct", checkpointer=None):
     g.add_node("extract_view", extract_view)
     g.add_node("approve_view", approve_view)
     g.add_node("save_view", lambda s: save_view(s, tools))
+    g.add_node("check_data", lambda s: check_data(s, tools))
+    g.add_node("approve_refresh", approve_refresh)
+    g.add_node("run_refresh", lambda s: run_refresh(s, tools))
     g.add_edge(START, "classify")
-    g.add_conditional_edges("classify", lambda s: "extract_view" if s["route"] == "expert_add" else "numeric", ["numeric", "extract_view"])
+    g.add_conditional_edges("classify", lambda s: {"expert_add": "extract_view", "refresh": "check_data"}.get(s["route"], "numeric"),
+                            ["numeric", "extract_view", "check_data"])
     g.add_edge("numeric", "expert")
     g.add_edge("expert", "ontology")
     g.add_edge("ontology", "compose")
@@ -456,17 +558,22 @@ def build(backend: str = "direct", checkpointer=None):
     g.add_edge("extract_view", "approve_view")
     g.add_edge("approve_view", "save_view")
     g.add_edge("save_view", END)
+    g.add_edge("check_data", "approve_refresh")
+    g.add_edge("approve_refresh", "run_refresh")
+    g.add_edge("run_refresh", END)
     return g.compile(checkpointer=checkpointer or InMemorySaver())
 
 
 def ask(question: str, backend: str = "direct", thread: str = "cli", approve=None, app=None) -> dict:
-    """질문 1개 실행. 의견 기록이면 approve(view) → True/False 로 사람 확인을 대신(없으면 콘솔에서 묻기)."""
+    """질문 1개 실행. 사람 확인 지점(의견 저장 · 자료 갱신)에서 approve(내용) → True/False 로 대신 답함(없으면 콘솔에서 묻기).
+    내용 = 의견 기록이면 view, 자료 갱신이면 plan(대상 · 단계 · 접속 사이트 · 갱신 필요 자료)."""
     app = app or build(backend)
     cfg = {"configurable": {"thread_id": thread}}
     out = app.invoke({"question": question}, cfg)
     while "__interrupt__" in out:
         req = out["__interrupt__"][0].value
-        yes = approve(req["view"]) if approve else input(f"{json.dumps(req['view'], ensure_ascii=False)}\n저장할까요? [y/N] ").strip().lower() == "y"
+        body = req.get("view", req.get("plan"))
+        yes = approve(body) if approve else input(f"{json.dumps(body, ensure_ascii=False, default=str)}\n{req['확인']} [y/N] ").strip().lower() == "y"
         out = app.invoke(Command(resume=yes), cfg)
     return out
 

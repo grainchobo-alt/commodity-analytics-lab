@@ -38,7 +38,7 @@
 
 | 계층 | 내용 | LLM 역할 | 상태 |
 |---|---|---|---|
-| ① 수치 데이터 | 가격 · GARCH 변동성 · VaR/ES · 레짐 · 요인(PCA · 스필오버) · 상관 · 구매 판단 · 실험 결과 | 없음 (인용만) | **구현** |
+| ① 수치 데이터 | 가격 · GARCH 변동성 · VaR/ES · 레짐 · 요인(PCA · 스필오버) · 상관 · 구매 판단 · DCC · BEKK · 칼만 β · 머신러닝 27종 성적 · 전략 비중 · 문서 감성 · 자료 상태/갱신 · 실험 결과 | 없음 (인용만) | **구현** (도구 24개, 대시보드 대조 15개) |
 | ② 전문가 의견 | 트레이더 코멘트 · 기관 리포트 → 방향(−1~+1) · 신뢰도 · 근거 | 문장 → JSON 추출 | 저장·조회 **구현**, 추출 · 백테스트는 3단계 |
 | ③ 온톨로지 | 곡물 2단 연결 · 계수 · 역추적(결과 → 원인 기여) | 결과를 문장으로 | **구현** |
 | ④ 인터페이스 | 질의응답 · 그림 안내 | 도구 고르기 · 요약 | 2단계 |
@@ -61,12 +61,12 @@
 |---|---|---|---|
 | `list_items` | ① | 품목 70개 목록 · 그룹 · 단위 · 기간 | `analytics.load_catalog` |
 | `get_prices` | ① | 가격 요약(현재 · 최저 · 최고 · 1주/1개월/1년 변화 · 분위) + 최근 30개 | pandas |
-| `vol_forecast` | ① | GARCH · **GJR** · EGARCH(Student-t) 계수, 지속성, 반감기, 비대칭 γ, 현재 · h일 예측 연 변동성, RiskMetrics 비교 | **arch** `arch_model` |
-| `var_es` | ① | h일 VaR · ES 5방법(정규 · t · FHS · EVT-GPD · 역사적), 명목 금액 환산, 백테스트(초과율 · Kupiec · Christoffersen · 바젤 신호등) | `risk.py` + **scipy.stats** |
+| `vol_forecast` | ① | GARCH · **GJR** · EGARCH 계수, 지속성, 반감기(주), 비대칭 γ, 현재 · h일(→ 주) 예측 연 변동성, RiskMetrics 비교. **③ 변동성 동학과 같은 입력(주간 2000~)** | **arch** `arch_model` |
+| `var_es` | ① | h일 VaR · ES 5방법(정규 · t · FHS · EVT-GPD · 역사적), 명목 금액 환산, 백테스트(초과율 · Kupiec · Christoffersen · 바젤 신호등). **◆ 리스크와 같은 σ 모형(GARCH(1,1) walk-forward) · 평가 2010~** | `risk.py` + **scipy.stats** |
 | `regime` | ① | Markov 레짐 스위칭(평균 · 분산 전환): 레짐별 평균 · 변동성 · 지속기간, 현재 확률 | **statsmodels** `MarkovRegression` |
 | `factors` | ① | 요인 구조: PCA(공통 요인 몫 · 적재값) + Diebold-Yilmaz 스필오버(총 연계도 · 순 전이) | numpy, **statsmodels** `VAR` |
 | `correlation` | ① | 최근 vs 이전 기간 상관(동조성 변화) | pandas |
-| `buy_signal` | ①→결정 | ★ 탭 '지금 살까' 점수 · 구성요소 · 4주 90% 범위 · 권장 속도 | `procurement.today_table` |
+| `buy_signal` | ①→결정 | ★ 탭 '지금 살까' 점수 · 구성요소 · 4주 90% 범위 · 권장 속도. **★ 기본 '추천' 프리셋 · 가격 위치 창 품목별 자동** | `procurement.today_table` |
 | `fundamentals` | ① | WASDE 재고율 · 전월 대비 · 같은 달 분위, CFTC 순포지션 | `procurement.fundamentals` |
 | `get_results` | ① | 백테스트 · 실험 결과표 48개(`*_compare.csv`, `causal_*.csv`) 조회 | pandas |
 | `ontology_graph` | ③ | 2단 온톨로지 노드 · 연결 44개 + 계수(전체 · 두 기간 · 부호 안정) | `causal_grain.GRAPHS` |
@@ -74,10 +74,23 @@
 | `expert_views` | ② | 저장된 전문가 의견 조회 | pandas |
 | `save_expert_view` | ② **쓰기** | 의견 1건 추가(방향 · 신뢰도 · 근거 · 작성자 · 기간), 범위 검사 | → `data/expert/views.csv` |
 | `make_chart` | 그림 | Plotly HTML: 가격 · 변동성(GJR vs EWMA) · 레짐 확률 · VaR 백테스트 | **plotly** |
+| `dcc_correlation` | ① | DCC/ADCC 동적 상관: 쌍별 현재 · 1년 전 · 평균 · 과거 분위, 평균 상관 추이, 지속성 (③ 기본 8품목) | `mvgarch.dcc_fit` |
+| `bekk_spillover` | ① | BEKK 충격(A) · 변동성(B) 전이 계수 · t값 · 수렴 · 정상성 (③ 기본 3품목, 약 40초) | `mvgarch.bekk_fit` · `spillover_table` |
+| `kalman_beta` | ① | Kalman TVP 시변 민감도 β: 현재(필터) · 1년 전 · 5년 범위 (② 레짐 기본 패널: 원자재 6 + 거시 8) | `analytics.run_model('Kalman TVP')` |
+| `ml_models` | ① | 회귀 · 머신러닝 27종(OLS · Ridge · Lasso · Elastic Net · SCAD · PLS · BMA · RF · GB · LightGBM · LSTM …) 시험 구간 OOS R² · 방향 적중 · 비용 후 Sharpe (④ 기본 7개) | `analytics.build_design` · `run_model` |
+| `strategy_weights` | ① | 이번 주 품목별 비중: MinVar 롱 · 52주 모멘텀 · 가치 · 평균회귀(섹터 내 따라잡기) · 가치 혼합 50/25/25 순 비중 | `ls_strategies` · `ls_extra` |
+| `text_sentiment` | ① | FinBERT 문서 감성 최근값: EIA STEO(에너지 품목) · 연준 베이지북(업종) · USDA WASDE(분야) | `data/mm/*.parquet` |
+| `data_status` | ① 읽기 | 자료원별 마지막 날짜 · 지난 영업일 · 갱신 필요 여부 · 갱신 계획 (인터넷 접속 없음) | `analytics.load_catalog` · `data/*.parquet` |
+| `refresh_data` | ① **쓰기 · 외부 접속** | 자료 갱신. `confirm=False`(기본)면 계획만(단계 · 접속 사이트 · 예상 시간), `confirm=True`(사람 승인 후)일 때만 수집기 실행: prices = 사이드바 버튼 단계, reports = `reports.py` | `subprocess` → `collect.py` … |
+
+**대시보드 대조:** 도구마다 대응 탭과 일치 여부를 `tools.DASH`에 적고 결과에 `dashboard`로 붙인다(답변에서 '대시보드 어느 화면 값인지' 근거).
+- "같음" 15개는 `tests/test_llm_parity.py`가 대시보드 탭이 실제로 부르는 함수 · 위젯 기본값을 따로 재현해 숫자가 같은지 확인한다(약 2분).
+- 처음 만들 때 3개가 어긋나 있었고 고쳤다: `buy_signal`(★ 기본 '추천' 대신 '균형' 프리셋 값 → 대두박 10.9점 vs 대시보드 35.1점), `vol_forecast`(일간 2010~ vs 대시보드 주간 2000~), `var_es`(σ = EWMA vs 대시보드 GARCH(1,1)).
+- "다름"으로 남긴 것: `regime`(대시보드 ②는 HMM 다변량), `factors`(같은 함수, 기간 · 품목 다름), `correlation`(대응 표 없음), `strategy_weights`(같은 규칙, 탭은 고정 기준일 자료).
 
 **검증:** `tests/test_llm_tools.py`
 - 모든 도구가 JSON으로 직렬화되고 asof · method · source가 붙는지 확인한다.
-- 대시보드 함수와 같은 숫자인지 확인한다(구매 점수 · EWMA 변동성).
+- 대시보드 함수와 같은 숫자인지 확인한다(구매 점수 · EWMA 변동성). 전체 대조는 `tests/test_llm_parity.py`.
 - VaR는 ES ≥ VaR, 금액 = % × 명목 관계를 확인한다.
 - 역추적은 기여 합이 실제 누적과 같은지 확인한다.
 - 잘못된 입력은 분명한 오류를 내는지 확인한다. 약 7초 소요.
@@ -91,12 +104,15 @@
 | 분야 | 방법 | 라이브러리 / 자체 구현 | 도구 노출 |
 |---|---|---|---|
 | 변동성 | GARCH · GJR · EGARCH | `arch` 8.0 | ✅ `vol_forecast` |
-| 변동성 | EWMA(품목별 · 시변 λ) · HAR-RV · MIDAS · GARCH-MIDAS | 자체(`risk.py`, `midas.py`) | EWMA만(1-b 후보: `vol_models` 비교표) |
-| 다변량 변동성 | DCC · 비대칭 DCC · BEKK(전이) | 자체(`mvgarch.py`) | 1-b 후보(계산이 무거움 → 결과 캐시 필요) |
+| 변동성 | EWMA(품목별 · 시변 λ) · HAR-RV · MIDAS · GARCH-MIDAS | 자체(`risk.py`, `midas.py`) | `var_es`의 σ 모형으로 선택 가능(`sigma`), 비교표는 1-b |
+| 다변량 변동성 | DCC · 비대칭 DCC · BEKK(전이) | 자체(`mvgarch.py`) | ✅ `dcc_correlation` · `bekk_spillover` (BEKK 약 40초) |
 | 위험 | VaR/ES 5방법, Kupiec · Christoffersen · ES 검정, 꼬리 의존 · 스트레스 · 위기 시나리오 | 자체(`risk.py`) + `scipy` | ✅ `var_es` (스트레스 · 시나리오는 1-b) |
-| 레짐 | Markov 스위칭 · HMM(가우시안, 거시 포함) · TAR/STAR · TVP-VAR | `statsmodels` · `hmmlearn` · 자체(`regime.py`, `regime_mv.py`) | ✅ `regime`(Markov) · HMM 다변량은 1-b |
+| 레짐 | Markov 스위칭 · HMM(가우시안, 거시 포함) · Kalman TVP · TAR/STAR · TVP-VAR | `statsmodels` · `hmmlearn` · 자체(`regime.py`, `regime_mv.py`) | ✅ `regime`(Markov) · `kalman_beta` · HMM 다변량은 1-b |
 | 요인 | PCA · 흡수 비율 · DY 스필오버 · 패널 요인 | numpy · `statsmodels` · `linearmodels` | ✅ `factors` |
-| 예측 · ML | Ridge/Lasso/MCP · Kalman TVP · LightGBM · LSTM · Chronos/TimesFM/TiRex · Prophet · NeuralForecast | `scikit-learn` · `lightgbm` · `torch` · 각 패키지 | 결과표만(`get_results`), 실시간 재계산 안 함 |
+| 예측 · ML | Ridge/Lasso/MCP · Kalman TVP · LightGBM · LSTM · Chronos/TimesFM/TiRex · Prophet · NeuralForecast | `scikit-learn` · `lightgbm` · `torch` · 각 패키지 | ✅ `ml_models`(27종 실시간 재계산, ④와 같음) · 대안 시계열(파운데이션 등)은 결과표(`get_results`) |
+| 포트폴리오 | MinVar · 52주 모멘텀 · 가치 · 평균회귀 · 목표 변동성 · 혼합 | 자체(`ls_strategies.py`, `ls_extra.py`) | ✅ `strategy_weights`(이번 주 비중) · 성과는 결과표 |
+| 멀티모달 | FinBERT 문서 감성 · 기상 · COT · EIA | 자체(`multimodal.py`) + `transformers` | ✅ `text_sentiment` · `fundamentals` |
+| 자료 수집 | Yahoo · FRED · CFTC · World Bank · akshare · USDA · EIA | 자체(`collect.py`, `reports.py`) | ✅ `data_status`(읽기) · `refresh_data`(쓰기, 승인 후) |
 | 인과 · 온톨로지 | 선형 SCM · 역사적 분해 · PCMCI(ParCorr) · 이벤트 연구 | 자체(`causal_grain.py`) | ✅ `ontology_*` |
 | 시계열 진단 | STL · ADF · KPSS | `statsmodels` | 2단계 후보 |
 | 시각화 | 인터랙티브 차트 · 3D | `plotly` 7.1 (대시보드 · 발표 HTML) | ✅ `make_chart` |
@@ -178,14 +194,15 @@ graph TD;
 
 | 노드 | 계층 | 하는 일 | LLM 사용 |
 |---|---|---|---|
-| `classify` | — | 키워드 규칙으로 질문 유형(조회 · 판단 · 설명 · 방향 · 의견 기록), 품목('대두박'≠'대두', '지금'≠'금'), 인자(기간 · 신뢰수준 · 금액 · 매입 예정) 추출 | 없음 |
-| `numeric` | ① 수치 | 유형별 도구 호출(가격 · 변동성 · VaR · 레짐 · 요인 · 상관 · 매수 점수 · WASDE) → **사실 목록**(숫자 · 기준일 · 방법이 든 문장) | 없음 |
+| `classify` | — | 키워드 규칙으로 질문 유형(조회 · 판단 · 설명 · 방향 · 의견 기록 · 자료 갱신), 품목('대두박'≠'대두', '지금'≠'금'), 인자(기간 · 신뢰수준 · 금액 · 매입 예정) 추출 | 없음 |
+| `numeric` | ① 수치 | 유형별 도구 호출(가격 · 변동성 · VaR · 레짐 · 요인 · 상관 · 매수 점수 · WASDE · DCC · BEKK · 칼만 · 머신러닝 · 전략 비중 · 문서 감성 · 자료 기준일) → **사실 목록**(숫자 · 기준일 · 방법이 든 문장) | 없음 |
 | `expert` | ② 전문가 의견 | 판단 · 방향 · 설명 질문에 저장된 의견(신뢰도 가중 방향, '미검증 참고' 표시) 추가 | 없음 |
 | `ontology` | ③ 온톨로지 | 설명 질문에 최근 4주(또는 지정 기간) 원인별 기여 · 유의 연결 추가. 온톨로지 밖 품목은 그렇다고 밝힘 | 없음 |
 | `compose` | ④ LLM 인터페이스 | 사실 목록 → 결론 · 근거 · 한계 문장(로컬 Ollama, 온도 0.1) | **있음** |
 | `verify` | ④ | 답변 숫자가 사실 목록 · 질문에 있는지 대조(반올림 허용), 방향 단정 금지 → 어기면 고칠 점을 붙여 `compose`로(최대 2회) | 없음 |
 | `finish` / `fallback` | ④ | 통과하면 답변 + 출처 도구, 2회 실패 · LLM 꺼짐이면 **사실 목록 그대로**(숫자 정확성 우선) | 없음 |
 | `extract_view` → `approve_view` → `save_view` | ② 쓰기 | 의견 문장 → JSON(방향 · 신뢰도 · 기간 · 작성자, LLM + 규칙 보정) → **사람 확인(`interrupt`)** → 승인 시에만 저장 | 추출만 |
+| `check_data` → `approve_refresh` → `run_refresh` | ① 자료 갱신 | '자료 갱신해줘' → 로컬에서 갱신 필요 자료 · 계획(단계 · 접속 사이트) → **사람 확인(`interrupt`)** → 승인 시에만 외부 수집. '갱신 필요해?'처럼 묻기만 하면 조회(`data_status`)로 답함 | 없음 |
 
 구현 선택 (설계 초안에서 바뀐 점)
 - **패키지는 `langgraph` 하나만 추가.** 로컬 LLM은 Ollama HTTP(`127.0.0.1:11434`, 다른 주소는 거부)를 `requests`로 직접 부르고, MCP는 이미 설치한 `mcp` 클라이언트로 부릅니다. `langchain-ollama`·`langchain-mcp-adapters`는 쓰지 않습니다(설치 · 의존성 최소화).
@@ -244,6 +261,7 @@ graph TD;
   - 모든 질문에서 방향 단정 검사("소폭 하락 … 가능성이 높음" 등).
   - 핵심 숫자 누락 검사(매수 점수 · VaR · 현재 변동성 · 기간 누적 변동).
   - 그 결과 첫 통과율은 내려갔지만(검사가 엄격해짐) 최종 답변의 핵심 사실 반영이 98~100%로 올랐습니다.
+- **주의 (같은 날 발견):** 이 평가의 구매 판단 사실은 `buy_signal`이 ★ 기본 프리셋과 달랐던 때 값입니다(대두박 10.9점 → 대시보드 값 35.1점). 도구를 고친 뒤 평가를 다시 돌려야 합니다(미실행).
 - **숫자 검사로 못 잡는 오류가 남아 있습니다.** 직접 읽은 답변 6개 중 3개에 의미 오류가 있었습니다.
   - 2B: 매수 점수 10.9(보류)인데 "매수를 고려할 수 있음", 과거 적중률을 "상승 시 +65bp 예상"으로 해석.
   - 4B: '1개월 −9.5%'를 '최근 3개월'로, 대두 기여 −3.4%p를 "기여하지 않음"으로.
@@ -263,7 +281,7 @@ graph TD;
 | 모델 | 시작 `qwen3.5:4b`(이 PC에 설치됨). 회사 노트북 GPU · RAM에 따라 7~8B 검토 | 이 PC는 i5-1334U · 16GB · 전용 GPU 없음(확인함) |
 | 추적 | **LangSmith 끔**: `LANGCHAIN_TRACING_V2` · `LANGSMITH_*` 미설정, 설정 파일에서 명시적으로 false | 켜져 있으면 대화 · 도구 결과가 외부 서버로 전송됨 |
 | 클라우드 대체 경로 | 두지 않음 | 로컬 모델 실패 시 클라우드로 넘어가는 유출 경로 차단 |
-| 도구 권한 | 읽기 자유, 쓰기는 사용자 확인 후 실행(LangGraph `interrupt`) | 잘못된 의견 기록 방지 |
+| 도구 권한 | 읽기 자유(로컬 파일만), 쓰기는 사용자 확인 후 실행(LangGraph `interrupt`). 외부 접속은 `refresh_data` 하나 — 계획을 보여 주고 승인받은 뒤에만 실행, MCP에는 `openWorldHint=True`로 표시 | 잘못된 의견 기록 · LLM 임의 외부 접속 방지 |
 | 호출 기록 | `data/llm_logs/tool_calls.jsonl`(git 제외) | 감사 추적 · 오류 분석 |
 | 설정 파일 | (미착수) `llm/config.toml`: 지금은 환경변수 `LLM_MODEL`·`LLM_OFF`, 모델 · 온도(0~0.2) · 도구 목록 · 금지 규칙 · 문맥 길이 | 재현성 |
 | 평가 세트 | `llm/eval/questions.jsonl` 30~50문항(정답 숫자 · 기대 도구) | 모델 · 프롬프트 바꿀 때마다 회귀 시험 |
@@ -273,8 +291,8 @@ graph TD;
 
 | 단계 | 내용 | 합격 조건 (다음 단계로) |
 |---|---|---|
-| **1. 도구층 + MCP 서버** | `llm/tools.py` 15개 도구 · `llm/mcp_server.py` | 도구 테스트 ✅ · MCP 서버 기동 · 도구 15개 ✅ |
-| 1-b. 도구 보강 | `data_sources` · `vol_models` 비교표 · DCC/BEKK 결과 캐시 · 스트레스 시나리오 · HMM 다변량 | 같은 테스트 방식 |
+| **1. 도구층 + MCP 서버** | `llm/tools.py` 24개 도구(읽기 22 · 쓰기 2) · `llm/mcp_server.py` | 도구 테스트 ✅ · MCP 서버 기동 · 도구 24개 ✅ · 대시보드 대조 15개 ✅ |
+| 1-b. 도구 보강 | DCC · BEKK · 칼만 · 머신러닝 · 전략 비중 · 문서 감성 · 자료 상태/갱신 ✅. 남음: `vol_models` 비교표 · 스트레스 시나리오 · HMM 다변량(②) · 대안 시계열 실시간 | 같은 테스트 방식 + 대시보드 대조 |
 | **2. LangGraph 4계층 흐름** | `llm/graph.py` ✅ · 평가 세트(미착수) · Streamlit ⑨ 탭(보류 — 사용자 결정) | 7장 합격 기준 (평가 세트로 측정 예정) |
 | 3. 전문가 의견 | 양식 수집 → (선택) LLM 추출 → 의견 vs 이후 수익률 백테스트(방향 적중 · Brier · 위약 비교) | 두 하위 기간 모두 위약보다 좋고 t > 2일 때만 구매 판단에 보조 신호로 채택. 아니면 설명용 |
 | 4. 확장 | 리포트 RAG · 온톨로지 확장(사료 · 바이오연료 · 해운) · 다중 사용자 | 보안 검토 |
@@ -290,6 +308,11 @@ graph TD;
 - 2026-11-03
   - 레짐 도구는 평활 확률(사후 구간 나누기)이라 **설명용**으로 명시한다.
   - 실시간 판단용 필터 확률은 대시보드 ③과 구매 판단의 HMM 위기 확률을 쓴다.
+
+- 2026-11-03: 대시보드 기능을 도구로 추가(DCC · BEKK · 칼만 · 머신러닝 27종 · 전략 비중 · 문서 감성 · 자료 상태). 계산은 대시보드 함수를 그대로 부르고, 입력은 대시보드 기본 위젯값에 맞춘다.
+- 2026-11-03: 도구 ↔ 대시보드 숫자 대조 테스트를 둔다(`tests/test_llm_parity.py`). 이때 `buy_signal` · `vol_forecast` · `var_es`가 대시보드 기본값과 달랐던 것을 발견해 대시보드 쪽에 맞췄다.
+- 2026-11-03: 자료 수집은 **조회(`data_status`, 읽기)와 실행(`refresh_data`, 쓰기 · 외부 접속)으로 나눈다.** 실행은 계획을 보여 주고 사람이 승인한 뒤에만(그래프 `approve_refresh`), MCP 클라이언트에는 `openWorldHint`로 알린다.
+- 2026-11-03: 머신러닝 도구는 시험 구간 성적만 낸다(지금 시점 예측값 없음) — 대시보드 ④도 성과 비교만 하고, 방향 예측은 검증상 근거가 없기 때문.
 
 ## 10. 미결 · 확인 필요
 

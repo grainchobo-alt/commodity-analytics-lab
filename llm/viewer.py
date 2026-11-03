@@ -16,13 +16,15 @@ OUT = G.ROOT / "docs" / "LLM_graph.html"
 POS = {"__start__": (430, 40), "classify": (430, 120),
        "numeric": (250, 215), "expert": (250, 305), "ontology": (250, 395), "compose": (250, 485), "verify": (250, 575),
        "finish": (140, 670), "fallback": (360, 670),
-       "extract_view": (640, 215), "approve_view": (640, 305), "save_view": (640, 395), "__end__": (430, 760)}
+       "extract_view": (560, 215), "approve_view": (560, 305), "save_view": (560, 395),
+       "check_data": (720, 215), "approve_refresh": (720, 305), "run_refresh": (720, 395), "__end__": (430, 760)}
 LAYER = {"classify": ("분류", "c0"), "numeric": ("① 수치", "c1"), "expert": ("② 전문가 의견", "c2"), "ontology": ("③ 온톨로지", "c3"),
          "compose": ("④ LLM 인터페이스", "c4"), "verify": ("④ LLM 인터페이스", "c4"), "finish": ("④ LLM 인터페이스", "c4"), "fallback": ("④ LLM 인터페이스", "c4"),
-         "extract_view": ("② 의견 기록", "c2"), "approve_view": ("② 의견 기록 · 사람 확인", "c5"), "save_view": ("② 의견 기록", "c2")}
+         "extract_view": ("② 의견 기록", "c2"), "approve_view": ("② 의견 기록 · 사람 확인", "c5"), "save_view": ("② 의견 기록", "c2"),
+         "check_data": ("① 자료 갱신 (로컬 조회)", "c1"), "approve_refresh": ("① 자료 갱신 · 사람 확인", "c5"), "run_refresh": ("① 자료 갱신 (외부 접속)", "c1")}
 INFO = {
     "classify": ("질문 유형(조회 · 판단 · 설명 · 방향 · 의견 기록) · 품목 · 인자(기간 · 신뢰수준 · 금액 · 매입 예정)를 키워드 규칙으로 뽑음. 작은 로컬 모델에 분류를 맡기지 않음.", "없음", "classify"),
-    "numeric": ("유형에 맞는 도구 호출(가격 · GJR 변동성 · VaR/ES · 레짐 · 요인 · 상관 · 매수 점수 · WASDE) → 숫자 · 기준일 · 방법이 든 '사실 목록'. 숫자는 여기서만 만듦.", "없음", "numeric_layer"),
+    "numeric": ("유형에 맞는 도구 호출(가격 · GJR 변동성 · VaR/ES · 레짐 · 요인 · 상관 · 매수 점수 · WASDE · DCC 상관 · BEKK 전이 · 칼만 β · 머신러닝 27종 성적 · 전략 비중 · 문서 감성 · 자료 기준일) → 숫자 · 기준일 · 방법이 든 '사실 목록'. 숫자는 여기서만 만듦. 도구마다 대시보드 어느 탭과 같은 값인지 결과에 붙음.", "없음", "numeric_layer"),
     "expert": ("판단 · 방향 · 설명 질문에 의견원별 최근 방향 + 백테스트 판정(의견 방향 vs 이후 4주 수익률). 사내 의견 · USDA 가격 전망 수정 · CFTC 펀드 포지션. '채택'이 아니면 참고·설명용으로 표시.", "없음", "expert_layer"),
     "ontology": ("'왜 움직였나' 질문에 곡물 2단 온톨로지로 기간 누적 변동을 원인별 기여로 분해 + 유의한 연결. 온톨로지 밖 품목은 그렇다고 밝힘.", "없음", "ontology_layer"),
     "compose": ("사실 목록을 결론 → 근거 → 한계 문장으로(로컬 Ollama, 127.0.0.1). 숫자는 사실 목록 것만, 가격 방향 단정 금지. 재작성 때는 고칠 점을 함께 받음.", "있음 (문장 작성)", "compose"),
@@ -32,6 +34,9 @@ INFO = {
     "extract_view": ("'전문가 의견: …' 문장에서 품목 · 방향(−1~+1) · 신뢰도 · 기간 · 작성자 추출(LLM JSON + 규칙 보정).", "있음 (JSON 추출)", "extract_view"),
     "approve_view": ("저장 전 사람 확인(LangGraph interrupt). 흐름이 여기서 멈추고, 승인/거절 답을 받아 이어감.", "없음", "approve_view"),
     "save_view": ("승인됐을 때만 data/expert/views.csv에 추가(사내 정보, git 제외).", "없음", "save_view"),
+    "check_data": ("'자료 갱신해줘' 요청 → 인터넷 접속 없이 로컬 파일로 자료원별 마지막 날짜 · 갱신 필요 여부를 보고, 대상(가격 · 리포트)별 실행 계획(단계 · 접속할 외부 사이트 · 예상 시간)을 만듦.", "없음", "check_data"),
+    "approve_refresh": ("외부 접속 전 사람 확인(LangGraph interrupt). 계획을 보여 주고 승인/거절을 받음 — LLM이 혼자 외부에 접속하지 못하게 하는 지점.", "없음", "approve_refresh"),
+    "run_refresh": ("승인됐을 때만 refresh_data(confirm=True)로 수집기 실행(collect → clean → roll_adjust → data_quality → export_excel, 또는 reports.py). 실패하면 그 단계에서 멈춤.", "없음", "run_refresh"),
     "__start__": ("질문이 들어옴.", "—", None), "__end__": ("답변을 돌려줌.", "—", None),
 }
 

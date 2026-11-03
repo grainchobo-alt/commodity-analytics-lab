@@ -19,7 +19,14 @@ assert c("전문가 의견: 옥수수 남미 건조로 강세, 작성자 김과�
 o = c("옥수수 20일 99% VaR는? 매입 예정 1천만 달러")
 assert o["route"] == "lookup" and "var" in o["intents"] and o["params"] == {"horizon": 20, "alpha": 0.99, "notional_usd": 1e7, "side": "short"}
 assert G.find_items("대두박과 대두유, 지금 금 시세") == ["yf:ZM=F", "yf:ZL=F", "yf:GC=F"] and G.find_items("지금 시세") == []
-ok("분류: 판단·방향·설명·의견 기록·조회, 품목('대두박'≠'대두', '지금'≠'금')·인자(기간·신뢰수준·금액·매입 예정)")
+assert c("자료 갱신해줘")["route"] == "refresh" and c("WASDE 리포트 새로 받아줘")["route"] == "refresh"
+assert c("자료 갱신 필요해?")["route"] == "lookup" and "status" in c("자료 갱신 필요해?")["intents"]          # 필요 여부만 = 조회
+assert "var" not in c("MinVar 전략 비중은?")["intents"] and "strategy" in c("MinVar 전략 비중은?")["intents"]   # 'minvar' ≠ VaR
+for q_, k_ in [("옥수수 대두 DCC 상관 추이", "dcc"), ("옥수수 대두 변동성 전이 BEKK", "spill"), ("옥수수 칼만 민감도", "kalman"),
+               ("옥수수 머신러닝 모델 비교", "ml"), ("WTI 문서 감성", "text")]:
+    assert k_ in c(q_)["intents"], (q_, c(q_)["intents"])
+assert c("머신러닝 모델 성능은?")["items"] == ["yf:ZC=F"]                                                  # 품목 없으면 옥수수
+ok("분류: 판단·방향·설명·의견 기록·자료 갱신·조회, 새 유형(DCC·BEKK·칼만·머신러닝·전략·감성·자료 상태), 품목·인자")
 
 # 2) 숫자 대조 — 지어낸 숫자 · 방향 단정 차단
 st = {"question": "옥수수 VaR", "facts": ["옥수수 20일 99% VaR 15.3% · ES 18.6% (기준일 2026-10-26)"], "params": {}, "route": "lookup"}
@@ -55,6 +62,25 @@ ok("③ 온톨로지: 대두박 최근 4주 원인 기여 · 유의 연결(대�
 o = run("밀 다음 달에 오를까?", "d")
 assert o["answer"].startswith("가격 방향 예측은 검증상 근거가 없어") and any("4주 90% 범위" in x for x in o["facts"])
 ok("방향 질문: 단정 대신 범위·매수 점수로")
+o = run("옥수수 대두 DCC 상관 추이와 칼만 민감도, 머신러닝 모델 비교", "n1")
+assert any("DCC 동적 상관" in x for x in o["facts"]) and any("칼만 시변 민감도" in x for x in o["facts"]) and any("OOS R²" in x for x in o["facts"])
+o = run("이번 주 MinVar 포지션 비중, 문서 감성, 자료 기준일", "n2")
+assert any("순 비중" in x for x in o["facts"]) and any("문서 감성" in x for x in o["facts"]) and any("자료 기준일" in x for x in o["facts"])
+ok("① 새 도구: DCC · 칼만 · 머신러닝 · 전략 비중 · 문서 감성 · 자료 기준일 → 사실 목록")
+
+# 3-1) 자료 갱신 — 로컬 조회 → 사람 확인 → (승인 시에만) 외부 수집. 시험에서는 수집기 대신 무해한 로컬 스크립트로 바꿔 실행
+noop = Path(__file__).parent / "_tmp_noop.py"; noop.write_text("print('ok')", encoding="utf-8")
+bak_r = T.REFRESH["prices"]; T.REFRESH["prices"] = {**bak_r, "steps": [str(noop)]}
+try:
+    seen = []
+    o = G.ask("가격 자료 갱신해줘", approve=lambda p: seen.append(p) or False, app=app, thread="r1")
+    assert "취소" in o["answer"] and seen[0]["targets"] == ["prices"] and seen[0]["plans"]["prices"]["hosts"]
+    assert o["trace"] == ["classify", "check_data", "approve_refresh", "run_refresh"]
+    o = G.ask("가격 자료 갱신해줘", approve=lambda p: True, app=app, thread="r2")
+    assert "완료" in o["answer"], o["answer"]
+finally:
+    T.REFRESH["prices"] = bak_r; noop.unlink(missing_ok=True)
+ok("자료 갱신: 계획(단계 · 접속 사이트)을 보여 주고 거절하면 실행 안 함 · 승인하면 실행")
 
 # 4) 전문가 의견 기록 — 사람 확인(interrupt) 후에만 저장
 bak = T.EXPERT; T.EXPERT = Path(__file__).parent / "_tmp_views_graph.csv"
@@ -76,10 +102,10 @@ ok("MCP 서버 경유 = 직접 호출 (같은 사실 목록)")
 
 # 6) Mermaid 흐름도
 m = G.mermaid(Path(__file__).parent / "_tmp_graph.mmd")
-for n in ("classify", "numeric", "expert", "ontology", "compose", "verify", "approve_view"):
+for n in ("classify", "numeric", "expert", "ontology", "compose", "verify", "approve_view", "check_data", "approve_refresh", "run_refresh"):
     assert n in m
 (Path(__file__).parent / "_tmp_graph.mmd").unlink()
-ok("Mermaid 흐름도 생성 (노드 11개)")
+ok("Mermaid 흐름도 생성 (노드 14개)")
 
 # 7) (선택) 로컬 LLM 실제 답변
 os.environ.pop("LLM_OFF")
