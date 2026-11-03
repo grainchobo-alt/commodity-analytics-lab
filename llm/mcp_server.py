@@ -6,7 +6,7 @@
   · 외부 접근 없음: 도구는 data/의 로컬 파일만 읽음.
 
 실행 (보통은 클라이언트가 띄움):  .venv\\Scripts\\python.exe -m llm.mcp_server
-점검 (MCP 패키지의 개발 도구):    .venv\\Scripts\\mcp.exe dev llm/mcp_server.py
+점검 (클라이언트로 띄워 보기):     .venv\\Scripts\\python.exe tests\\test_mcp_server.py
 """
 from __future__ import annotations
 
@@ -15,13 +15,13 @@ import json
 import time
 from datetime import datetime
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer          # mcp 2.x (1.x의 FastMCP)
 from mcp.types import ToolAnnotations
 
 from llm import tools as T
 
 LOG = T.DATA / "llm_logs" / "tool_calls.jsonl"
-mcp = FastMCP("commodity-lab", instructions=(
+mcp = MCPServer("commodity-lab", instructions=(
     "원자재(곡물 중심) 시황 분석 도구. 숫자는 반드시 도구 결과에서 인용하고 asof(자료 기준일)와 method를 함께 밝힐 것. "
     "가격 방향을 단정하지 말 것 — 이 시스템의 검증 결과 방향 예측은 우연 수준이며, 변동성·위험·구매 타이밍 판단만 근거가 있음."))
 

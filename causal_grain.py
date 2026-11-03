@@ -7,7 +7,7 @@
    가격 변동을 '어느 원인 충격이 어떤 경로로 왔나'로 정확히 분해(역사적 분해 = 역방향 추적).
 ③ PCMCI (편상관 검정, tigramite 없이 직접 구현): 자료만으로 시차 인과 연결을 찾아 ②의 온톨로지 연결과 대조.
 
-실행: .venv\\Scripts\\python.exe causal_grain.py  → data/causal_events.csv · causal_scm_edges.csv · causal_backtrace.csv · causal_pcmci.csv
+실행: .venv\\Scripts\\python.exe causal_grain.py  → data/causal_events.csv · causal_scm_edges.csv · causal_attribution.csv · causal_pcmci.csv
 """
 import sys
 import warnings
@@ -246,7 +246,7 @@ def path_effect(M: dict, p: list[str]) -> float:
     return float(np.prod([M[b]["b"][a] for a, b in zip(p[:-1], p[1:])])) if len(p) > 1 else 1.0
 
 
-def backtrace(M: dict, D: dict, X: pd.DataFrame, target: str, a: str, b: str, label: str) -> list[dict]:
+def attribution(M: dict, D: dict, X: pd.DataFrame, target: str, a: str, b: str, label: str) -> list[dict]:
     """결과(target의 a~b 누적 변동, %)에서 원인으로 거슬러 올라감: 원인 충격별 기여 + 가장 큰 경로."""
     sl = slice(pd.Timestamp(a), pd.Timestamp(b))
     tot = X.loc[sl, target].sum()
@@ -435,9 +435,9 @@ def run():
     print("\n   역방향 추적 (결과 → 원인): 사례별 누적 변동(%)을 원인 충격·경로로 분해")
     last = X.index[-1]
     cases = CASES + [(p, f"{last - pd.Timedelta(weeks=3):%Y-%m-%d}", f"{last:%Y-%m-%d}", "최근 4주") for p in PRICES]
-    B = pd.DataFrame(sum((backtrace(M, D, X, *c) for c in cases), []))
+    B = pd.DataFrame(sum((attribution(M, D, X, *c) for c in cases), []))
     print(B.to_string(index=False))
-    B.to_csv(DATA / "causal_backtrace.csv", index=False, encoding="utf-8-sig")
+    B.to_csv(DATA / "causal_attribution.csv", index=False, encoding="utf-8-sig")
 
     print("\n③ PCMCI (ParCorr, 최대 2주 시차, MCI α=0.01) — 온톨로지 연결과 대조")
     Pc = pcmci(X[ORDER])

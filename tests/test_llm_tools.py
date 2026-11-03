@@ -60,7 +60,7 @@ o = T.get_results("procurement_lump"); chk(o, ["table"]); assert len(o["table"])
 ok(f"실험 결과 표 {len(T.RESULT_FILES)}개 읽기")
 
 o = T.ontology_graph(); chk(o, ["edges"]); assert any(e["from"] == "대두" and e["to"] == "대두박" for e in o["edges"])
-o = T.ontology_backtrace("대두박", "2025-01-01", "2025-06-30"); chk(o, ["contributions"])
+o = T.ontology_attribution("대두박", "2025-01-01", "2025-06-30"); chk(o, ["contributions"])
 c = o["contributions"]; assert abs(sum(x["기여"] for x in c) - c[0]["실제_누적"]) < 0.5 + 0.06 * len(c)   # 반올림·0.05 미만 생략분
 ok(f"온톨로지: 연결 {len(T.ontology_graph()['edges'])}개, 역추적 기여 합 ≈ 실제 누적 {c[0]['실제_누적']}%")
 

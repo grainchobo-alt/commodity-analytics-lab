@@ -6,7 +6,7 @@ v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)
 ## v1.53.0 — 2026-11-03 — 로컬 LLM 계층 1단계(도구층 + MCP 서버 초안) · 설계 문서 · 발표 PDF
 - `docs/LLM_설계.md`(신규): 수치 · 전문가 의견 · 온톨로지 · LLM 인터페이스 4계층, 원칙(숫자는 도구만 · asof/method/source · 인터넷은 수집기만 · 쓰기 최소), 분석 방법론 · 시각화 라이브러리 지도(사용 중 / 추가 후보), 외부 MCP 방침(소스별 MCP 만들지 않음), LangGraph 흐름 · Harness(LangSmith 끔 · 127.0.0.1 · 평가 세트) · 단계별 합격 조건
 - `llm/tools.py`(신규): 읽기 14 + 쓰기 1 도구 — 가격 · GARCH/GJR/EGARCH 변동성(arch) · VaR/ES 5방법+백테스트 · Markov 레짐 · PCA+DY 스필오버 · 상관 · 구매 판단 · WASDE/COT · 실험 결과표 48개 · 온톨로지 연결/역추적 · 전문가 의견 저장/조회 · Plotly 그림
-- `llm/mcp_server.py`(신규): FastMCP stdio 서버, 읽기/쓰기 주석, 호출 기록 `data/llm_logs/` — `mcp` 패키지 설치 승인 후 기동 시험 예정
+- `llm/mcp_server.py`(신규): MCPServer(mcp 2.x) stdio 서버, 읽기/쓰기 주석, 호출 기록 `data/llm_logs/` — `mcp` 패키지 설치 승인 후 기동 시험 예정
 - `tests/test_llm_tools.py`(신규): 직렬화 · 대시보드 함수와 같은 숫자 · VaR/ES 관계 · 역추적 합 · 입력 오류 검사 (통과, 7초)
 - `.gitignore`: `data/expert/` · `data/llm_logs/` · `data/llm_charts/` 제외(사내 정보)
 - 발표: 자료 경과일 경고 제거, 유리판 PDF 2종(`_v4_유리.pdf` PPT 변환 · `_v4_유리_HTML캡처.pdf` HTML 캡처, `scripts/html_shots.js` · `html_pdf.py`)

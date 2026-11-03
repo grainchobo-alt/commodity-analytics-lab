@@ -67,7 +67,7 @@ def ont_data() -> dict:
     """결과 CSV → 상자 · 화살표별 근거 (제목 · [항목, 값] 줄 · 한 줄 해석). 숫자는 실험 스크립트 결과 그대로."""
     d = lambda f, **k: pd.read_csv(ROOT / "data" / f, **k)                              # noqa: E731
     E, P, S = d("causal_scm_edges.csv"), d("causal_pcmci.csv"), d("causal_scm_share.csv").set_index("가격")
-    FE, B = d("foreign_scm_edges.csv"), d("causal_backtrace.csv")
+    FE, B = d("foreign_scm_edges.csv"), d("causal_attribution.csv")
     RB, DF, VO = d("range_bt_compare.csv"), d("defer_ont_compare.csv"), d("vol_ont_compare.csv")
     FS = d("foreign_scm_share.csv", header=[0, 1], index_col=0)
     PR = ["옥수수", "대두", "밀", "대두박", "대두유"]

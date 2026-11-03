@@ -28,3 +28,5 @@ torchdiffeq==0.2.5
 torch_geometric==2.8.1
 # 멀티모달: WASDE·EIA STEO PDF 서술문 읽기 (FinBERT 가중치 ProsusAI/finbert는 첫 실행 시 Hugging Face에서)
 pypdf==6.21.2
+# 로컬 LLM 계층 (llm/mcp_server.py, docs/LLM_설계.md) — mcp 2.x API(MCPServer)
+mcp==2.3.0

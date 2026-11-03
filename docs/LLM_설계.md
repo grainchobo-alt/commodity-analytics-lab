@@ -70,7 +70,7 @@
 | `fundamentals` | ① | WASDE 재고율 · 전월 대비 · 같은 달 분위, CFTC 순포지션 | `procurement.fundamentals` |
 | `get_results` | ① | 백테스트 · 실험 결과표 48개(`*_compare.csv`, `causal_*.csv`) 조회 | pandas |
 | `ontology_graph` | ③ | 2단 온톨로지 노드 · 연결 44개 + 계수(전체 · 두 기간 · 부호 안정) | `causal_grain.GRAPHS` |
-| `ontology_backtrace` | ③ | 기간 누적 변동을 원인 충격 · 경로별 기여로 분해(정확 분해) | `causal_grain.backtrace` |
+| `ontology_attribution` | ③ | 기간 누적 변동을 원인 충격 · 경로별 기여로 분해(정확 분해) | `causal_grain.attribution` |
 | `expert_views` | ② | 저장된 전문가 의견 조회 | pandas |
 | `save_expert_view` | ② **쓰기** | 의견 1건 추가(방향 · 신뢰도 · 근거 · 작성자 · 기간), 범위 검사 | → `data/expert/views.csv` |
 | `make_chart` | 그림 | Plotly HTML: 가격 · 변동성(GJR vs EWMA) · 레짐 확률 · VaR 백테스트 | **plotly** |

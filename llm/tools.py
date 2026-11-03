@@ -296,15 +296,15 @@ def _scm(_stamp: float):
     return CG, X, M, CG.decompose(M, X)
 
 
-def ontology_backtrace(target: str, start: str, end: str) -> dict:
+def ontology_attribution(target: str, start: str, end: str) -> dict:
     """결과 → 원인 역추적: target(옥수수·대두·밀·대두박·대두유)의 start~end 누적 주간 변동(%)을 원인 충격·경로별 기여로 분해.
     분해는 정확(합 = 실제). 단, '설명'이지 예측이 아님."""
     CG, X, M, D = _scm(_mtime())
     if target not in CG.PRICES:
         raise ValueError(f"target은 {CG.PRICES} 중 하나")
-    rows = CG.backtrace(M, D, X, target, start, end, "질의")
+    rows = CG.attribution(M, D, X, target, start, end, "질의")
     return _out({"target": target, "period": f"{start} ~ {end}", "contributions": _clean(rows[:12])},
-                X.index[-1], "선형 SCM 역사적 분해(1판 온톨로지)", "causal_grain.backtrace",
+                X.index[-1], "선형 SCM 역사적 분해(1판 온톨로지)", "causal_grain.attribution",
                 "기여 합 = 실제 누적 변동. '설명 안 됨(자기 충격)'이 크면 온톨로지 밖 요인(뉴스·수급 심리 등).")
 
 
@@ -394,7 +394,7 @@ def make_chart(kind: str, item: str, start: str = "2018-01-01") -> dict:
 # 등록부 — MCP 서버 · LangGraph가 이 목록만 노출 (읽기/쓰기 구분)
 # ============================================================================
 READ_TOOLS = [list_items, get_prices, get_results, vol_forecast, var_es, regime, factors, correlation,
-              buy_signal, fundamentals, ontology_graph, ontology_backtrace, expert_views, make_chart]
+              buy_signal, fundamentals, ontology_graph, ontology_attribution, expert_views, make_chart]
 WRITE_TOOLS = [save_expert_view]
 
 
