@@ -36,3 +36,8 @@ desktop.ini
 docs/교육 내용/
 docs/사내교육/
 *사내교육*/
+
+# 로컬 LLM 계층 (llm/): 전문가 의견·질의 기록은 사내 정보, 그림은 재생성 가능
+data/expert/
+data/llm_logs/
+data/llm_charts/

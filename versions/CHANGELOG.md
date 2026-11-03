@@ -3,6 +3,14 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.53.0 — 2026-11-03 — 로컬 LLM 계층 1단계(도구층 + MCP 서버 초안) · 설계 문서 · 발표 PDF
+- `docs/LLM_설계.md`(신규): 수치 · 전문가 의견 · 온톨로지 · LLM 인터페이스 4계층, 원칙(숫자는 도구만 · asof/method/source · 인터넷은 수집기만 · 쓰기 최소), 분석 방법론 · 시각화 라이브러리 지도(사용 중 / 추가 후보), 외부 MCP 방침(소스별 MCP 만들지 않음), LangGraph 흐름 · Harness(LangSmith 끔 · 127.0.0.1 · 평가 세트) · 단계별 합격 조건
+- `llm/tools.py`(신규): 읽기 14 + 쓰기 1 도구 — 가격 · GARCH/GJR/EGARCH 변동성(arch) · VaR/ES 5방법+백테스트 · Markov 레짐 · PCA+DY 스필오버 · 상관 · 구매 판단 · WASDE/COT · 실험 결과표 48개 · 온톨로지 연결/역추적 · 전문가 의견 저장/조회 · Plotly 그림
+- `llm/mcp_server.py`(신규): FastMCP stdio 서버, 읽기/쓰기 주석, 호출 기록 `data/llm_logs/` — `mcp` 패키지 설치 승인 후 기동 시험 예정
+- `tests/test_llm_tools.py`(신규): 직렬화 · 대시보드 함수와 같은 숫자 · VaR/ES 관계 · 역추적 합 · 입력 오류 검사 (통과, 7초)
+- `.gitignore`: `data/expert/` · `data/llm_logs/` · `data/llm_charts/` 제외(사내 정보)
+- 발표: 자료 경과일 경고 제거, 유리판 PDF 2종(`_v4_유리.pdf` PPT 변환 · `_v4_유리_HTML캡처.pdf` HTML 캡처, `scripts/html_shots.js` · `html_pdf.py`)
+
 ## v1.52.0 — 2026-11-02 — 발표 별첨 7 · 8: 시계열 분해(추세 · 계절성 · 잔차 정상성)와 보정 방법
 - `docs/발표/scripts/charts_ts7.py`(신규): 곡물 5품목 주간 로그가격 STL(52주, 계절 평활 51) 분해, ADF · KPSS, 계절 모양(주차 더미) 시험 R², 독립 랜덤워크 2,000쌍 가짜 상관 모의실험 → PNG 3장 + ts7.json
 - 별첨 7: ① 분해 리본 3D ② 계절 지형 3D ③ 잔차 정상성 3D(HTML은 5품목 선택 · 회전) ④ 정상성 표(가격 수준 비정상 4/5 · 애매 1, 수익률 · 잔차 모두 정상) ⑤ 계절성: STL 계절 몫 15~26% vs 같은 모양으로 2017– 설명 R² −7 ~ −35% → 계절성은 해마다 바뀜
