@@ -3,6 +3,14 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.55.0 — 2026-11-03 — LangGraph 흐름 보기 화면 · ② 전문가 의견 백테스트 · 평가 세트 30문항 (대시보드·발표 미반영)
+- `docs/LLM_graph.html`(신규, `llm/viewer.py`로 생성): 실제 그래프에서 그린 흐름도, 상자를 누르면 하는 일 · 계층 · LLM 사용 · 코드 위치. 인터넷 없이 열림
+- `llm/expert_bt.py`(신규): 의견 방향 vs 이후 4주 수익률(진입 = 의견을 알 수 있었던 첫 종가), 채택 규칙(표본 ≥ 20 · NW t > 2 · 위약 p < 0.05 · 두 기간 +). 사내 의견 0건 → 공개 의견원으로 검증: USDA 가격 전망 수정 996건(적중 53.8%, t 0.4), CFTC 펀드 포지션 변화 5,035건(적중 49.9%) — 전 품목 설명용(최고 CFTC 대두박 t 1.9). 무작위 의견 오채택률 5%
+- 그래프 ② 계층: 의견원별 최근 방향 + 판정 표시(`expert_signals` 도구 추가, 도구 16개)
+- `llm/eval/`(신규): 질문 30개 · 실행기. 2B vs 4B — 숫자 일치 99% vs 94%, 핵심 사실 반영 98% vs 100%(보강 후), LLM 시간 중앙값 9초 vs 25초. 의미 오류(숫자 이름표 오독)가 남아 답변에 사실 목록 원문을 항상 첨부
+- verify 보강: 모든 질문의 방향 단정 검사 · 핵심 숫자(매수 점수 · VaR · 현재 변동성 · 기간 누적) 누락 검사
+- 테스트: `tests/test_expert_bt.py`(신규), `test_llm_graph.py` 보강 — 통과
+
 ## v1.54.0 — 2026-11-03 — 로컬 LLM 계층 2단계: LangGraph 4계층 흐름 (대시보드·발표 미반영)
 - `llm/graph.py`(신규): classify(규칙) → ① numeric → ② expert → ③ ontology → ④ compose(로컬 Ollama) → verify(답변 숫자 = 도구 사실 대조, 방향 단정 금지, 최대 2회 재작성) → finish / fallback(사실 목록). 의견 기록 경로 extract_view → approve_view(사람 확인 interrupt) → save_view. 도구 호출 direct · MCP 두 방식, LangSmith 추적 강제 끔, Ollama는 127.0.0.1만
 - `docs/LLM_graph.mmd`(자동 생성 Mermaid 흐름도), `docs/LLM_설계.md` §6 구현 내용으로 갱신

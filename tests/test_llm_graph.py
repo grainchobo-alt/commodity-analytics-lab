@@ -27,7 +27,13 @@ assert G.verify({**st, "draft": "VaR 15.3%, ES 18.6% (2026-10-26)", "trace": []}
 assert G.verify({**st, "draft": "VaR 15.30%로 3가지 방법 중", "trace": []})["issues"] == []                   # 반올림 · 작은 정수 허용
 assert G.verify({**st, "draft": "VaR 17.2%", "trace": []})["issues"]                                       # 없는 숫자
 assert G.verify({**st, "route": "direction", "draft": "다음 달 오를 것으로 보임", "trace": []})["issues"]   # 방향 단정
-ok("숫자 대조: 사실 목록 숫자·반올림 통과, 지어낸 숫자·방향 단정은 재작성 요청")
+sb = {"question": "대두박 살까", "route": "decision", "intents": ["buy"], "params": {}, "trace": [], "facts": ["대두박 매수 점수 10.9점(매수 보류), 4주 90% 범위 337.0~437.9"]}
+assert G.verify({**sb, "draft": "매수 점수 10.9점. 오를 가능성은 검증상 근거 없음"})["issues"] == []          # 부정문은 단정 아님
+iss = G.verify({**sb, "draft": "범위 337.0~437.9, 소폭 하락 가능성이 높습니다"})["issues"]
+assert any("방향" in x for x in iss) and any("핵심 숫자 빠짐: 매수 점수" in x for x in iss)                # 판단 질문에도 방향 단정 금지 · 핵심 숫자
+se = {"question": "왜", "route": "explain", "intents": ["prices"], "params": {}, "trace": [], "facts": ["대두박 2026-10-05~2026-10-26 누적 +3.2% 중 원인별 기여: 대두 -3.4%p"]}
+assert any("기간 누적 변동" in x for x in G.verify({**se, "draft": "대두 -3.4%p"})["issues"])
+ok("숫자 대조: 사실 목록 숫자·반올림 통과, 지어낸 숫자·방향 단정(모든 질문)·핵심 숫자 누락은 재작성 요청")
 
 # 3) 질문 경로 (LLM 꺼짐 → 사실 목록 답변)
 app = G.build()

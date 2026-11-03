@@ -347,6 +347,29 @@ def expert_views(item: str | None = None, last: int = 20) -> dict:
                 V.date.max() if len(V) else None, "저장된 의견", "data/expert/views.csv")
 
 
+def expert_signals(item: str) -> dict:
+    """② 의견원별 최근 의견 + 백테스트 판정 (의견 방향 vs 이후 4주 수익률, 채택 규칙: 표본 ≥ 20 · t > 2 · 위약 p < 0.05 · 두 기간 +).
+    saved = 사내 전문가 의견(그때그때 계산) · usda = USDA 가격 전망 수정 · cot = CFTC 펀드 순포지션 변화 (llm/expert_bt.py로 미리 계산)."""
+    from llm import expert_bt as EB
+    i = resolve(item)
+    pre = pd.read_csv(EB.OUT, encoding="utf-8-sig") if EB.OUT.exists() else pd.DataFrame(columns=["source", "id"])
+    out = {}
+    for src in ("saved", "usda", "cot"):
+        V = EB.SOURCES[src]()
+        V = V[V.id == i].sort_values("avail")
+        if src == "saved":
+            bt = EB.evaluate(EB.attach_returns(V)) if len(V) else {"n": 0, "verdict": f"표본 부족 (0건 < {EB.MIN_N})"}
+        else:
+            r = pre[(pre.source == src) & (pre.id == i)]
+            bt = r.iloc[0].drop(["source", "item", "id"]).to_dict() if len(r) else {"verdict": "미계산 — python -m llm.expert_bt"}
+        last = V.iloc[-1] if len(V) else None
+        out[src] = {"latest": None if last is None else {"date": last.avail, "direction": float(last.direction), "confidence": float(last.confidence)},
+                    "backtest": {k: bt.get(k) for k in ("n", "hit_rate", "mean_bp", "t", "placebo_p", "early_bp", "late_bp", "verdict") if k in bt}}
+    asof = datetime.fromtimestamp(EB.OUT.stat().st_mtime) if EB.OUT.exists() else None
+    return _out({"item": name_of(i), "id": i, "sources": out}, asof, "의견 방향 × 이후 4주 롤 보정 수익률, 진입 = 의견을 알 수 있었던 첫 종가",
+                "llm.expert_bt", "판정이 '채택'인 의견원만 판단 보조로 쓸 수 있음. 나머지는 참고·설명용.")
+
+
 # ============================================================================
 # 시각화 — Plotly HTML (로컬 파일). LLM은 경로만 받아 사용자에게 안내
 # ============================================================================
@@ -397,7 +420,7 @@ def make_chart(kind: str, item: str, start: str = "2018-01-01") -> dict:
 # 등록부 — MCP 서버 · LangGraph가 이 목록만 노출 (읽기/쓰기 구분)
 # ============================================================================
 READ_TOOLS = [list_items, get_prices, get_results, vol_forecast, var_es, regime, factors, correlation,
-              buy_signal, fundamentals, ontology_graph, ontology_attribution, expert_views, make_chart]
+              buy_signal, fundamentals, ontology_graph, ontology_attribution, expert_views, expert_signals, make_chart]
 WRITE_TOOLS = [save_expert_view]
 
 

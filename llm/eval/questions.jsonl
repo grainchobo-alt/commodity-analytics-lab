@@ -1,0 +1,30 @@
+{"id": 1, "group": "위험 금액", "q": "옥수수 20일 VaR는? 매입 예정 1천만 달러", "route": "lookup", "items": ["yf:ZC=F"], "facts": ["VaR", "$"]}
+{"id": 2, "group": "위험 금액", "q": "대두박 3천만 달러 사야 할 물량인데 20일 99% VaR 얼마야?", "route": "lookup", "items": ["yf:ZM=F"], "facts": ["VaR", "$"]}
+{"id": 3, "group": "위험 금액", "q": "밀 10일 VaR랑 ES 알려줘", "route": "lookup", "items": ["yf:ZW=F"], "facts": ["VaR", "ES"]}
+{"id": 4, "group": "위험 금액", "q": "대두유 보유 물량 500만 달러 최대 손실은?", "route": "lookup", "items": ["yf:ZL=F"], "facts": ["VaR", "$"]}
+{"id": 5, "group": "위험 금액", "q": "대두 5일 95% VaR는?", "route": "lookup", "items": ["yf:ZS=F"], "facts": ["VaR"]}
+{"id": 6, "group": "위험 금액", "q": "옥수수와 대두박 20일 VaR 비교해줘", "route": "lookup", "items": ["yf:ZC=F", "yf:ZM=F"], "facts": ["옥수수 20일", "대두박 20일"]}
+{"id": 7, "group": "변동성", "q": "옥수수 변동성 지금 높은 편이야?", "route": "lookup", "items": ["yf:ZC=F"], "facts": ["연 변동성", "1년 평균"]}
+{"id": 8, "group": "변동성", "q": "밀 GARCH 변동성과 반감기는?", "route": "lookup", "items": ["yf:ZW=F"], "facts": ["반감기"]}
+{"id": 9, "group": "변동성", "q": "대두박 가격 출렁임이 요즘 어때?", "route": "lookup", "items": ["yf:ZM=F"], "facts": ["연 변동성"]}
+{"id": 10, "group": "변동성", "q": "대두유 변동성 1년 평균이랑 비교하면?", "route": "lookup", "items": ["yf:ZL=F"], "facts": ["1년 평균"]}
+{"id": 11, "group": "레짐", "q": "옥수수 지금 위기 국면이야?", "route": "lookup", "items": ["yf:ZC=F"], "facts": ["레짐"]}
+{"id": 12, "group": "레짐", "q": "대두 레짐 확률 알려줘", "route": "lookup", "items": ["yf:ZS=F"], "facts": ["레짐"]}
+{"id": 13, "group": "요인·상관", "q": "곡물 요인 구조와 스필오버는?", "route": "lookup", "items": [], "facts": ["PC1", "스필오버"]}
+{"id": 14, "group": "요인·상관", "q": "옥수수, 밀, 대두 상관이 최근 커졌어?", "route": "lookup", "items": ["yf:ZC=F", "yf:ZW=F", "yf:ZS=F"], "facts": ["평균 상관"]}
+{"id": 15, "group": "요인·상관", "q": "대두와 대두박 상관 알려줘", "route": "lookup", "items": ["yf:ZS=F", "yf:ZM=F"], "facts": ["평균 상관"]}
+{"id": 16, "group": "구매 판단", "q": "대두박 지금 살까?", "route": "decision", "items": ["yf:ZM=F"], "facts": ["매수 점수", "4주 90% 범위"]}
+{"id": 17, "group": "구매 판단", "q": "옥수수 이번 주 매수 타이밍 괜찮아?", "route": "decision", "items": ["yf:ZC=F"], "facts": ["매수 점수"]}
+{"id": 18, "group": "구매 판단", "q": "밀 구매를 2주 미룰까?", "route": "decision", "items": ["yf:ZW=F"], "facts": ["매수 점수"]}
+{"id": 19, "group": "구매 판단", "q": "대두유 지금 사도 돼?", "route": "decision", "items": ["yf:ZL=F"], "facts": ["매수 점수"]}
+{"id": 20, "group": "구매 판단", "q": "대두 매수 점수랑 WASDE 재고 같이 보여줘", "route": "decision", "items": ["yf:ZS=F"], "facts": ["매수 점수", "WASDE"]}
+{"id": 21, "group": "구매 판단", "q": "옥수수랑 대두박 중에 뭐부터 사야 해?", "route": "decision", "items": ["yf:ZC=F", "yf:ZM=F"], "facts": ["옥수수 매수 점수", "대두박 매수 점수"]}
+{"id": 22, "group": "구매 판단", "q": "대두박 펀드 포지션이랑 USDA 전망 보고 구매 판단해줘", "route": "decision", "items": ["yf:ZM=F"], "facts": ["CFTC", "USDA"]}
+{"id": 23, "group": "방향 질문", "q": "밀 다음 달에 오를까?", "route": "direction", "items": ["yf:ZW=F"], "facts": ["매수 점수", "VaR"]}
+{"id": 24, "group": "방향 질문", "q": "옥수수 가격 떨어질까?", "route": "direction", "items": ["yf:ZC=F"], "facts": ["4주 90% 범위"]}
+{"id": 25, "group": "방향 질문", "q": "대두 목표가 얼마로 봐?", "route": "direction", "items": ["yf:ZS=F"], "facts": ["4주 90% 범위"]}
+{"id": 26, "group": "방향 질문", "q": "대두박 상승할까 하락할까?", "route": "direction", "items": ["yf:ZM=F"], "facts": ["매수 점수"]}
+{"id": 27, "group": "원인 설명", "q": "대두박 왜 움직였나?", "route": "explain", "items": ["yf:ZM=F"], "facts": ["원인별 기여"]}
+{"id": 28, "group": "원인 설명", "q": "대두유 최근 변동 원인이 뭐야?", "route": "explain", "items": ["yf:ZL=F"], "facts": ["원인별 기여"]}
+{"id": 29, "group": "원인 설명", "q": "옥수수 2025-06-01 ~ 2025-08-31 하락 이유는?", "route": "explain", "items": ["yf:ZC=F"], "facts": ["2025-06-01~2025-08-31", "원인별 기여"]}
+{"id": 30, "group": "원인 설명", "q": "구리 왜 올랐어?", "route": "explain", "items": ["yf:HG=F"], "facts": ["온톨로지"]}

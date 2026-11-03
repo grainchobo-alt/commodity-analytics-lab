@@ -113,7 +113,7 @@ ALIASES = {"옥수수": "yf:ZC=F", "소맥": "yf:ZW=F", "밀": "yf:ZW=F", "대�
            "원유": "yf:CL=F", "wti": "yf:CL=F", "브렌트": "yf:BZ=F", "금": "yf:GC=F", "은": "yf:SI=F", "구리": "yf:HG=F", "천연가스": "yf:NG=F",
            "철광석": "yf:TIO=F", "커피": "yf:KC=F", "원당": "yf:SB=F", "면화": "yf:CT=F", "corn": "yf:ZC=F", "wheat": "yf:ZW=F", "soybean": "yf:ZS=F"}
 KW = {"vol": r"변동성|garch|gjr|출렁", "var": r"var|es\b|손실|위험 금액|리스크 금액|최대 손실", "regime": r"레짐|국면|위기 확률",
-      "factors": r"요인|pca|스필오버|전이|동조", "corr": r"상관", "prices": r"가격|시세|얼마|현재가", "buy": r"살까|사야|매수|구매|미룰|사도|타이밍",
+      "factors": r"요인|pca|스필오버|전이|동조", "corr": r"상관", "prices": r"가격|시세|얼마|현재가", "buy": r"살까|사야 할까|사야 하나|사야 해\?|뭐부터 사|매수|구매 판단|미룰|사도|타이밍",
       "fund": r"wasde|재고|수급|cot|포지션"}
 
 
@@ -232,17 +232,31 @@ def numeric_layer(st: S, tools: Tools) -> dict:
     return {"numeric": out, "facts": facts, "trace": st["trace"] + ["numeric"]}
 
 
+SRC_NAME = {"saved": "사내 전문가 의견", "usda": "USDA 가격 전망 수정", "cot": "CFTC 펀드 포지션 변화"}
+
+
 def expert_layer(st: S, tools: Tools) -> dict:
+    """② 의견원별 최근 방향 + 백테스트 판정(의견 방향 vs 이후 4주 수익률). '채택'이 아닌 의견은 참고·설명용으로 표시."""
     out, facts = {}, list(st["facts"])
     if st["route"] in ("decision", "direction", "explain"):
         for i in st["items"]:
-            r = tools("expert_views", item=i, last=5); out[i] = r
-            v = r.get("views", [])
+            nm = T.name_of(i)
+            v = tools("expert_views", item=i, last=5).get("views", [])
             if v:
                 avg = sum(x["direction"] * x["confidence"] for x in v) / max(sum(x["confidence"] for x in v), 1e-9)
-                facts.append(f"{T.name_of(i)} 전문가 의견 {len(v)}건(최근 {v[0]['date']}), 신뢰도 가중 방향 {avg:+.2f} (−1 약세 ~ +1 강세) — 미검증, 참고만")
-            else:
-                facts.append(f"{T.name_of(i)} 저장된 전문가 의견 없음")
+                facts.append(f"{nm} 사내 전문가 의견 최근 {len(v)}건(최근 {v[0]['date']}), 신뢰도 가중 방향 {avg:+.2f} (−1 약세 ~ +1 강세)")
+            r = tools("expert_signals", item=i); out[i] = r
+            for src, d in r.get("sources", {}).items():
+                bt, la = d["backtest"], d["latest"]
+                if src == "saved" and not la:
+                    facts.append(f"{nm} 사내 전문가 의견 없음 — 검증은 {bt.get('verdict')}")
+                    continue
+                if not la:
+                    continue
+                dir_ = "강세(올림)" if la["direction"] > 0 else "약세(내림)"
+                perf = (f", 과거 {bt['n']:.0f}건 적중률 {100 * bt['hit_rate']:.0f}% · 의견대로 했을 때 평균 {bt['mean_bp']:+.0f}bp(t {bt['t']:.1f})"
+                        if bt.get("hit_rate") is not None else "")
+                facts.append(f"{nm} {SRC_NAME[src]}: 최근 {la['date']} {dir_}{perf} → {bt.get('verdict')}")
     return {"expert": out, "facts": facts, "trace": st["trace"] + ["expert"]}
 
 
@@ -319,9 +333,29 @@ def verify(st: S) -> dict:
         if not any(abs(abs(x) - abs(y)) <= max(0.051, 0.006 * abs(y)) for y in ok_nums):
             bad.append(x)
     issues = [f"사실 목록에 없는 숫자 {b:g}를 썼음 — 사실 목록의 숫자만 쓸 것" for b in bad[:5]]
-    if st["route"] == "direction" and re.search(r"오를 것|상승할 것|하락할 것|내릴 것|떨어질 것", st["draft"]):
-        issues.append("가격 방향을 단정했음 — 단정하지 말 것")
+    if DIRECTION.search(st["draft"]):                                # 모든 질문에서 방향 단정 금지
+        issues.append("가격 방향을 단정했음(예: '하락할 것', '상승 가능성이 높음') — 단정하지 말 것")
+    xs = _nums(st["draft"])
+    for label, y in required(st):                                    # 질문이 꼭 답해야 할 숫자가 빠졌는지
+        if not any(abs(abs(x) - abs(y)) <= max(0.051, 0.006 * abs(y)) for x in xs):
+            issues.append(f"핵심 숫자 빠짐: {label} {y:g} — 반드시 포함할 것")
     return {"issues": issues, "trace": st["trace"] + ["verify"]}
+
+
+DIRECTION = re.compile(r"(오를|상승할|하락할|내릴|떨어질|반등할)\s?것(으로|이다|입니다|임)|(상승|하락|반등|오를|내릴) ?가능성이 (높|크)|소폭 (하락|상승)할?|(강세|약세)가 (예상|전망)")
+REQUIRED = [("buy", r"(\S+(?: \([^)]*\))?) 매수 점수 ([\d.]+)점", "매수 점수"), ("var", r"VaR ([\d.]+)%", "VaR %"),
+            ("vol", r"연 변동성 현재 ([\d.]+)%", "현재 연 변동성"), ("explain", r"누적 ([-+][\d.]+)%", "기간 누적 변동")]
+
+
+def required(st: S) -> list[tuple[str, float]]:
+    out = []
+    for key, pat, label in REQUIRED:
+        if key == "explain" and st["route"] != "explain" or key != "explain" and key not in st.get("intents", []):
+            continue
+        for f in st["facts"]:
+            for m in re.findall(pat, f):
+                out.append((label, float(m[-1] if isinstance(m, tuple) else m)))
+    return out
 
 
 def after_verify(st: S) -> str:
@@ -332,7 +366,9 @@ def after_verify(st: S) -> str:
 
 def finish(st: S) -> dict:
     src = sorted({k.split(":")[0] for k in st.get("numeric", {})} | ({"expert_views"} if st.get("expert") else set()) | ({"ontology_attribution"} if st.get("ontology") else set()))
-    return {"answer": st["draft"].strip() + f"\n\n(출처 도구: {', '.join(src)} · 숫자는 도구 결과와 대조 완료)", "trace": st["trace"] + ["finish"]}
+    facts = "\n".join(f"- {x}" for x in st["facts"])               # 작은 모델은 숫자의 이름표를 잘못 읽을 수 있음(설계 6-3) → 원문을 항상 함께
+    return {"answer": st["draft"].strip() + f"\n\n[근거 사실 — 도구 원문, 요약과 다르면 이쪽이 맞음]\n{facts}\n(출처 도구: {', '.join(src)} · 요약의 숫자는 도구 결과와 대조 완료)",
+            "trace": st["trace"] + ["finish"]}
 
 
 def fallback(st: S) -> dict:

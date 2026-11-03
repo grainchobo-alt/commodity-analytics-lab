@@ -2,7 +2,7 @@
 
 > 새 세션은 이 문서를 먼저 읽고 시작한다. 세션을 마칠 때는 **현재 상태 · 남은 과제 · 최근 결정**을 갱신하고 `CHANGELOG.md`에 버전을 추가한다.
 
-- **최종 갱신**: 2026-11-03 · **현재 버전**: v1.54.0 (git 태그) · 로컬 LLM 계층 1·2단계 `llm/`(LangGraph 4계층 흐름 `llm/graph.py`)(설계 `docs/LLM_설계.md`) · 발표 인터랙티브 HTML `docs/발표/원자재_퀀트_MI_발표_v4.html`(한 파일) · `_v4_web.zip`(폴더판, 전달용)(다시 만들기 `docs/발표/scripts/html_v4.py`) · 학습 노트 `docs/학습/모델도감_학습노트_v2.docx`(⑦ 도감 42개 + LSTM·GNN 심화 + 모델별 기호 풀이·파라미터 영향 표) · `블랙숄즈_학습노트.docx`(옵션 랩 해설)(다시 만들기 `docs/학습/scripts/build.py`) · 발표 PPT `docs/발표/원자재_퀀트_MI_발표_v1.pptx`(46장 상세)·`_v2`(10분판 14장)·`_v3`(18장)·`_v4`(22장, 최신) · 유리판 `_v4_유리.pptx`(`build.py v4 --glass`)( 10분 대본 `docs/발표/발표대본_v4.md`), git 제외, 다시 만들기 = `docs/발표/scripts/build.py v4` · push 전 `push_check.py` — HTML 변환 완료(v1.38.5)
+- **최종 갱신**: 2026-11-03 · **현재 버전**: v1.55.0 (git 태그) · 로컬 LLM 계층 `llm/`(LangGraph 4계층 흐름 `llm/graph.py`, 보기 `docs/LLM_graph.html`, 평가 `llm/eval/`)(설계 `docs/LLM_설계.md`) · 발표 인터랙티브 HTML `docs/발표/원자재_퀀트_MI_발표_v4.html`(한 파일) · `_v4_web.zip`(폴더판, 전달용)(다시 만들기 `docs/발표/scripts/html_v4.py`) · 학습 노트 `docs/학습/모델도감_학습노트_v2.docx`(⑦ 도감 42개 + LSTM·GNN 심화 + 모델별 기호 풀이·파라미터 영향 표) · `블랙숄즈_학습노트.docx`(옵션 랩 해설)(다시 만들기 `docs/학습/scripts/build.py`) · 발표 PPT `docs/발표/원자재_퀀트_MI_발표_v1.pptx`(46장 상세)·`_v2`(10분판 14장)·`_v3`(18장)·`_v4`(22장, 최신) · 유리판 `_v4_유리.pptx`(`build.py v4 --glass`)( 10분 대본 `docs/발표/발표대본_v4.md`), git 제외, 다시 만들기 = `docs/발표/scripts/build.py v4` · push 전 `push_check.py` — HTML 변환 완료(v1.38.5)
 - **사용자**: 곡물·에너지·금속·운임을 다루는 **중간 트레이더**(직접 사용 X, 매입 후 재판매). 실무 의사결정 = **"언제, 얼마나 살까"** (숏 아님).
 - **저장소**: https://github.com/grainchobo-alt/commodity-analytics-lab (private, `main`) · 협업자 `seokhwan33`(write, 초대 발송)
 - **작업 폴더**: `C:\Users\user\Desktop\Commodity` (구 폴더 `Desktop\261013`에는 다른 프로젝트 공존 — 삭제 금지)
@@ -61,6 +61,7 @@
 ## 6. 남은 과제 · 아이디어 (우선순위 순)
 - (v1.11.0 반영) 다변량 레짐 화면 완료 — 후속: 국면별 '더 쌀 확률' AUC 조건부 분석, 레짐을 ★ 구매 카드의 맥락 배지로.
 - 사용자 규칙: 방법론 질문에 답하면 ⑧ '자주 묻는 방법론 질문'에 계속 추가 (메모리 methodology-faq-update).
+- **로컬 LLM 평가 · 의견 백테스트 (v1.55.0)**: 평가 30문항 2B vs 4B(설계 §6-3) — 4B 기본, 의미 오류 남아 사실 원문 첨부. 공개 전문가 의견(USDA 전망 수정 · CFTC 펀드)은 채택 규칙 미통과. 다음: 사람 채점표 · 실제 회의 질문으로 교체 · 사내 의견 20건 쌓이면 자동 판정.
 - **로컬 LLM 계층 2단계 (v1.54.0)**: `llm/graph.py` LangGraph 4계층 흐름 구현 · 테스트 통과(`tests/test_llm_graph.py`). **대시보드 · 발표 자료(구조도 포함)에는 넣지 않음 — 향후 계획(사용자 결정 2026-11-03)**. 다음 후보: 평가 세트 30~50문항 · 전문가 의견 백테스트 · 도구 보강(data_sources).
 - **로컬 LLM 계층 (2026-11-03, v1.53.0)**: 1단계 도구층 `llm/tools.py`(15개, 테스트 통과) · MCP 서버 초안 `llm/mcp_server.py`(**`mcp` 패키지 미설치 → 기동 시험 안 함**). 다음: `mcp` 설치 승인 → 서버 기동 · 도구 목록 확인 → 1-b 도구 보강(data_sources · DCC/BEKK 캐시 · 스트레스) → 2단계 LangGraph + 평가 세트(설계 §6~8). 회사 노트북 GPU·RAM 확인 필요.
 **▶ 다음 세션 시작점 (2026-10-28 갱신)**
