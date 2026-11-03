@@ -1,0 +1,37 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	classify(classify)
+	numeric(numeric)
+	expert(expert)
+	ontology(ontology)
+	compose(compose)
+	verify(verify)
+	finish(finish)
+	fallback(fallback)
+	extract_view(extract_view)
+	approve_view(approve_view)
+	save_view(save_view)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> classify;
+	approve_view --> save_view;
+	classify -.-> extract_view;
+	classify -.-> numeric;
+	compose --> verify;
+	expert --> ontology;
+	extract_view --> approve_view;
+	numeric --> expert;
+	ontology --> compose;
+	verify -.-> compose;
+	verify -.-> fallback;
+	verify -.-> finish;
+	fallback --> __end__;
+	finish --> __end__;
+	save_view --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

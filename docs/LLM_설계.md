@@ -1,7 +1,7 @@
 # 로컬 LLM 계층 설계 — 수치 · 전문가 의견 · 온톨로지 · LLM 인터페이스
 
-작성 2026-11-03 · 상태: **1단계(도구층 + MCP 서버 초안) 구현**, 2~4단계 설계만
-관련 파일: `llm/tools.py` · `llm/mcp_server.py` · `tests/test_llm_tools.py`
+작성 2026-11-03 · 상태: **1단계(도구층 + MCP 서버) · 2단계(LangGraph 4계층 흐름) 구현**, 대시보드 탭 · 평가 세트 · 의견 백테스트는 미착수
+관련 파일: `llm/tools.py` · `llm/mcp_server.py` · `llm/graph.py` · `docs/LLM_graph.mmd` · `tests/test_llm_tools.py` · `tests/test_mcp_server.py` · `tests/test_llm_graph.py`
 
 ---
 
@@ -107,7 +107,7 @@
 | 분야 | 후보 | 쓰임 | 판단 |
 |---|---|---|---|
 | LLM 계층 | `mcp`(공식 Python SDK) | MCP 서버 실행 | **1단계 필수**: 서버 기동 시험에 필요 |
-| LLM 계층 | `langgraph` · `langchain-ollama` · `langchain-mcp-adapters` | 흐름 · 모델 연결 · MCP 도구 불러오기 | 2단계 필수 |
+| LLM 계층 | `langgraph` (설치함 1.2.19) | 4계층 흐름 · 사람 확인(interrupt) | 2단계 — `langchain-ollama` · `langchain-mcp-adapters`는 불필요로 판단(직접 호출) |
 | 포트폴리오 · 위험 | `riskfolio-lib` 또는 `skfolio` | CVaR · CDaR · 위험 예산 최적화, 효율적 투자선 표준 구현과 우리 자체 구현 대조 | 권장(검증용) |
 | 성과 보고 | `quantstats` | 수익 · MDD · 롤링 Sharpe 보고서 HTML | 선택 |
 | 인과 | `tigramite` | PCMCI 공식 구현(자체 구현 대조, PCMCI+ · 비선형 CMI) | 권장. 이전에 자동 승인에서 거부됨 → 사용자 승인 필요 |
@@ -130,22 +130,75 @@
 
 **"외부 소스마다 MCP를 만들어야 하나"에 대한 결론:** 만들지 않는다. 구조도의 외부 연동 14개는 **수집기 단계**에 두고, MCP는 그 결과(로컬 저장소)만 노출한다. 대신 1-b에서 `data_sources` 도구(소스별 마지막 수집일 · 행 수 · 실패 여부)를 추가해, LLM이 "자료가 얼마나 최신인가"를 답할 수 있게 한다.
 
-## 6. 2단계 설계: LangGraph 질의응답 흐름
+## 6. LangGraph 4계층 흐름 (구현: `llm/graph.py`)
 
-```
-START → classify ─┬─ 조회형(가격·변동성·VaR·레짐·요인) ─┐
-                  ├─ 판단형(구매 판단·근거)              ├─→ call_tools → verify_numbers ─┬─ 통과 → answer → END
-                  ├─ 설명형(온톨로지·왜 올랐나)          │                                └─ 불일치(최대 2회) → answer(재작성)
-                  └─ 범위 밖(방향 예측 요청 등) ─────────┴─→ refuse_or_redirect → END
+대시보드·발표 자료에는 아직 넣지 않습니다(2026-11-03 사용자 결정). 흐름은 실행 가능한 코드와 테스트로만 둡니다.
+
+**흐름도** — 코드에서 자동 생성(`python -m llm.graph --mermaid` → `docs/LLM_graph.mmd`). VS Code 미리보기·GitHub에서 그림으로 보입니다. 점선 = 조건 분기.
+
+```mermaid
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	classify(classify)
+	numeric(numeric)
+	expert(expert)
+	ontology(ontology)
+	compose(compose)
+	verify(verify)
+	finish(finish)
+	fallback(fallback)
+	extract_view(extract_view)
+	approve_view(approve_view)
+	save_view(save_view)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> classify;
+	approve_view --> save_view;
+	classify -.-> extract_view;
+	classify -.-> numeric;
+	compose --> verify;
+	expert --> ontology;
+	extract_view --> approve_view;
+	numeric --> expert;
+	ontology --> compose;
+	verify -.-> compose;
+	verify -.-> fallback;
+	verify -.-> finish;
+	fallback --> __end__;
+	finish --> __end__;
+	save_view --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
 ```
 
-- **classify**
-  - 처음에는 규칙과 키워드로 분류하고, 애매할 때만 LLM에 맡긴다.
-  - 질문 유형에 따라 쓸 수 있는 도구 목록을 3~5개로 좁힌다. 작은 모델의 도구 선택 오류를 줄이기 위해서다.
-- **call_tools:** MCP 도구를 `langchain-mcp-adapters`로 불러온다. 인자 오류가 나면 오류 문장을 LLM에 돌려줘 고치게 하고, 최대 2회까지 반복한다.
-- **verify_numbers:** 답변 초안의 숫자를 모두 뽑아 도구 결과 JSON의 숫자와 대조한다(반올림 허용). 출처가 없는 숫자가 있으면 다시 쓰게 한다.
-- **answer:** 결론 → 근거(숫자 · 기준일 · 방법) → 한계 순서로 쓰고, 그림 경로가 있으면 안내한다.
-- **상태 저장:** LangGraph 체크포인터를 로컬 SQLite에 둔다. 대화를 이어 갈 수 있고 감사 추적이 된다.
+| 노드 | 계층 | 하는 일 | LLM 사용 |
+|---|---|---|---|
+| `classify` | — | 키워드 규칙으로 질문 유형(조회 · 판단 · 설명 · 방향 · 의견 기록), 품목('대두박'≠'대두', '지금'≠'금'), 인자(기간 · 신뢰수준 · 금액 · 매입 예정) 추출 | 없음 |
+| `numeric` | ① 수치 | 유형별 도구 호출(가격 · 변동성 · VaR · 레짐 · 요인 · 상관 · 매수 점수 · WASDE) → **사실 목록**(숫자 · 기준일 · 방법이 든 문장) | 없음 |
+| `expert` | ② 전문가 의견 | 판단 · 방향 · 설명 질문에 저장된 의견(신뢰도 가중 방향, '미검증 참고' 표시) 추가 | 없음 |
+| `ontology` | ③ 온톨로지 | 설명 질문에 최근 4주(또는 지정 기간) 원인별 기여 · 유의 연결 추가. 온톨로지 밖 품목은 그렇다고 밝힘 | 없음 |
+| `compose` | ④ LLM 인터페이스 | 사실 목록 → 결론 · 근거 · 한계 문장(로컬 Ollama, 온도 0.1) | **있음** |
+| `verify` | ④ | 답변 숫자가 사실 목록 · 질문에 있는지 대조(반올림 허용), 방향 단정 금지 → 어기면 고칠 점을 붙여 `compose`로(최대 2회) | 없음 |
+| `finish` / `fallback` | ④ | 통과하면 답변 + 출처 도구, 2회 실패 · LLM 꺼짐이면 **사실 목록 그대로**(숫자 정확성 우선) | 없음 |
+| `extract_view` → `approve_view` → `save_view` | ② 쓰기 | 의견 문장 → JSON(방향 · 신뢰도 · 기간 · 작성자, LLM + 규칙 보정) → **사람 확인(`interrupt`)** → 승인 시에만 저장 | 추출만 |
+
+구현 선택 (설계 초안에서 바뀐 점)
+- **패키지는 `langgraph` 하나만 추가.** 로컬 LLM은 Ollama HTTP(`127.0.0.1:11434`, 다른 주소는 거부)를 `requests`로 직접 부르고, MCP는 이미 설치한 `mcp` 클라이언트로 부릅니다. `langchain-ollama`·`langchain-mcp-adapters`는 쓰지 않습니다(설치 · 의존성 최소화).
+- **도구 호출 2방식:** 기본 `direct`(같은 프로세스에서 import, 빠름) · `--mcp`(MCP 서버 경유). 테스트에서 두 방식의 사실 목록이 같음을 확인.
+- **도구 선택은 규칙**: 작은 모델(4B)에 도구 고르기를 맡기지 않습니다. LLM 일은 문장화 · 의견 추출 둘뿐.
+- **체크포인터는 메모리(`InMemorySaver`)**: 의견 승인 대기 · 재개용. 대화 기록을 디스크에 남기는 SQLite 저장은 별도 패키지가 필요해 보류.
+- **LangSmith 추적 강제 끔**: 시작할 때 `LANGCHAIN_TRACING_V2` · `LANGSMITH_*` 환경변수를 지움.
+- 흐름도 PNG: LangGraph 기본 PNG 변환(`draw_mermaid_png`)은 외부 웹 서비스(mermaid.ink)에 그래프를 보내므로 쓰지 않습니다. Mermaid 텍스트만 로컬 생성.
+
+실행 · 검증
+- 질문: `.venv\Scripts\python.exe -m llm.graph "옥수수 20일 VaR는? 매입 예정 1천만 달러"` (옵션 `--mcp`, `--no-llm`)
+- 테스트: `tests/test_llm_graph.py` — 분류 · 숫자 대조(지어낸 숫자 · 방향 단정 차단) · 계층별 경로 · 의견 승인/거절 · MCP 경유 · 흐름도 · 로컬 LLM 실제 답변(약 1분, 통과).
+- 응답 시간(이 PC, qwen3.5:4b, CPU): 질문당 약 25~60초(모델 첫 적재 약 8초, VaR 계산 약 10초, 재작성 시 늘어남).
 
 ## 7. Harness (운영 틀) 설정
 
@@ -157,7 +210,7 @@ START → classify ─┬─ 조회형(가격·변동성·VaR·레짐·요인) �
 | 클라우드 대체 경로 | 두지 않음 | 로컬 모델 실패 시 클라우드로 넘어가는 유출 경로 차단 |
 | 도구 권한 | 읽기 자유, 쓰기는 사용자 확인 후 실행(LangGraph `interrupt`) | 잘못된 의견 기록 방지 |
 | 호출 기록 | `data/llm_logs/tool_calls.jsonl`(git 제외) | 감사 추적 · 오류 분석 |
-| 설정 파일 | `llm/config.toml`(2단계): 모델 · 온도(0~0.2) · 도구 목록 · 금지 규칙 · 문맥 길이 | 재현성 |
+| 설정 파일 | (미착수) `llm/config.toml`: 지금은 환경변수 `LLM_MODEL`·`LLM_OFF`, 모델 · 온도(0~0.2) · 도구 목록 · 금지 규칙 · 문맥 길이 | 재현성 |
 | 평가 세트 | `llm/eval/questions.jsonl` 30~50문항(정답 숫자 · 기대 도구) | 모델 · 프롬프트 바꿀 때마다 회귀 시험 |
 | 평가 지표 | 숫자 일치율 · 출처 표시율 · 올바른 도구 호출률 · 거절 정확도 · 응답 시간 | 2단계 합격 기준: 숫자 일치 ≥ 95%, 도구 선택 ≥ 85% |
 
@@ -165,9 +218,9 @@ START → classify ─┬─ 조회형(가격·변동성·VaR·레짐·요인) �
 
 | 단계 | 내용 | 합격 조건 (다음 단계로) |
 |---|---|---|
-| **1. 도구층 + MCP 서버** | `llm/tools.py` 15개 도구 · `llm/mcp_server.py` | 도구 테스트 통과 ✅ · MCP 서버 기동 · 도구 목록 확인(`mcp` 설치 후) |
+| **1. 도구층 + MCP 서버** | `llm/tools.py` 15개 도구 · `llm/mcp_server.py` | 도구 테스트 ✅ · MCP 서버 기동 · 도구 15개 ✅ |
 | 1-b. 도구 보강 | `data_sources` · `vol_models` 비교표 · DCC/BEKK 결과 캐시 · 스트레스 시나리오 · HMM 다변량 | 같은 테스트 방식 |
-| 2. LangGraph 질의응답 | 6장 흐름 + 평가 세트 + Streamlit ⑨ 탭 | 7장 합격 기준 |
+| **2. LangGraph 4계층 흐름** | `llm/graph.py` ✅ · 평가 세트(미착수) · Streamlit ⑨ 탭(보류 — 사용자 결정) | 7장 합격 기준 (평가 세트로 측정 예정) |
 | 3. 전문가 의견 | 양식 수집 → (선택) LLM 추출 → 의견 vs 이후 수익률 백테스트(방향 적중 · Brier · 위약 비교) | 두 하위 기간 모두 위약보다 좋고 t > 2일 때만 구매 판단에 보조 신호로 채택. 아니면 설명용 |
 | 4. 확장 | 리포트 RAG · 온톨로지 확장(사료 · 바이오연료 · 해운) · 다중 사용자 | 보안 검토 |
 
@@ -175,7 +228,8 @@ START → classify ─┬─ 조회형(가격·변동성·VaR·레짐·요인) �
 
 - 2026-11-03
   - LangChain/LangGraph는 **LLM 단계가 생길 때만** 쓴다. 기존 배치 파이프라인(`run_daily.bat`)은 그대로 둔다.
-  - LangGraph를 채택하고, LangChain은 모델 · MCP 연결 부분만 쓴다.
+  - LangGraph를 채택한다. 구현 결과 LangChain 연결 패키지도 쓰지 않음(Ollama · MCP 직접 호출).
+- 2026-11-03: 사용자 결정 — 로컬 LLM 계층은 **향후 계획**. 지금 대시보드 · 발표 자료에는 넣지 않고, LangGraph 4계층 흐름을 코드 · 테스트로만 준비한다.
 - 2026-11-03: MCP 서버는 **하나로 시작하고 로컬 저장소만 노출**한다. 외부 소스별 MCP는 만들지 않는다(유출 · 미래정보 · 키 관리).
 - 2026-11-03: 전문가 의견 · 질의 기록 · 생성 그림은 git에서 제외한다(`data/expert/`, `data/llm_logs/`, `data/llm_charts/`).
 - 2026-11-03

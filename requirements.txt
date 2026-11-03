@@ -30,3 +30,4 @@ torch_geometric==2.8.1
 pypdf==6.21.2
 # 로컬 LLM 계층 (llm/mcp_server.py, docs/LLM_설계.md) — mcp 2.x API(MCPServer)
 mcp==2.3.0
+langgraph==1.2.19

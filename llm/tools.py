@@ -220,7 +220,8 @@ def regime(item: str, k: int = 2, freq: str = "W", start: str = "2008-01-01") ->
 def factors(items: list[str] | None = None, k: int = 3, weeks: int = 260) -> dict:
     """요인 구조: PCA(공통 요인 몫·적재값) + Diebold-Yilmaz 스필오버(총 연계도·순 전이). 기본 = 곡물 6 + 원유·금·구리."""
     ids = [resolve(x) for x in items] if items else PR.GRAIN_IDS + ["yf:CL=F", "yf:GC=F", "yf:HG=F"]
-    P = levels()[ids].resample("W-FRI").last().dropna().iloc[-weeks - 1:]
+    L = levels()[ids].dropna()
+    P = L.resample("W-FRI").last().dropna().iloc[-weeks - 1:]
     R = (np.log(P).diff() * 100).dropna()
     ev, load, _ = A.pca(R, k)
     tbl, total = A.dy_spillover(R, p=1, H=10)
@@ -229,20 +230,21 @@ def factors(items: list[str] | None = None, k: int = 3, weeks: int = 260) -> dic
                  "explained_ratio": {f"PC{j+1}": float(ev[j]) for j in range(k)},
                  "loadings": _table(load.rename(index=name_of)),
                  "spillover_total_pct": total, "net_transmitter_pct": {k_: float(v) for k_, v in net.items()}},
-                R.index[-1], f"주간 로그수익률 {len(R)}주: 상관행렬 PCA + VAR(1) GFEVD 10주", "analytics.pca · analytics.dy_spillover",
+                L.index[-1], f"주간 로그수익률 {len(R)}주: 상관행렬 PCA + VAR(1) GFEVD 10주", "analytics.pca · analytics.dy_spillover",
                 "PC1 몫이 크면 품목들이 한 요인으로 같이 움직임. 순 전이 + = 다른 품목에 충격을 주는 쪽.")
 
 
 def correlation(items: list[str], weeks: int = 104) -> dict:
     """주간 수익률 상관 (최근 weeks주 vs 그 이전 같은 길이) — 동조성이 커졌는지."""
     ids = [resolve(x) for x in items]
-    P = levels()[ids].resample("W-FRI").last().dropna()
+    L = levels()[ids].dropna()
+    P = L.resample("W-FRI").last().dropna()
     R = (np.log(P).diff() * 100).dropna().rename(columns=name_of)
     now, before = R.iloc[-weeks:].corr(), R.iloc[-2 * weeks:-weeks].corr()
     return _out({"weeks": weeks, "recent": _table(now.round(3)), "previous": _table(before.round(3)),
                  "avg_pair_recent": float(now.values[np.triu_indices(len(ids), 1)].mean()),
                  "avg_pair_previous": float(before.values[np.triu_indices(len(ids), 1)].mean())},
-                R.index[-1], "주간 로그수익률 피어슨 상관", "pandas.corr")
+                L.index[-1], "주간 로그수익률 피어슨 상관 (주 단위 = 금요일 묶음, 기준일 = 마지막 자료일)", "pandas.corr")
 
 
 # ============================================================================
@@ -263,6 +265,7 @@ def fundamentals(items: list[str] | None = None) -> dict:
     """최근 WASDE 재고/사용비율·전월 대비·같은 달 과거 분위 + CFTC 투기 순포지션 (점수에는 안 들어가는 참고 정보)."""
     ids = [resolve(x) for x in items] if items else ["yf:ZC=F", "yf:ZW=F", "yf:ZS=F", "yf:ZM=F"]
     F = PR.fundamentals(ids)
+    F = F.reset_index() if "품목" not in F.columns else F
     return _out({"table": _clean(F.to_dict("records"))}, None, "USDA WASDE · CFTC COT (발표일 기준)", "procurement.fundamentals",
                 "공개 수급 정보는 발표 즉시 가격에 반영 → 방향 예측력 없음(별첨 5). 맥락 설명용.")
 

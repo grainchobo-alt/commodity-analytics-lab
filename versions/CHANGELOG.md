@@ -3,6 +3,13 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.54.0 — 2026-11-03 — 로컬 LLM 계층 2단계: LangGraph 4계층 흐름 (대시보드·발표 미반영)
+- `llm/graph.py`(신규): classify(규칙) → ① numeric → ② expert → ③ ontology → ④ compose(로컬 Ollama) → verify(답변 숫자 = 도구 사실 대조, 방향 단정 금지, 최대 2회 재작성) → finish / fallback(사실 목록). 의견 기록 경로 extract_view → approve_view(사람 확인 interrupt) → save_view. 도구 호출 direct · MCP 두 방식, LangSmith 추적 강제 끔, Ollama는 127.0.0.1만
+- `docs/LLM_graph.mmd`(자동 생성 Mermaid 흐름도), `docs/LLM_설계.md` §6 구현 내용으로 갱신
+- `tests/test_llm_graph.py`(신규): 분류 · 숫자 대조 · 계층별 경로 · 의견 승인/거절 · MCP 경유 = 직접 · 로컬 LLM 실제 답변 (통과, 약 1분)
+- `llm/tools.py`: 요인 · 상관 기준일을 마지막 자료일로(주간 묶음 금요일 라벨 대신), 펀더멘털 표에 품목 열 유지
+- 패키지: `langgraph` 1.2.19 추가(requirements.txt). 사용자 결정 — 로컬 LLM 계층은 향후 계획이라 대시보드 · 발표 자료(구조도 포함)는 바꾸지 않음
+
 ## v1.53.0 — 2026-11-03 — 로컬 LLM 계층 1단계(도구층 + MCP 서버 초안) · 설계 문서 · 발표 PDF
 - `docs/LLM_설계.md`(신규): 수치 · 전문가 의견 · 온톨로지 · LLM 인터페이스 4계층, 원칙(숫자는 도구만 · asof/method/source · 인터넷은 수집기만 · 쓰기 최소), 분석 방법론 · 시각화 라이브러리 지도(사용 중 / 추가 후보), 외부 MCP 방침(소스별 MCP 만들지 않음), LangGraph 흐름 · Harness(LangSmith 끔 · 127.0.0.1 · 평가 세트) · 단계별 합격 조건
 - `llm/tools.py`(신규): 읽기 14 + 쓰기 1 도구 — 가격 · GARCH/GJR/EGARCH 변동성(arch) · VaR/ES 5방법+백테스트 · Markov 레짐 · PCA+DY 스필오버 · 상관 · 구매 판단 · WASDE/COT · 실험 결과표 48개 · 온톨로지 연결/역추적 · 전문가 의견 저장/조회 · Plotly 그림
