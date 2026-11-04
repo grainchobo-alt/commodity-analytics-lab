@@ -89,6 +89,19 @@ def score(r: pd.Series, bench: pd.Series, e: pd.Series | None = None) -> dict:
     return o
 
 
+def risk_signals(L: pd.DataFrame, R: pd.DataFrame, idx: pd.DatetimeIndex) -> dict:
+    """위험 신호 6종 (클수록 위험). strategy_voltgt_dyn.py도 같이 씀."""
+    bv = R.std(1).rolling(13, min_periods=8).mean().reindex(idx)
+    ar = LS.absorption(R, 52); dz = (ar - ar.shift(4)) / (ar - ar.shift(4)).rolling(156, min_periods=52).std()
+    Wk = L.resample("W-FRI").last()
+    return {"HMM": LS.stress_prob(L).reindex(idx).ffill(),
+            "변동성": (bv / bv.expanding(104).median()),
+            "동조성": expanding_pct(comove_dcc(R, idx)),
+            "흡수비율": dz.reindex(idx).ffill(),
+            "VIX": expanding_pct(Wk["fred:VIXCLS"].reindex(idx).ffill()),
+            "뉴스": -SA.news_index(idx)}
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     L = A.load_levels(roll_adjusted=True).loc[:FROZEN_END]
@@ -98,15 +111,7 @@ def main():
     bases["DCC 위험 균등"] = SS.run_weights(S, Wad["D"].reindex(idx).ffill())
     bench = bases["고정 50/25/25"]
     print("신호 계산 중 (HMM · DCC)…", flush=True)
-    bv = R.std(1).rolling(13, min_periods=8).mean().reindex(idx)
-    ar = LS.absorption(R, 52); dz = (ar - ar.shift(4)) / (ar - ar.shift(4)).rolling(156, min_periods=52).std()
-    Wk = L.resample("W-FRI").last()
-    sig = {"HMM": LS.stress_prob(L).reindex(idx).ffill(),
-           "변동성": (bv / bv.expanding(104).median()),
-           "동조성": expanding_pct(comove_dcc(R, idx)),
-           "흡수비율": dz.reindex(idx).ffill(),
-           "VIX": expanding_pct(Wk["fred:VIXCLS"].reindex(idx).ffill()),
-           "뉴스": -SA.news_index(idx)}
+    sig = risk_signals(L, R, idx)
     grids = {"HMM": [0.5, 0.7, 0.9], "변동성": [1.2, 1.5, 2.0], "동조성": [0.8, 0.9, 0.95], "흡수비율": [1.0, 1.5, 2.0],
              "VIX": [0.8, 0.9, 0.95], "뉴스": [0.5, 1.0, 1.5]}
     rows, weekly = [], {}
