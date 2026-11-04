@@ -2,7 +2,7 @@
 
 > 새 세션은 이 문서를 먼저 읽고 시작한다. 세션을 마칠 때는 **현재 상태 · 남은 과제 · 최근 결정**을 갱신하고 `CHANGELOG.md`에 버전을 추가한다.
 
-- **최종 갱신**: 2026-11-03 · **현재 버전**: v1.57.0 (git 태그) · 로컬 LLM 계층 `llm/`(도구 24개 = 대시보드 전 기능, 대조 테스트 `tests/test_llm_parity.py`, LangGraph 4계층 흐름 `llm/graph.py`, 보기 `docs/LLM_graph.html`, 평가 `llm/eval/`)(설계 `docs/LLM_설계.md`) · 발표 인터랙티브 HTML `docs/발표/원자재_퀀트_MI_발표_v4.html`(한 파일) · `_v4_web.zip`(폴더판, 전달용)(다시 만들기 `docs/발표/scripts/html_v4.py`) · 학습 노트 `docs/학습/모델도감_학습노트_v2.docx`(⑦ 도감 42개 + LSTM·GNN 심화 + 모델별 기호 풀이·파라미터 영향 표) · `블랙숄즈_학습노트.docx`(옵션 랩 해설)(다시 만들기 `docs/학습/scripts/build.py`) · 발표 PPT `docs/발표/원자재_퀀트_MI_발표_v1.pptx`(46장 상세)·`_v2`(10분판 14장)·`_v3`(18장)·`_v4`(22장, 최신) · 유리판 `_v4_유리.pptx`(`build.py v4 --glass`)( 10분 대본 `docs/발표/발표대본_v4.md`), git 제외, 다시 만들기 = `docs/발표/scripts/build.py v4` · push 전 `push_check.py` — HTML 변환 완료(v1.38.5)
+- **최종 갱신**: 2026-11-03 · **현재 버전**: v1.58.0 (git 태그) · 로컬 LLM 계층 `llm/`(도구 24개 = 대시보드 전 기능, 대조 테스트 `tests/test_llm_parity.py`, LangGraph 4계층 흐름 `llm/graph.py`, 보기 `docs/LLM_graph.html`, 평가 `llm/eval/`)(설계 `docs/LLM_설계.md`) · 발표 인터랙티브 HTML `docs/발표/원자재_퀀트_MI_발표_v4.html`(한 파일) · `_v4_web.zip`(폴더판, 전달용)(다시 만들기 `docs/발표/scripts/html_v4.py`) · 학습 노트 `docs/학습/모델도감_학습노트_v2.docx`(⑦ 도감 42개 + LSTM·GNN 심화 + 모델별 기호 풀이·파라미터 영향 표) · `블랙숄즈_학습노트.docx`(옵션 랩 해설)(다시 만들기 `docs/학습/scripts/build.py`) · 발표 PPT `docs/발표/원자재_퀀트_MI_발표_v1.pptx`(46장 상세)·`_v2`(10분판 14장)·`_v3`(18장)·`_v4`(22장, 최신) · 유리판 `_v4_유리.pptx`(`build.py v4 --glass`)( 10분 대본 `docs/발표/발표대본_v4.md`), git 제외, 다시 만들기 = `docs/발표/scripts/build.py v4` · push 전 `push_check.py` — HTML 변환 완료(v1.38.5)
 - **사용자**: 곡물·에너지·금속·운임을 다루는 **중간 트레이더**(직접 사용 X, 매입 후 재판매). 실무 의사결정 = **"언제, 얼마나 살까"** (숏 아님).
 - **저장소**: https://github.com/grainchobo-alt/commodity-analytics-lab (private, `main`) · 협업자 `seokhwan33`(write, 초대 발송)
 - **작업 폴더**: `C:\Users\user\Desktop\Commodity` (구 폴더 `Desktop\261013`에는 다른 프로젝트 공존 — 삭제 금지)
@@ -103,6 +103,7 @@
 7. `Desktop\261013` 폴더의 옛 원자재 파일 정리 (삭제는 사용자 확인 후에만).
 
 ## 7. 최근 결정 로그
+- 2026-11-04 (v1.58.0): 사용자 제안 — 학습 2005–2016 전체로 연도별 사후 최적 축을 미리 읽는 레이어를 3축에 더하기 → `strategy_meta.py` 결과 적중률 무작위 수준 · 시험 Sharpe 개선 없음(위약 p 0.26) → 미채택. 3축 고정 비중 유지, 비교 기준에 동일 비중 병기.
 - 2026-11-04 (v1.57.0): 사용자 질문 — 연도별 투자선 최적 비중으로 자주 갈아타면 유리한가 → `strategy_switch.py` 백테스트 결과 전 규칙 열위(사후 투자선은 늘 이기지만 사전 추정은 되돌림). 비중 동적 전환은 채택 안 함, 기준선에 동일 비중 · 역변동성 병기 권장.
 - 2026-11-03 (v1.56.0): 사용자 요청 — 미연결 기능 도구화 · 도구별 대시보드 탭 대조 테스트 · 자료 수집 조회/실행 분리. 대조 중 buy_signal(균형 프리셋 사용) · vol_forecast(일간) · var_es(EWMA σ)가 대시보드 기본값과 달랐던 것을 발견해 대시보드 쪽에 맞춤. 머신러닝 도구는 성적만(지금 예측값 없음). 발표 HTML 3D는 다른 장 WebGL 해제로 수정.
 - 2026-11-03 (v1.54.0): 사용자 결정 — 로컬 LLM 계층(4단계)은 향후 계획. 지금은 LangGraph로 4계층 흐름만 코드로 준비, 대시보드 · 발표 · 구조도 갱신 불필요. langchain 연결 패키지 없이 langgraph만 추가(Ollama · MCP 직접 호출). 특정 상용 기술명 언급은 저장소에서 삭제.
