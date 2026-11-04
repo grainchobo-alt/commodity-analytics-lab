@@ -66,6 +66,9 @@ at.selectbox(key="ls_ab_pick").set_value("따라잡기 혼합 (50/25/25)").run()
 at.radio(key="ls_ra_win").set_value("3년").run(); check(at, "롱숏: 3년 롤링 알파")
 assert any("대안 시계열 모델 — Prophet" in m.value for m in at.markdown)                   # ⑤ 포트폴리오 › 대안 시계열 모델 서브탭
 at.radio(key="ls_alt_mode").set_value("순위 롱숏").run(); check(at, "롱숏: 대안 시계열 순위 롱숏")
+assert at.radio(key="cu_gcap").value == "곡물 25% (권장)"                                        # ⑤ Customization 품목군 위험 한도 (기본 = 곡물 25%)
+at.radio(key="cu_gcap").set_value("3품목군 25% (곡물 · 에너지 · 축산)").run(); check(at, "⑤ Customization: 품목군 상한 3품목군 25%")
+at.radio(key="cu_gcap").set_value("없음").run(); check(at, "⑤ Customization: 품목군 상한 없음")
 assert any("롱숏 전략 2년 롤링 알파" in x.value for x in list(at.warning) + list(at.info) + list(at.caption))   # 리스크 탭 전략 우위 경고
 assert any(str(i).startswith("⑩ 혼합 후보") for d in at.dataframe for i in getattr(d.value, "index", []))   # ⑩ 혼합 후보 행
 assert any("MinVar 강건성" in e.label for e in at.expander)                               # ⑦ 강건성 점검
@@ -104,7 +107,7 @@ at.radio(key="rk_dir").set_value("보유 재고 (가격 하락이 손실)").run(
 at.selectbox(key="rk_ph").set_value(60).run(); check(at, "리스크: 60일 물량 VaR")
 at.selectbox(key="rk_id").set_value("yf:TIO=F").run()
 at.button(key="rk_run").click().run(); check(at, "리스크: 철광석 재추정")
-for sec in ["📋 한눈에 보기", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 상대가치 재검증 (2008~)", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "미루기 권고 (재고 무관 · 1~4주)", "재고 기반 반복 구매 (학습/시험 · 예측)", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍 (프리셋 · 단계별)"]:
+for sec in ["📋 한눈에 보기", "🧪 3축 신호 · 위험 한도 실험 (2026-11)", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 상대가치 재검증 (2008~)", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "미루기 권고 (재고 무관 · 1~4주)", "재고 기반 반복 구매 (학습/시험 · 예측)", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍 (프리셋 · 단계별)"]:
     at.radio(key="ex_sec").set_value(sec).run(); check(at, f"실험 결과: {sec}")
 at.radio(key="ex_sec").set_value("전 품목 구매 타이밍 (단일 vs 다변량)").run()
 at.radio(key="ex_pa_view").set_value("단일 vs 다변량 요약").run(); check(at, "실험 결과: 전 품목 단일 vs 다변량 요약")

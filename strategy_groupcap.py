@@ -53,13 +53,14 @@ def main():
     rules = {"없음 (기준)": {}, "곡물 25%": {"곡물": 0.25}, "에너지 25%": {"에너지": 0.25}, "에너지 15%": {"에너지": 0.15},
              "축산 25%": {"축산": 0.25}, "축산 15%": {"축산": 0.15}, "곡물 25% + 에너지 25% + 축산 25%": {"곡물": 0.25, "에너지": 0.25, "축산": 0.25},
              "곡물 25% + 에너지 15% + 축산 15%": {"곡물": 0.25, "에너지": 0.15, "축산": 0.15}, "모든 품목군 25% (금속 포함)": {g: 0.25 for g in GROUPS}}
-    rows, ref = [], None
+    rows, ref, weekly = [], None, {}
     for nm, caps in rules.items():
         W = W0
         for g, c in caps.items():
             W = cap_group(W, GROUPS[g], c)
         r = GC.run(W, R)
         ref = r if ref is None else ref
+        weekly[nm] = r
         raw = LS._book(W, R, GC.COST)
         k = float((GC.TGT / (raw.rolling(26, min_periods=13).std().shift(1) * np.sqrt(GC.ANN))).clip(upper=4.0).fillna(1.0).iloc[-1])
         sh = {f"{g} 몫 평균 (%)": float((W[[c for c in cols if c in W]].abs().sum(1) / W.abs().sum(1)).loc["2008":].mean() * 100) for g, cols in GROUPS.items()}
@@ -67,6 +68,7 @@ def main():
         print(nm, "완료", flush=True)
     T = pd.DataFrame(rows)
     T.to_csv(A.DATA / "strategy_groupcap_compare.csv", index=False, encoding="utf-8-sig")
+    pd.DataFrame(weekly).to_parquet(A.DATA / "strategy_groupcap_weekly.parquet")   # 대시보드 ⑤ Portfolio Customization '품목군 위험 한도'
     pd.set_option("display.width", 280)
     cols = ["상한", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "Sharpe 2008–", "최대 낙폭 (%)", "시험 차이 t", "곡물 몫 평균 (%)", "에너지 몫 평균 (%)", "축산 몫 평균 (%)",
             "지금 20일 99% VaR (%)", "VaR 기여 곡물 (%)", "VaR 기여 에너지 (%)", "VaR 기여 축산 (%)", "VaR 기여 금속 (%)"]

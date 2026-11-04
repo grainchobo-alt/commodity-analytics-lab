@@ -4080,6 +4080,50 @@ def ex_overview():
                "① 실제 시세 관계(상대가치) ② 변동성·꼬리 위험 추정 ③ 거래를 줄이는 규칙 — 대시보드는 이 세 가지를 중심으로 구성됨.")
 
 
+SIG_SEC = "🧪 3축 신호 · 위험 한도 실험 (2026-11)"
+SIG_DIR = A.DATA.parent / "docs" / "실험요약"
+
+
+def ex_signal_tests():
+    """3축(MinVar · 모멘텀 · 가치) 비중을 HMM · 칼만 · DCC · 뉴스 · 상관 신호로 바꾸는 실험 묶음 요약 — docs/실험요약 워드 문서와 같은 내용 · 그림."""
+    st.markdown("#### 3축 혼합 전략 · 위험 신호 백테스트 요약 (2026-11-04, 자료 기준일 2026-10-26)")
+    st.success("**결론** — ① 신호로 비중을 바꾸는 방법(갈아타기 · 메타 예측 · 적응형 비중 · 현금 피신 · 목표 변동성 조절 · 상관↑ 추세 집중 · 짧은 추세)은 모두 시험 기간(2017–26) Sharpe가 "
+               "고정 50/25/25(1.07)를 유의하게 넘지 못해 **미채택** ② 쓸 만한 것은 위험 관리: **곡물 합계 비중 상한 25%**(수익 그대로 · VaR 2.87 → 2.25%, ⑤ Portfolio Customization에 반영)와 "
+               "**손실 한도 경보**(`risk_alert.py`, 비중은 그대로 두고 담당자에게 알림)")
+    doc = next(SIG_DIR.glob("*.docx"), None)
+    if doc:
+        st.download_button("📄 요약 문서 내려받기 (Word, 5쪽)", doc.read_bytes(), file_name=doc.name, key="ex_sig_doc",
+                           mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    fig = lambda n, cap: st.image(str(SIG_DIR / "figs" / n), caption=cap, use_container_width=True) if (SIG_DIR / "figs" / n).exists() else None   # noqa: E731
+    fig("f1_flow.png", "실험 구조: 3축 재료 × 신호 7종 × 쓰는 방식 A–H → 같은 검증 틀(학습 2008–16 선택 · 시험 2017–26 · 비용 · 위약 · 대조군)")
+    st.markdown("""
+| 실험 | 방법 | 결과 (시험 Sharpe · 기준 1.07) | 판정 |
+|---|---|---|---|
+| A 갈아타기 | 매년 직전 3 · 5년 최적 비중 · 성과/위기/투자선 이탈 트리거 | 0.58–0.89 · 직전 5년 최적점은 다음 해 15번 중 3번만 이김 | 미채택 |
+| B 메타 레이어 | 6개 신호로 다음 13주 1등 축 예측 → 기울이기 | 1.05 · 1등 축 적중 29%(무작위 33%) | 미채택 |
+| C 적응형 비중 | 칼만 · HMM · 뉴스 · DCC 관점으로 ±25%p | 칼만 0.79(학습만 우세) · HMM 1.08 · 결합 0.85 | 미채택 |
+| D 현금 피신 | 신호 9종 켜지면 50 · 100% 현금 | 0.63–1.12 · 낙폭 감소는 '덜 투자한 몫' | 미채택 |
+| E 목표 변동성 동적 | 신호 개수로 12 · 10 · 7 · 5% + 국채 이자 | 0.96–1.02 | 미채택 |
+| F 상관↑ + 추세 집중 | 상관 급등(+ 같이 오름) 때 강한 추세 상위 2–3개 롱 | 0.91–1.07 · 위약 p 0.48 | 미채택 |
+| J · K 짧은 추세 · 모멘텀 기간 | 4 · 8 · 13주 추세 · 모멘텀 축 기간 4–39주 | 짧을수록 나쁨(4주 혼합 0.98 · 13주 0.77, 39주 1.09 ≈ 52주) | 미채택 |
+| G · I 품목군 상한 | 곡물 · 에너지 · 축산 합계 비중 상한 | 곡물 25%: 1.09 · VaR 2.87 → 2.25% | **채택(⑤)** |
+| H 손실 한도 경보 | VaR · 역스트레스 · 상관 · 낙폭 등 10항목 | 경보 뒤 큰 손실 비율 0–14% → 예측용 아님 | 운영 도구 |
+""")
+    fig("f2_results.png", "실험별 시험 Sharpe(각 실험의 학습 최고 설정) — 점선 = 기준 1.07")
+    st.markdown("##### 특수 케이스 — '상관이 높으면서 같이 오르는' 구간 (2022 곡물 · 원유, 2025–26 금 · 은)")
+    fig("f3_f_logic.png", "판단 흐름: 매주 ① 상관 급등 ② 같이 오르는 중(직전 13주 수익 > 0)이면 ③ 강한 추세 품목에 집중, 아니면 기본 50/25/25")
+    fig("f4_cases.png", "위: 가격(시작 = 100) · 아래: 곡물 5개 26주 상관과 신호 문턱(과거 상위 10%)")
+    st.markdown("""
+- **2022년은 '상관 급등'이 아니었음** — 곡물 상관은 전쟁 직전(2021년 말 약 0.7)에 높았고 전쟁 중엔 0.4대(연평균 0.45, 2011–12년 0.7–0.8보다 낮음) → 상관 신호가 켜지지 않음.
+- **급등이 너무 짧음** — 밀은 2월 24일–3월 8일 약 2주에 끝나고 2분기 −24%, 원유 3분기 −30% → 26 · 52주는 물론 4주 추세도 늦게 타고 늦게 내림(회전율만 연 20배+).
+- **금 · 은은 잡았지만 규칙으로는 못 이김** — 상승 추세 집중이 2025–26년 금 · 은으로 +44%(52주 모멘텀 +16%), 같은 규칙이 2008–16년엔 손실(학습 Sharpe −0.01).
+- **기준 혼합도 이미 그 구간을 탔음** — 50/25/25가 2022년 1분기 +20%, 2022–23년 +29%(집중판 +22%).
+""")
+    fig("f5_graincap.png", "곡물 합계 비중 상한 — 수익은 그대로, VaR 중 곡물 몫 62% → 34%")
+    st.caption("재현: strategy_switch · strategy_meta · strategy_adaptive · strategy_cash · strategy_voltgt_dyn · strategy_crisis_mom · strategy_short_trend · strategy_mom_lookback · "
+               "strategy_graincap · strategy_groupcap · stress_portfolio · risk_alert (*.py). 모든 실험 기록: docs/백테스트_로그.md")
+
+
 def ex_runs():
     """⑥ 내 실행 기록: runs/registry.jsonl 목록 · 운 대비 성과 그림 · 판정 · 상세 · 두 실행 비교 · ④에 설정 불러오기."""
     import runlog as RL
@@ -4213,7 +4257,7 @@ def tab_experiments():
     st.subheader("실험 결과 — 설정을 바꿔가며 같은 백테스트 엔진으로 비교한 결과")
     st.caption("모든 실험은 미래정보 차단(다음 거래일 체결·walk-forward)·같은 비용 가정. 데이터가 갱신되면 '재실행'으로 최신화. "
                "주의: 표에서 가장 좋은 설정을 골라 쓰면 과적합 — 여러 조건에서 일관되게 좋은 설정을 고를 것.")
-    sec = st.radio("실험", ["📋 한눈에 보기", "📂 내 실행 기록", "구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 상대가치 재검증 (2008~)", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "미루기 권고 (재고 무관 · 1~4주)", "재고 기반 반복 구매 (학습/시험 · 예측)", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)",
+    sec = st.radio("실험", ["📋 한눈에 보기", "📂 내 실행 기록", SIG_SEC,"구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 상대가치 재검증 (2008~)", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "미루기 권고 (재고 무관 · 1~4주)", "재고 기반 반복 구매 (학습/시험 · 예측)", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)",
                           "모멘텀 기간", "거래 규칙", "변동성 사이징"],
                    horizontal=True, key="ex_sec")
     pct = lambda cols: {c: "{:.2%}" for c in cols}
@@ -4222,6 +4266,8 @@ def tab_experiments():
         ex_overview(); return
     if sec == "📂 내 실행 기록":
         ex_runs(); return
+    if sec == SIG_SEC:
+        ex_signal_tests(); return
     if sec == "구매 타이밍 (프리셋 · 단계별)":
         pc_view = st.radio("보기", ["단계별 고도화 (기준에서 한 가지씩)", "프리셋 · 신호 비교 (13·26주, 품목별)"], horizontal=True, key="ex_pc_view",
                            help="두 실험 모두 곡물 6품목 · 같은 백테스트 엔진. 단계별 = '추천' 프리셋이 나온 근거, 프리셋 비교 = 최종 프리셋과 단순 신호의 기간별 비교")
@@ -5911,8 +5957,47 @@ def tab_custom():
     if len(sel) > 1:
         w_eff = (w_user / w_user.sum()) if method == "직접 입력" else (pd.Series(1.0 / len(sel), sel) if method == "동일 비중" else W.mean())
         _frontier_section(X, w_eff, combo, float(tgt_v))
+    _groupcap_section()
     st.caption("읽는 법: 각 재료는 이미 목표 변동성 10%로 맞춘 전략이라, 비중은 '위험을 얼마씩 나눠 주나'에 가까움. 기본값(MinVar 50 + 모멘텀 25 + 가치 25)이 롱숏 탭의 0.89 근처면 정상. "
                "대안 시계열·멀티모달 갈래는 단독 성과가 약하거나 기간이 짧아(2012-07~) 섞을 때 효과가 작음 — 상관이 낮으면 Sharpe가 약해도 혼합 낙폭을 줄일 수는 있음.")
+
+
+GCAP = {"없음": "없음 (기준)", "곡물 25% (권장)": "곡물 25%", "3품목군 25% (곡물 · 에너지 · 축산)": "곡물 25% + 에너지 25% + 축산 25%"}
+
+
+def _groupcap_section():
+    """⑤ Portfolio Customization › 품목군 위험 한도 — 기본 혼합(MinVar 50 · 모멘텀 25 · 가치 25)의 품목별 순비중에 곡물 · 에너지 · 축산 합계 상한을 건 결과(strategy_groupcap.py 고정 결과)."""
+    fw, fc = A.DATA / "strategy_groupcap_weekly.parquet", A.DATA / "strategy_groupcap_compare.csv"
+    st.markdown("##### 품목군 위험 한도 — 곡물 · 에너지 · 축산 합계 비중 상한 (기본 혼합 50/25/25)")
+    if not (fw.exists() and fc.exists()):
+        st.info("결과가 없습니다 — `python strategy_groupcap.py`를 먼저 실행하세요."); return
+    Wk, C = pd.read_parquet(fw), pd.read_csv(fc, encoding="utf-8-sig").set_index("상한")
+    pick = st.radio("품목군 상한", list(GCAP), index=1, horizontal=True, key="cu_gcap",
+                    help="품목별 순비중에서 품목군 비중(절댓값 합)이 전체 노출의 25%를 넘으면 그 품목군만 비율대로 줄이고, 섞은 뒤 목표 10%로 다시 맞춤. "
+                         "곡물(옥수수 · 밀 · 대두 · 대두박 · 대두유) · 에너지(WTI · 난방유 · 휘발유 · 천연가스) · 축산(생우 · 돈육)")
+    rows = {}
+    for lab, col in GCAP.items():
+        r = Wk[col].loc["2008":].fillna(0); cum = (1 + r / 100).cumprod(); c_ = C.loc[col]
+        rows[lab] = {"연수익 (%)": r.mean() * 52, "연변동성 (%)": r.std() * np.sqrt(52), "Sharpe 2008–": c_["Sharpe 2008–"],
+                     "Sharpe 학습 2008–16": c_["Sharpe 학습 2008–16"], "Sharpe 시험 2017–": c_["Sharpe 시험 2017–"],
+                     "최대 낙폭 (%)": float((cum / cum.cummax() - 1).min() * 100), "최악 1년 (%)": float(r.groupby(r.index.year).sum().min()),
+                     "지금 20일 99% VaR (%)": c_["지금 20일 99% VaR (%)"], "VaR 중 곡물 (%)": c_["VaR 기여 곡물 (%)"],
+                     "VaR 중 축산 (%)": c_["VaR 기여 축산 (%)"], "곡물 몫 평균 (%)": c_["곡물 몫 평균 (%)"]}
+    T = pd.DataFrame(rows).T
+    sel_, b_ = T.loc[pick], T.loc["없음"]
+    m = st.columns(4)
+    for k_, (lab, fmt) in enumerate([("Sharpe 시험 2017–", "{:.2f}"), ("최대 낙폭 (%)", "{:.1f}%"), ("지금 20일 99% VaR (%)", "{:.2f}%"), ("VaR 중 곡물 (%)", "{:.0f}%")]):
+        m[k_].metric(lab, fmt.format(sel_[lab]), None if pick == "없음" else f"{sel_[lab] - b_[lab]:+.2f}", delta_color="inverse" if "VaR" in lab else "normal")
+    st.dataframe(T.style.format("{:.2f}").apply(lambda s_: ["font-weight:600; background-color: rgba(46,125,82,0.12)" if s_.name == pick else "" for _ in s_], axis=1),
+                 use_container_width=True)
+    f = go.Figure()
+    for j, (lab, col) in enumerate(GCAP.items()):
+        r = Wk[col].loc["2008":].fillna(0)
+        f.add_trace(go.Scatter(x=r.index, y=r.cumsum(), name=lab, line=dict(width=2.6 if lab == pick else 1.2, color=[PAL[0], PAL[2], PAL[4]][j])))
+    st.plotly_chart(fig_layout(f, 320, title="누적 수익 (%, 로그 합) — 품목군 상한별", hovermode="x", legend=dict(orientation="h", y=-0.25)), key="cu_gcap_cum")
+    st.caption("결과 고정(2026-10-26 자료, `strategy_groupcap.py`): 곡물 25%는 수익을 거의 그대로 두고(시험 1.07 → 1.09, 차이 t 0.6 — 유의하지 않음) 지금 VaR 2.87 → 2.25%, "
+               "VaR 중 곡물 몫 62 → 34% — 스트레스 테스트에서 곡물이 위험의 절반이던 쏠림을 줄이는 위험 한도. 3품목군 25%는 낙폭이 −24.5 → −20.7%로 더 줄지만 시험 Sharpe 1.06. "
+               "축산만 15%로 강하게 막으면 오히려 손해(0.97) — 생우 · 돈육이 다른 원자재와 덜 엮여 분산 역할을 하기 때문. 상세: ⑥ 실험 결과 → '3축 신호 · 위험 한도 실험'.")
 
 
 def _merged_table(PV: pd.DataFrame, fmt: str = "{:.1f}"):
