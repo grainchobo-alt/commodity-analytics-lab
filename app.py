@@ -5401,6 +5401,81 @@ def tab_ls():
         st.caption("생우·금·돈육을 모두 빼면 MinVar Sharpe가 절반으로 떨어짐 → 성과의 상당 부분이 그 세 품목(이 기간 저변동·상승) 덕. "
                    "상한을 낮춰 집중을 줄이면 Sharpe가 단계적으로 내려감. MinVar와 모멘텀은 상관이 낮아(약 0.2) 섞으면 하위기간 간 차이가 줄어듦 — "
                    "혼합 비율 = 두 전략(각 변동성 10%)에 주는 비중, 섞은 뒤 다시 10%로 배율.")
+    _sig_bt_section()
+
+
+SIG_EXP = [("A 연도별 최적 비중 갈아타기", "strategy_switch_compare.csv", "규칙", "Sharpe 학습 2012–16", "Sharpe 시험 2017–", "시험 차이 t"),
+           ("B 다음 분기 1등 축 미리 읽기", "strategy_meta_compare.csv", "규칙", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "시험 차이 t"),
+           ("C 칼만 · HMM · 뉴스 · DCC 비중 조정", "strategy_adaptive_compare.csv", "규칙", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "시험 차이 t"),
+           ("D 위험할 때 현금 피신", "strategy_cash_compare.csv", "신호", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "시험 차이 t"),
+           ("E 목표 변동성 동적 + 국채 이자 (초과 Sharpe)", "strategy_voltgt_dyn_compare.csv", "규칙", "초과 Sharpe 학습 2008–16", "초과 Sharpe 시험 2017–", None),
+           ("F 상관↑ (+ 같이 오름) 추세 집중", "strategy_crisis_mom_compare.csv", "규칙", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "시험 차이 t"),
+           ("J 짧은 추세 4 · 8주 (단독 성과)", "strategy_short_trend_compare.csv", "판", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "시험 차이 t"),
+           ("K 모멘텀 기간 4–52주 (혼합)", "strategy_mom_lookback_compare.csv", "모멘텀 기간", "혼합 학습 2008–16", "혼합 시험 2017–", "혼합 시험 차이 t"),
+           ("G · I 품목군 상한", "strategy_groupcap_compare.csv", "상한", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "시험 차이 t")]
+
+
+@st.cache_data(show_spinner=False)
+def _sig_rows() -> pd.DataFrame:
+    rows = []
+    for exp, f, nc, lc, tc, dc in SIG_EXP:
+        fp = A.DATA / f
+        if not fp.exists():
+            continue
+        T = pd.read_csv(fp, encoding="utf-8-sig")
+        for _, r in T.iterrows():
+            nm = str(r[nc]).replace(" ← 학습 최고", "") + "".join(f" · {r[c]}" for c in ("설정", "문턱", "현금 시 노출", "λ·q", "이자 관점") if c in T and pd.notna(r.get(c)) and str(r[c]).strip() not in ("", "nan") and not str(r[c]).startswith("←"))
+            best = any(str(r.get(c, "")).startswith("←") for c in ("학습 최고", "설정")) or "← 학습 최고" in str(r[nc])
+            rows.append({"실험": exp, "규칙": nm, "학습 최고": "◆" if best else "", "학습 Sharpe": r.get(lc), "시험 Sharpe": r.get(tc),
+                         "시험 차이 t": r.get(dc) if dc else np.nan, "최대 낙폭 (%)": r.get("최대 낙폭 (%)", r.get("혼합 최대 낙폭 (%)", np.nan)),
+                         "기준": ("(기준" in str(r[nc])) or str(r[nc]).strip() in ("고정 50/25/25", "고정 50/25/25 (사후 선택)", "고정 목표 10% (기준)")})
+    return pd.DataFrame(rows)
+
+
+def _sig_bt_section():
+    """⑤ 롱숏 탭 › ⑪ 3축 혼합(50/25/25) 추가 백테스트 — strategy_*.py 결과 표(규칙마다 학습 · 시험 Sharpe)와 3D 보기. ⑥ '3축 신호 · 위험 한도 실험' 요약과 같은 실험."""
+    st.markdown("##### ⑪ 3축 혼합(MinVar 50 · 모멘텀 25 · 가치 25) 추가 백테스트 — 신호로 비중을 바꾸면 나아지나")
+    D = _sig_rows()
+    if D.empty:
+        st.info("결과 파일이 없습니다 — strategy_*.py를 먼저 실행하세요."); return
+    base = 1.067
+    st.caption(f"실험 {D['실험'].nunique()}묶음 · 규칙 {int((~D['기준']).sum())}개. 모두 학습 2008–16에서만 규칙을 고르고 시험 2017–26에서 확인 · 편도 5bp + 비중 변경 비용 · 목표 변동성 10%. "
+               f"기준 = 고정 50/25/25 시험 Sharpe {base:.2f}. ◆ = 그 신호(또는 실험)에서 학습 성적이 가장 좋은 규칙 = 미리 고른다면 실제로 쓰게 될 규칙. "
+               "시험 차이 t = 기준 대비 주간 수익 차이의 t값(2 이상이어야 우연과 구별) — 모든 실험에서 최대 1.5 미만. 학습 1위 = 실험이 표시한 학습 최고(◆, 여러 개면 그중 최고), 없으면 학습 Sharpe 1위.")
+    S = D[~D["기준"]].groupby("실험", sort=False).agg(규칙수=("규칙", "size"), 시험_최소=("시험 Sharpe", "min"), 시험_최대=("시험 Sharpe", "max"),
+                                                    학습최고_시험=("시험 Sharpe", lambda x: np.nan), 최대_차이t=("시험 차이 t", "max"))
+    for e in S.index:                                                     # 그 실험에서 학습 Sharpe 1위 규칙의 시험 Sharpe
+        d_ = D[(D["실험"] == e) & ~D["기준"]].dropna(subset=["학습 Sharpe"])
+        d_ = d_[d_["학습 최고"] == "◆"] if (d_["학습 최고"] == "◆").any() else d_       # 실험이 정한 학습 최고(◆)가 있으면 그중, 없으면 학습 Sharpe 1위
+        if len(d_):
+            S.loc[e, "학습최고_시험"] = d_.loc[d_["학습 Sharpe"].idxmax(), "시험 Sharpe"]
+    S.columns = ["규칙 수", "시험 Sharpe 최소", "시험 Sharpe 최대", "학습 1위 규칙의 시험 Sharpe", "시험 차이 t 최대"]
+    S["학습 1위 규칙의 시험 Sharpe"] = S["학습 1위 규칙의 시험 Sharpe"].astype(float)
+    st.dataframe(S.style.format({"규칙 수": "{:.0f}", "시험 Sharpe 최소": "{:.2f}", "시험 Sharpe 최대": "{:.2f}", "학습 1위 규칙의 시험 Sharpe": "{:.2f}",
+                                 "시험 차이 t 최대": "{:+.2f}"}, na_rep="–"), use_container_width=True)
+    t3, t2 = st.tabs(["3D 보기 (학습 × 실험 × 시험)", "규칙 전체 표"])
+    with t3:
+        ex = list(dict.fromkeys(D["실험"])); d_ = D[~D["기준"]].dropna(subset=["학습 Sharpe", "시험 Sharpe"])
+        f = go.Figure([go.Surface(x=[d_["학습 Sharpe"].min() - 0.1, d_["학습 Sharpe"].max() + 0.1], y=[-0.5, len(ex) - 0.5], z=[[base, base], [base, base]],
+                                  colorscale=[[0, PAL[1]], [1, PAL[1]]], opacity=0.2, showscale=False, hoverinfo="skip", name="기준 1.07")])
+        for b_, nm, sz in [(False, "규칙 후보", 2.2), (True, "◆ 학습 최고", 5.0)]:
+            q = d_[(d_["학습 최고"] == "◆") == b_]
+            f.add_trace(go.Scatter3d(x=q["학습 Sharpe"], y=[ex.index(e) for e in q["실험"]], z=q["시험 Sharpe"], mode="markers", name=nm,
+                                     text=q["실험"] + "<br>" + q["규칙"].str[:70], marker=dict(size=sz, symbol="diamond" if b_ else "circle",
+                                     color=np.where(q["시험 Sharpe"] > base + 0.02, PAL[2], "#9a9a92"), opacity=1.0 if b_ else 0.55),
+                                     hovertemplate="%{text}<br>학습 %{x:.2f} → 시험 %{z:.2f}<extra></extra>"))
+        f.update_layout(height=520, margin=dict(l=0, r=0, t=30, b=0), legend=dict(orientation="h", y=1.02),
+                        scene=dict(xaxis_title="학습 Sharpe", yaxis=dict(title="", tickvals=list(range(len(ex))), ticktext=[e[:14] for e in ex]), zaxis_title="시험 Sharpe",
+                                   aspectmode="manual", aspectratio=dict(x=1.2, y=1.7, z=0.9), camera=dict(eye=dict(x=1.6, y=-1.4, z=0.7))))
+        st.plotly_chart(f, key="ls_sig3d")
+        st.caption("빨간 평면 = 기준 1.07. 평면 위로 올라온 점(초록)이 있어도, 학습 성적만 보고 고를 수 있는 ◆는 대부분 평면 근처나 아래 — 평면 위 점을 시험 결과를 보고 고르면 사후 선택.")
+    with t2:
+        ex_pick = st.multiselect("실험 고르기", list(dict.fromkeys(D["실험"])), default=[], key="ls_sig_ex", placeholder="비우면 전부")
+        V = D[D["실험"].isin(ex_pick)] if ex_pick else D
+        st.dataframe(V.drop(columns="기준").style.format({"학습 Sharpe": "{:.2f}", "시험 Sharpe": "{:.2f}", "시험 차이 t": "{:+.2f}", "최대 낙폭 (%)": "{:.1f}"}, na_rep="–"),
+                     use_container_width=True, height=420, hide_index=True)
+    st.caption("판정: 신호 기반 비중 변경 A–F · J · K는 모두 미채택(고정 50/25/25 유지), 곡물 합계 25% 상한(G · I)만 채택 — ⑤ Portfolio Customization '품목군 위험 한도'. "
+               "요약 그림 · 사례(2022 곡물, 2025–26 금 · 은)는 ⑥ 실험 결과 → '3축 신호 · 위험 한도 실험', 상세 기록은 docs/백테스트_로그.md.")
 
 
 SPAN_BASE = ["기준 · MinVar 롱 (⑥)", "기준 · 52주 모멘텀 (④)", "V1 가치 (5년 평균 대비 싼 품목 롱)"]
