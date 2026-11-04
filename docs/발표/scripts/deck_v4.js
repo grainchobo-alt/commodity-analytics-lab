@@ -734,7 +734,7 @@ if (fs.existsSync(SIGF("f3_f_logic"))) {
 }
 if (fs.existsSync(SIGF("f2_results"))) {
   const s = base();
-  header(s, "별첨", "별첨 10 — 신호로 비중 바꾸기: 모두 미채택", "HMM · 칼만 · DCC · 뉴스 · VIX · 상관 신호 — 학습 2008–16 선택 · 시험 2017–26 확인 · 위험 한도(곡물 25%)만 채택");
+  header(s, "별첨", "별첨 10 — 신호로 비중 바꾸기: 10가지 백테스트 → 위험 관리 장치", "HMM · 칼만 · DCC · 뉴스 · VIX · 상관 신호 — 학습 2008–16 선택 · 시험 2017–26 확인 · 곡물 25% 상한 · 손실 경보로 활용");
   s.addImage({ path: SIGF("f2_results"), x: 0.5, y: 1.6, w: 6.55, h: 3.67, sizing: { type: "contain", w: 6.55, h: 3.67 } });
   table(s, [["실험", "결과 (시험 Sharpe, 기준 1.07)"],
     ["A 연도별 최적 비중 갈아타기", "0.58–0.89 · 직전 5년 최적점은 다음 해 15번 중 3번만 이김"],

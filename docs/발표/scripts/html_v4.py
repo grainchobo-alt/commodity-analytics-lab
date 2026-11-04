@@ -14,6 +14,7 @@ deck_v4.js를 고치지 않고 그대로 실행해(deck_capture.js) 장마다 �
 import base64
 import html as H
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -495,7 +496,12 @@ def slide_html(n, s, D):
         els.append(h_.replace('class="el ', f'class="el {a} ', 1).replace('style="', f'style="{style_i};', 1))
     if any(it["kind"] == "text" and it.get("text") == "원인 (바깥 충격 · 1단 수급)" for it in s["items"]):
         els.append(ont_hotspots(D))                                         # 별첨 5: 그림의 상자 · 화살표를 누르면 근거 창
-    note = f'<aside class="notes">{H.escape(s.get("notes", ""))}</aside>'
+    nt = s.get("notes", "")
+    m_ = re.match(r"^(\(\d+초 · 누적 [\d:]+\)|\(질의응답용\))\s*", nt)              # 시간 표시는 파란 글씨로 본문과 구분 (발표자 보기)
+    tm, body = (m_.group(1), nt[m_.end():]) if m_ else ("", nt)
+    note = (f'<aside class="notes" data-n="{n}" data-orig="{H.escape(body, quote=True)}">'
+            + (f'<span class="nt-time" contenteditable="false" style="color:#1F6FD1;font-weight:700">{H.escape(tm)}</span> ' if tm else "")
+            + f'<span class="nt-body">{H.escape(body)}</span></aside>')
     bg = ' data-background-color="#1E3A2F"' if dark else ""
     stems = {Path(it["opts"]["path"]).stem for it in s["items"] if it["kind"] == "image"}
     cls = (["pilot"] if GLASS or n == 1 or stems & {"c55_mom3d", "c26_corr"} else []) + (["cover"] if n == 1 else [])   # 테마 적용 장 (기본판 = 시범 3장, 유리판 = 전 장)

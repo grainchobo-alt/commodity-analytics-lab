@@ -413,7 +413,61 @@ function show(sl) {
   document.querySelectorAll("video").forEach((v) => { if (!sl.contains(v)) v.pause(); });   // 다른 장의 영상은 멈춤
   sl.querySelectorAll("video").forEach((v) => { v.currentTime = 0; v.play().catch(() => {}); });   // 시연 장에 오면 처음부터 재생
 }
-Reveal.initialize({ hash: true, width: "100%", height: "100%", margin: 0, minScale: 1, maxScale: 1, center: false, transition: "slide", transitionSpeed: "default",
+// ── 발표자 보기(S) 대본 편집: 고친 대본은 이 브라우저에 자동 저장(다시 열어도 유지), '내보내기'로 파일 저장 → notes_sync.py로 원본 반영
+const NKEY = "mi-notes-v4:" + document.title;
+const nLoad = () => { try { return JSON.parse(localStorage.getItem(NKEY) || "{}"); } catch (e) { return {}; } };
+const nSave = (o) => { try { localStorage.setItem(NKEY, JSON.stringify(o)); } catch (e) { /* 저장 불가 환경 */ } };
+(function applyNoteEdits() {                                                   // 원본이 바뀐 장(다시 빌드)은 예전 수정본을 버림
+  const o = nLoad(); let ch = false;
+  document.querySelectorAll("aside.notes[data-n]").forEach((a) => {
+    const e = o[a.dataset.n], b = a.querySelector(".nt-body");
+    if (!e || !b) return;
+    if (e.orig !== a.dataset.orig || e.text === a.dataset.orig) { delete o[a.dataset.n]; ch = true; return; }
+    b.textContent = e.text;
+  });
+  if (ch) nSave(o);
+})();
+function noteEditor(w) {                                                       // 발표자 보기 창 안의 대본 칸을 편집 가능하게
+  let tries = 0;
+  const t = setInterval(() => {
+    let v; try { v = w.closed ? null : w.document.querySelector(".speaker-controls-notes .value"); } catch (e) { clearInterval(t); return; }
+    if (!v) { if (++tries > 100 || w.closed) clearInterval(t); return; }
+    clearInterval(t);
+    const d = w.document, bar = d.createElement("div");
+    bar.style.cssText = "margin:6px 0 4px;font:12px sans-serif;color:#555;display:flex;gap:8px;align-items:center;flex-wrap:wrap";
+    bar.innerHTML = '<span>✎ 대본을 바로 고칠 수 있음 · 자동 저장(이 브라우저)</span><span class="nt-st" style="color:#1F6FD1"></span>'
+      + '<button class="nt-exp">내보내기</button><button class="nt-rst">이 장 원래대로</button>';
+    v.parentNode.insertBefore(bar, v);
+    const st = bar.querySelector(".nt-st"), cur = () => Reveal.getIndices().h + 1;
+    const aside = () => document.querySelector(`aside.notes[data-n="${cur()}"]`);
+    const prep = () => { v.contentEditable = "true"; v.style.outline = "none"; const tm = v.querySelector(".nt-time"); if (tm) tm.contentEditable = "false"; };
+    prep(); new w.MutationObserver(() => { if (v.contentEditable !== "true") prep(); }).observe(v, { childList: true });
+    ["keydown", "keyup", "keypress"].forEach((k) => v.addEventListener(k, (e) => e.stopPropagation()));   // 글자를 칠 때 장이 넘어가지 않게
+    v.addEventListener("input", () => {
+      const a = aside(); if (!a) return;
+      const bd = v.querySelector(".nt-body"), txt = (bd ? bd.innerText : v.innerText.replace(/^\(\d+초 · 누적 [\d:]+\)\s*|^\(질의응답용\)\s*/, "")).trim();
+      a.querySelector(".nt-body").textContent = txt;
+      const o = nLoad(); o[a.dataset.n] = { orig: a.dataset.orig, text: txt }; nSave(o);
+      st.textContent = `저장됨 ${new Date().toLocaleTimeString().slice(0, -3)}`;
+    });
+    bar.querySelector(".nt-exp").onclick = () => {
+      const o = nLoad(), out = {}; Object.keys(o).forEach((k) => (out[k] = o[k].text));
+      const u = URL.createObjectURL(new Blob([JSON.stringify({ deck: document.title, edits: out }, null, 1)], { type: "application/json" }));
+      const l = d.createElement("a"); l.href = u; l.download = "notes_edits_v4.json"; d.body.appendChild(l); l.click(); l.remove();
+      st.textContent = `수정 ${Object.keys(out).length}개 장 내보냄 → notes_sync.py로 원본 반영`;
+    };
+    bar.querySelector(".nt-rst").onclick = () => {
+      const a = aside(); if (!a) return;
+      const o = nLoad(); delete o[a.dataset.n]; nSave(o); a.querySelector(".nt-body").textContent = a.dataset.orig;
+      const bd = v.querySelector(".nt-body"); if (bd) bd.textContent = a.dataset.orig;
+      st.textContent = "이 장 원래 대본으로 되돌림";
+    };
+  }, 100);
+}
+const _wopen = window.open;
+window.open = function (...a) { const w = _wopen.apply(window, a); if (w && String(a[1] || "").includes("Notes")) noteEditor(w); return w; };
+
+Reveal.initialize({ autoSlide: 0, hash: true, width: "100%", height: "100%", margin: 0, minScale: 1, maxScale: 1, center: false, transition: "slide", transitionSpeed: "default",
   backgroundTransition: "fade", slideNumber: false, controls: true, progress: true, plugins: [RevealNotes] }).then(() => {
   document.documentElement.classList.add("anim");                             // 준비된 뒤에만 등장 효과 → 첫 장도 바로 들어옴
   const b = document.getElementById("boot"); b.classList.add("gone"); setTimeout(() => b.remove(), 400);
