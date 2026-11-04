@@ -5408,9 +5408,9 @@ SIG_EXP = [("A 연도별 최적 비중 갈아타기", "strategy_switch_compare.c
            ("B 다음 분기 1등 축 미리 읽기", "strategy_meta_compare.csv", "규칙", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "시험 차이 t"),
            ("C 칼만 · HMM · 뉴스 · DCC 비중 조정", "strategy_adaptive_compare.csv", "규칙", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "시험 차이 t"),
            ("D 위험할 때 현금 피신", "strategy_cash_compare.csv", "신호", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "시험 차이 t"),
-           ("E 목표 변동성 동적 + 국채 이자 (초과 Sharpe)", "strategy_voltgt_dyn_compare.csv", "규칙", "초과 Sharpe 학습 2008–16", "초과 Sharpe 시험 2017–", None),
+           ("E 목표 변동성 동적 + 국채 이자 (요약 = 초과 Sharpe · 상세 = 이자 포함)", "strategy_voltgt_dyn_compare.csv", "규칙", "초과 Sharpe 학습 2008–16", "초과 Sharpe 시험 2017–", None),
            ("F 상관↑ (+ 같이 오름) 추세 집중", "strategy_crisis_mom_compare.csv", "규칙", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "시험 차이 t"),
-           ("J 짧은 추세 4 · 8주 (단독 성과)", "strategy_short_trend_compare.csv", "판", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "시험 차이 t"),
+           ("J 짧은 추세 4 · 8주 (요약 = 단독 · 상세 = 혼합 25/50/25)", "strategy_short_trend_compare.csv", "판", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "시험 차이 t"),
            ("K 모멘텀 기간 4–52주 (혼합)", "strategy_mom_lookback_compare.csv", "모멘텀 기간", "혼합 학습 2008–16", "혼합 시험 2017–", "혼합 시험 차이 t"),
            ("G · I 품목군 상한", "strategy_groupcap_compare.csv", "상한", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "시험 차이 t")]
 
@@ -5424,11 +5424,34 @@ def _sig_rows() -> pd.DataFrame:
             continue
         T = pd.read_csv(fp, encoding="utf-8-sig")
         for _, r in T.iterrows():
-            nm = str(r[nc]).replace(" ← 학습 최고", "") + "".join(f" · {r[c]}" for c in ("설정", "문턱", "현금 시 노출", "λ·q", "이자 관점") if c in T and pd.notna(r.get(c)) and str(r[c]).strip() not in ("", "nan") and not str(r[c]).startswith("←"))
+            nm = (f"[{r['재료']}] " if "재료" in T else "") + str(r[nc]).replace(" ← 학습 최고", "") + "".join(f" · {r[c]}" for c in ("설정", "문턱", "현금 시 노출", "λ·q", "이자 관점") if c in T and pd.notna(r.get(c)) and str(r[c]).strip() not in ("", "nan") and not str(r[c]).startswith("←"))
             best = any(str(r.get(c, "")).startswith("←") for c in ("학습 최고", "설정")) or "← 학습 최고" in str(r[nc])
-            rows.append({"실험": exp, "규칙": nm, "학습 최고": "◆" if best else "", "학습 Sharpe": r.get(lc), "시험 Sharpe": r.get(tc),
+            rows.append({"키": f"{f.replace('_compare.csv', '')}::{_}", "실험": exp, "규칙": nm, "학습 최고": "◆" if best else "", "학습 Sharpe": r.get(lc), "시험 Sharpe": r.get(tc),
                          "시험 차이 t": r.get(dc) if dc else np.nan, "최대 낙폭 (%)": r.get("최대 낙폭 (%)", r.get("혼합 최대 낙폭 (%)", np.nan)),
                          "기준": ("(기준" in str(r[nc])) or str(r[nc]).strip() in ("고정 50/25/25", "고정 50/25/25 (사후 선택)", "고정 목표 10% (기준)")})
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(show_spinner=False)
+def _sig_metrics() -> pd.DataFrame:
+    """⑪ 규칙별 상세 지표: strategy_rules_weekly.parquet(규칙별 주간 수익률)로 전체 · 학습 · 시험 Sharpe, 연수익 · 연변동성 · 최대낙폭 · t값 · MinVar와 상관."""
+    fp = A.DATA / "strategy_rules_weekly.parquet"
+    D = _sig_rows()
+    if not fp.exists() or D.empty:
+        return pd.DataFrame()
+    W = pd.read_parquet(fp)
+    mv = W["MinVar 축"].astype(float).loc["2008":"2026-10-31"]
+    sh = lambda x: float(x.mean() / x.std() * np.sqrt(52)) if len(x) > 26 and x.std() > 0 else np.nan  # noqa: E731
+    rows = []
+    for _, r in D.iterrows():
+        if r["키"] not in W:
+            continue
+        x = W[r["키"]].astype(float).loc["2008":"2026-10-31"].dropna()
+        cum = (1 + x / 100).cumprod()
+        rows.append({"실험": r["실험"], "규칙": r["규칙"] + (" (기준)" if r["기준"] and "기준" not in r["규칙"] else ""), "학습 최고": r["학습 최고"],
+                     "Sharpe": sh(x), "연수익 (%)": float(x.mean() * 52), "연변동성 (%)": float(x.std() * np.sqrt(52)),
+                     "최대낙폭 (%)": float((cum / cum.cummax() - 1).min() * 100), "Sharpe 학습 2008–16": sh(x.loc[:"2016"]), "Sharpe 시험 2017–": sh(x.loc["2017":]),
+                     "t값": sh(x) * np.sqrt(len(x) / 52), "MinVar와 상관": float(x.corr(mv.reindex(x.index))), "기준 대비 시험 차이 t": r["시험 차이 t"]})
     return pd.DataFrame(rows)
 
 
@@ -5470,10 +5493,23 @@ def _sig_bt_section():
         st.plotly_chart(f, key="ls_sig3d")
         st.caption("빨간 평면 = 기준 1.07. 평면 위로 올라온 점(초록)이 있어도, 학습 성적만 보고 고를 수 있는 ◆는 대부분 평면 근처나 아래 — 평면 위 점을 시험 결과를 보고 고르면 사후 선택.")
     with t2:
-        ex_pick = st.multiselect("실험 고르기", list(dict.fromkeys(D["실험"])), default=[], key="ls_sig_ex", placeholder="비우면 전부")
-        V = D[D["실험"].isin(ex_pick)] if ex_pick else D
-        st.dataframe(V.drop(columns="기준").style.format({"학습 Sharpe": "{:.2f}", "시험 Sharpe": "{:.2f}", "시험 차이 t": "{:+.2f}", "최대 낙폭 (%)": "{:.1f}"}, na_rep="–"),
-                     use_container_width=True, height=420, hide_index=True)
+        M = _sig_metrics()
+        if M.empty:
+            st.info("규칙별 주간 수익률이 없습니다 — `python strategy_rules_weekly.py` 실행 후 다시 열기.")
+        else:
+            st.caption("실험 묶음을 펼치면 세부 규칙 전체(표 안에서 스크롤). 지표는 저장된 주간 수익률로 다시 계산 — 전체 = 2008-01 ~ 2026-10, 학습 = 2008–16, 시험 = 2017–"
+                       "(A 갈아타기는 직전 5년 창 때문에 2012–16로 고른 실험이지만 지표 칸은 같은 기간으로 통일). t값 = 전체 Sharpe × √연수, "
+                       "MinVar와 상관 = 3축 중 MinVar 축 주간 수익률과의 상관. J는 단기 판을 50% 넣은 혼합(25/50/25), K는 모멘텀 축만 바꾼 50/25/25, E는 이자 포함 총수익 기준.")
+            f_ = {"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}", "Sharpe 학습 2008–16": "{:+.2f}",
+                  "Sharpe 시험 2017–": "{:+.2f}", "t값": "{:+.2f}", "MinVar와 상관": "{:+.2f}", "기준 대비 시험 차이 t": "{:+.2f}"}
+            for e_ in dict.fromkeys(M["실험"]):
+                V = M[M["실험"] == e_].drop(columns=["실험"]).reset_index(drop=True)
+                b_ = V[V["학습 최고"] == "◆"]
+                b1 = b_ if len(b_) else V[~V["규칙"].str.contains("기준")]
+                tag = f" · 학습 1위({b1.loc[b1['Sharpe 학습 2008–16'].idxmax(), '규칙'][:24]}) 시험 {b1.loc[b1['Sharpe 학습 2008–16'].idxmax(), 'Sharpe 시험 2017–']:+.2f}" if len(b1) else ""
+                with st.expander(f"{e_} — 규칙 {len(V)}개 · 시험 Sharpe {V['Sharpe 시험 2017–'].min():.2f}–{V['Sharpe 시험 2017–'].max():.2f}{tag}"):
+                    st.dataframe(V.style.format(f_, na_rep="–").apply(lambda r_: ["background-color: rgba(46,125,82,0.12)" if r_["학습 최고"] == "◆" else "" for _ in r_], axis=1),
+                                 use_container_width=True, hide_index=True, height=min(36 * (len(V) + 1) + 4, 420))
     st.caption("판정: 신호 기반 비중 변경 A–F · J · K는 모두 미채택(고정 50/25/25 유지), 곡물 합계 25% 상한(G · I)만 채택 — ⑤ Portfolio Customization '품목군 위험 한도'. "
                "요약 그림 · 사례(2022 곡물, 2025–26 금 · 은)는 ⑥ 실험 결과 → '3축 신호 · 위험 한도 실험', 상세 기록은 docs/백테스트_로그.md.")
 

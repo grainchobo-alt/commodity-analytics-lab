@@ -285,7 +285,7 @@ P.sigflow = () => {                                                             
   [["평시 2008–2021 · 2023 하반기–2024", 0], ["2022 – 2023 상반기 (전쟁 · 곡물 급등)", 1], ["2025 – 2026 (금 · 은 급등)", 2]].forEach(([nm, t]) => {
     const q = F.tag.map((v, k) => (v === t ? k : -1)).filter((k) => k >= 0);
     tr.push({ type: "scatter3d", mode: "markers", name: nm, x: q.map((k) => F.p[k]), y: q.map((k) => Math.max(-30, Math.min(30, F.u[k]))), z: q.map((k) => F.on[k] + 0.04),
-      text: q.map((k) => F.d[k]), marker: { size: t ? 0.64 : 0.32, color: SIGC[t], opacity: t ? 0.95 : 0.5 },
+      text: q.map((k) => F.d[k]), marker: { size: t ? 1.9 : 1.0, color: SIGC[t], opacity: t ? 0.95 : 0.5 },
       hovertemplate: "%{text}<br>곡물 상관 분위 %{x:.2f} · 13주 수익 %{y:.1f}%<br>%{customdata}<extra></extra>", customdata: q.map((k) => (F.on[k] ? "→ 추세 집중 켜짐" : "→ 50/25/25 유지")) });
   });
   return [tr, { showlegend: true, legend: { x: 0.01, y: 0.99, font: { size: Math.max(8, unit() * 0.09) }, bgcolor: "rgba(255,255,255,0.7)" },

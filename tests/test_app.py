@@ -144,7 +144,7 @@ def g_buy(at, A):
     at.radio(key="ls_ra_win").set_value("3년").run(); check(at, "롱숏: 3년 롤링 알파")
     assert at.scan(lambda at: any("대안 시계열 모델 — Prophet" in m.value for m in at.markdown))                   # ⑤ 포트폴리오 › 대안 시계열 모델 서브탭
     at.radio(key="ls_alt_mode").set_value("순위 롱숏").run(); check(at, "롱숏: 대안 시계열 순위 롱숏")
-    at.multiselect(key="ls_sig_ex").set_value(["D 위험할 때 현금 피신"]).run(); check(at, "롱숏 ⑪: 3축 추가 백테스트 규칙 표 (현금 피신)")
+    assert at.scan(lambda at: any("D 위험할 때 현금 피신 — 규칙" in e.label for e in at.expander))                 # 롱숏 ⑪ 규칙별 상세표
     assert at.radio(key="cu_gcap").value == "곡물 25% (권장)"                                        # ⑤ Customization 품목군 위험 한도 (기본 = 곡물 25%)
     at.radio(key="cu_gcap").set_value("3품목군 25% (곡물 · 에너지 · 축산)").run(); check(at, "⑤ Customization: 품목군 상한 3품목군 25%")
     at.radio(key="cu_gcap").set_value("없음").run(); check(at, "⑤ Customization: 품목군 상한 없음")
