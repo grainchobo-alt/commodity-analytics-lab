@@ -2,7 +2,7 @@
 
 > 새 세션은 이 문서를 먼저 읽고 시작한다. 세션을 마칠 때는 **현재 상태 · 남은 과제 · 최근 결정**을 갱신하고 `CHANGELOG.md`에 버전을 추가한다.
 
-- **최종 갱신**: 2026-11-03 · **현재 버전**: v1.62.0 (git 태그) · 로컬 LLM 계층 `llm/`(도구 24개 = 대시보드 전 기능, 대조 테스트 `tests/test_llm_parity.py`, LangGraph 4계층 흐름 `llm/graph.py`, 보기 `docs/LLM_graph.html`, 평가 `llm/eval/`)(설계 `docs/LLM_설계.md`) · 발표 인터랙티브 HTML `docs/발표/원자재_퀀트_MI_발표_v4.html`(한 파일) · `_v4_web.zip`(폴더판, 전달용)(다시 만들기 `docs/발표/scripts/html_v4.py`) · 학습 노트 `docs/학습/모델도감_학습노트_v2.docx`(⑦ 도감 42개 + LSTM·GNN 심화 + 모델별 기호 풀이·파라미터 영향 표) · `블랙숄즈_학습노트.docx`(옵션 랩 해설)(다시 만들기 `docs/학습/scripts/build.py`) · 발표 PPT `docs/발표/원자재_퀀트_MI_발표_v1.pptx`(46장 상세)·`_v2`(10분판 14장)·`_v3`(18장)·`_v4`(22장, 최신) · 유리판 `_v4_유리.pptx`(`build.py v4 --glass`)( 10분 대본 `docs/발표/발표대본_v4.md`), git 제외, 다시 만들기 = `docs/발표/scripts/build.py v4` · push 전 `push_check.py` — HTML 변환 완료(v1.38.5)
+- **최종 갱신**: 2026-11-03 · **현재 버전**: v1.63.0 (git 태그) · 로컬 LLM 계층 `llm/`(도구 24개 = 대시보드 전 기능, 대조 테스트 `tests/test_llm_parity.py`, LangGraph 4계층 흐름 `llm/graph.py`, 보기 `docs/LLM_graph.html`, 평가 `llm/eval/`)(설계 `docs/LLM_설계.md`) · 발표 인터랙티브 HTML `docs/발표/원자재_퀀트_MI_발표_v4.html`(한 파일) · `_v4_web.zip`(폴더판, 전달용)(다시 만들기 `docs/발표/scripts/html_v4.py`) · 학습 노트 `docs/학습/모델도감_학습노트_v2.docx`(⑦ 도감 42개 + LSTM·GNN 심화 + 모델별 기호 풀이·파라미터 영향 표) · `블랙숄즈_학습노트.docx`(옵션 랩 해설)(다시 만들기 `docs/학습/scripts/build.py`) · 발표 PPT `docs/발표/원자재_퀀트_MI_발표_v1.pptx`(46장 상세)·`_v2`(10분판 14장)·`_v3`(18장)·`_v4`(22장, 최신) · 유리판 `_v4_유리.pptx`(`build.py v4 --glass`)( 10분 대본 `docs/발표/발표대본_v4.md`), git 제외, 다시 만들기 = `docs/발표/scripts/build.py v4` · push 전 `push_check.py` — HTML 변환 완료(v1.38.5)
 - **사용자**: 곡물·에너지·금속·운임을 다루는 **중간 트레이더**(직접 사용 X, 매입 후 재판매). 실무 의사결정 = **"언제, 얼마나 살까"** (숏 아님).
 - **저장소**: https://github.com/grainchobo-alt/commodity-analytics-lab (private, `main`) · 협업자 `seokhwan33`(write, 초대 발송)
 - **작업 폴더**: `C:\Users\user\Desktop\Commodity` (구 폴더 `Desktop\261013`에는 다른 프로젝트 공존 — 삭제 금지)
@@ -105,6 +105,7 @@
 7. `Desktop\261013` 폴더의 옛 원자재 파일 정리 (삭제는 사용자 확인 후에만).
 
 ## 7. 최근 결정 로그
+- 2026-11-04 (v1.63.0): 품목군 상한은 곡물 25% 단독이 최선(축산 상한은 분산 몫을 줄여 손해). 짧은 추세도 미채택. 실험 전체를 워드 1부로 요약(`docs/실험요약/`). `run_daily.bat`에 손실 한도 경보 연결.
 - 2026-11-04 (v1.62.0): 상관 급등기 모멘텀 · 강한 추세 집중은 미채택(2022 상관 낮음 · 급등 단기 되돌림). 곡물 합계 상한 25%는 수익 손실 없이 VaR · 곡물 쏠림 감소 → **대시보드 위험 한도로 넣을지 사용자 결정 대기**. 위험 신호는 `risk_alert.py` 경보로만 사용(자동 발송 없음, 문안 파일).
 - 2026-11-04 (v1.61.0): 사용자 요청 — 모든 백테스트를 로그로 남김(`docs/백테스트_로그.md` + `backtest_log.py`, 과거 이력 포함). 목표 변동성 동적 조절 · 이자 반영도 미채택. 스트레스 테스트는 `stress_portfolio.py`(VaR와 별개: 위기 재현 · 가상 충격 · 상관 · 역스트레스).
 - 2026-11-04 (v1.60.0): 사용자 요청 — 위험 신호로 현금 피신(이자 0) → `strategy_cash.py` 신호 9종 모두 비유의, 낙폭 감소는 대부분 '덜 투자한 몫'(늘 70% 투자와 비슷). 미채택. 다음 후보: 단기 금리(DTB3) 이자 반영 · 목표 변동성 낮추기 비교.
