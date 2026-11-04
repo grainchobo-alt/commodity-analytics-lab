@@ -4,6 +4,7 @@ deck_v4.js를 고치지 않고 그대로 실행해(deck_capture.js) 장마다 �
 - 모든 요소가 순서대로 날아 들어오는 등장 효과, 큰 숫자는 올라가며 세기
 - 5장 품목 × 월 수익률 → 칸마다 숫자가 든 2D 히트맵(칸이 차례로 등장)
 - 9·10장 AI 모델 카드 8개 그림 → 같은 자리에서 회전되는 3D (Plotly)
+- 별첨 9 · 10 실험 그림 4개 → 판단 규칙 지형 · 품목 리본 · 실험 점 + 기준 평면 · 상한별 리본 3D (charts_sig.py → img/sig.json)
 - 15장 효율적 투자선 → 대시보드 ⑤ 'Portfolio Customization' 3D(위험 × 수익 × Sharpe) + 연도별 경계선 재생
 - 하단 자료 기준일, 열람일 기준 7일 지나면 빨간 경고 · 발표자 노트 = 10분 대본(키보드 S)
 
@@ -45,7 +46,8 @@ PLOTS = {"c47a_lasso3d": "lasso", "c47b_pca3d": "pca", "c47c_rf3d": "rf", "c47d_
          "c41_randomwalk": "rw", "c42_brownian": "mc", "c09_volatility": "vol", "c16_strategies": "strat",
          "c52_split3d": "split", "c53_linfit3d": "linfit", "c54_mlfit3d": "mlfit",
          "c55_mom3d": "mom", "c56_minvar3d": "minvar", "c57_value3d": "value",
-         "c71_stl3d": "stl3d", "c72_season3d": "season3d", "c73_resid3d": "resid3d"}   # 마지막 4개 = 선이 그려지는 2D
+         "c71_stl3d": "stl3d", "c72_season3d": "season3d", "c73_resid3d": "resid3d",
+         "f3_f_logic": "sigflow", "f4_cases": "sigcase", "f2_results": "sigres", "f5_graincap": "siggcap"}   # 마지막 4개 = 선이 그려지는 2D
 
 
 def r(x, n=2):
@@ -135,6 +137,9 @@ def data():
     ts7 = HERE / "img" / "ts7.json"                                       # 별첨 7 시계열 분해 3D (charts_ts7.py)
     if ts7.exists():
         D["ts7"] = json.loads(ts7.read_text(encoding="utf-8"))["items"]
+    sig = HERE / "img" / "sig.json"                                       # 별첨 9 · 10 신호 · 위험 한도 실험 3D (charts_sig.py)
+    if sig.exists():
+        D["sig"] = json.loads(sig.read_text(encoding="utf-8"))
     if (ROOT / "data" / "causal_scm_edges.csv").exists():                 # 별첨 5 온톨로지 그림: 누르면 근거 숫자 (causal_grain 등 결과)
         D["ont"] = ont_data()
     rng = np.random.default_rng(3)
@@ -474,7 +479,7 @@ def slide_html(n, s, D):
                 IMGS[Path(o["path"]).name] = Path(o["path"])
                 h_ = (f'<div class="el im q16" data-q="{int(name[4:])}" title="누르면 직접 돌려 볼 수 있음" style="{box_style(o)}">'
                       f'<img src="@IMG:{Path(o["path"]).name}" alt=""></div>')
-            elif name in PLOTS:
+            elif name in PLOTS and (not PLOTS[name].startswith("sig") or "sig" in D):
                 key = PLOTS[name]
                 extra = ""
                 if key == "ef3d":

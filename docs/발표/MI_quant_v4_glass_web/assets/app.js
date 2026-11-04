@@ -276,6 +276,57 @@ P.resid3d = () => {
       camera: { eye: { x: -1.4, y: -1.6, z: 0.8 } } } }];
 };
 
+// ── 별첨 9 · 10: 3축 신호 · 위험 한도 실험 (charts_sig.py)
+const SIGC = ["#9A9A92", "#D9582B", "#C8A24A"];                                 // 평시 · 2022–23 · 2025–26
+P.sigflow = () => {                                                              // 판단 규칙 지형: 켜짐 고원 + 매주 실제 점
+  const F = D.sig.flow, gx = seq(41, (q) => q / 40), gy = seq(41, (q) => -30 + q * 1.5);
+  const zz = gy.map((y) => gx.map((x) => (x > F.thr && y > 0 ? 1 : 0)));
+  const tr = [{ type: "surface", x: gx, y: gy, z: zz, colorscale: [[0, "#E7EFE9"], [1, "#2E7D52"]], opacity: 0.55, showscale: false, hoverinfo: "skip" }];
+  [["평시 2008–2021 · 2023 하반기–2024", 0], ["2022 – 2023 상반기 (전쟁 · 곡물 급등)", 1], ["2025 – 2026 (금 · 은 급등)", 2]].forEach(([nm, t]) => {
+    const q = F.tag.map((v, k) => (v === t ? k : -1)).filter((k) => k >= 0);
+    tr.push({ type: "scatter3d", mode: "markers", name: nm, x: q.map((k) => F.p[k]), y: q.map((k) => Math.max(-30, Math.min(30, F.u[k]))), z: q.map((k) => F.on[k] + 0.04),
+      text: q.map((k) => F.d[k]), marker: { size: t ? 0.64 : 0.32, color: SIGC[t], opacity: t ? 0.95 : 0.5 },
+      hovertemplate: "%{text}<br>곡물 상관 분위 %{x:.2f} · 13주 수익 %{y:.1f}%<br>%{customdata}<extra></extra>", customdata: q.map((k) => (F.on[k] ? "→ 추세 집중 켜짐" : "→ 50/25/25 유지")) });
+  });
+  return [tr, { showlegend: true, legend: { x: 0.01, y: 0.99, font: { size: Math.max(8, unit() * 0.09) }, bgcolor: "rgba(255,255,255,0.7)" },
+    annotations: [{ xref: "paper", yref: "paper", x: 0.99, y: 0.99, xanchor: "right", yanchor: "top", showarrow: false, align: "right", font: { size: Math.max(9, unit() * 0.1) },
+      text: `초록 고원 = 켜짐 (상관 분위 > ${F.thr} & 13주 수익 > 0)<br>켜진 주 ${F.on_pct}% · <b style="color:${SIGC[1]}">2022–23에 켜진 주 ${F.on22}</b> (상관이 오히려 낮았음)` }],
+    scene: { xaxis: ax3("곡물 26주 상관 (그때까지 분위)", { range: [0, 1] }), yaxis: ax3("직전 13주 곡물 수익 (%)", { range: [-30, 30] }), zaxis: ax3("", { tickvals: [0, 1], ticktext: ["유지", "집중"], range: [-0.1, 1.3] }),
+      aspectmode: "manual", aspectratio: { x: 1.5, y: 1.3, z: 0.6 }, camera: { eye: { x: -1.5, y: -1.5, z: 1.0 } } } }];
+};
+P.sigcase = () => {                                                              // 2021-07 ~ 2026-10 품목 누적 수익 리본
+  const S = D.sig.cases, xs = S.d.map(yfrac), cols = ["#C8A24A", "#B5651D", "#6B8E23", "#333333", "#E0B000", "#8A9AA8", C.red], tr = [];
+  S.names.forEach((nm, k) => tr.push(...curtain(xs, k, S.z[k], cols[k], k === S.names.length - 1 ? 0.8 : 0.55, nm)));
+  return [tr, { scene: { xaxis: ax3("", { tickvals: [2022, 2023, 2024, 2025, 2026], ticktext: ["2022", "2023", "2024", "2025", "2026"] }),
+    yaxis: ax3("", { tickvals: S.names.map((_, k) => k), ticktext: S.names }), zaxis: ax3("누적 수익 (%, 로그)"),
+    aspectmode: "manual", aspectratio: { x: 2.0, y: 1.4, z: 0.8 }, camera: { eye: { x: -1.3, y: -1.7, z: 0.9 } } },
+    annotations: [{ xref: "paper", yref: "paper", x: 0.01, y: 0.99, xanchor: "left", showarrow: false, align: "left", font: { size: Math.max(9, unit() * 0.1) },
+      text: "밀 · 옥수수: 2022 상반기 급등 후 곧 반납 · 금 · 은: 2025–26 2배<br>빨강 = 기준 혼합 50/25/25 (꾸준히 우상향)" }] }];
+};
+P.sigres = () => {                                                               // 실험별 규칙 점 + 기준 평면
+  const R = D.sig.res, G = R.groups, xs = [0, 1.4], ys = [-0.5, G.length - 0.5];
+  const tr = [{ type: "surface", x: xs, y: ys, z: [[R.base, R.base], [R.base, R.base]], colorscale: [[0, C.red], [1, C.red]], opacity: 0.22, showscale: false, hoverinfo: "skip" }];
+  [[0, "규칙 후보", 2.0, 0.5], [1, "◆ 각 신호의 학습 최고 (실제로 고를 규칙)", 4.2, 1.0]].forEach(([b, nm, sz, op]) => {
+    const q = R.pts.filter((p) => p.b === b);
+    tr.push({ type: "scatter3d", mode: "markers", name: nm, x: q.map((p) => p.x), y: q.map((p, k) => p.g + (b ? 0 : (((k * 37) % 11) / 10 - 0.5) * 0.5)), z: q.map((p) => p.z), text: q.map((p) => `${G[p.g]}<br>${p.n}`),
+      marker: { size: sz, symbol: b ? "diamond" : "circle", color: q.map((p) => (p.z > R.base + 0.02 ? C.g : "#9A9A92")), opacity: op, line: { width: 0 } },
+      hovertemplate: "%{text}<br>학습 %{x:.2f} → 시험 %{z:.2f}<extra></extra>" });
+  });
+  return [tr, { showlegend: true, legend: { x: 0.01, y: 0.99, font: { size: Math.max(8, unit() * 0.09) }, bgcolor: "rgba(255,255,255,0.7)" },
+    annotations: [{ xref: "paper", yref: "paper", x: 0.99, y: 0.99, xanchor: "right", yanchor: "top", showarrow: false, align: "right", font: { size: Math.max(9, unit() * 0.1) },
+      text: `빨간 평면 = 고정 50/25/25 시험 Sharpe ${R.base.toFixed(2)}<br>규칙 ${R.n}개 · 평면 위 점도 기준 대비 차이 t ≤ 1.5 (우연 수준)` }],
+    scene: { xaxis: ax3("학습 Sharpe (2008–16)", { range: xs }), yaxis: ax3("", { tickvals: G.map((_, k) => k), ticktext: G }), zaxis: ax3("시험 Sharpe (2017–26)"),
+      aspectmode: "manual", aspectratio: { x: 1.3, y: 1.7, z: 0.9 }, camera: { eye: { x: 1.7, y: -1.4, z: 0.7 } } } }];
+};
+P.siggcap = () => {                                                              // 품목군 상한별 누적 수익 리본
+  const S = D.sig.gcap, xs = S.d.map((d) => +d.slice(0, 4) + (+d.slice(5, 7) - 0.5) / 12), cols = ["#2F6E8F", "#2E7D52", "#C8A24A"], tr = [];
+  S.names.forEach((nm, k) => tr.push(...curtain(xs, k, S.z[k], cols[k], 0.6, `${nm} · 시험 ${S.sh[k].toFixed(2)} · VaR ${S.var[k].toFixed(2)}%`)));
+  return [tr, { scene: { xaxis: ax3("", { tickvals: [2010, 2014, 2018, 2022, 2026] }), yaxis: ax3("", { tickvals: [0, 1, 2], ticktext: S.names }), zaxis: ax3("누적 수익 (%)"),
+    aspectmode: "manual", aspectratio: { x: 2.0, y: 0.9, z: 0.8 }, camera: { eye: { x: -1.2, y: -1.8, z: 0.8 } } },
+    annotations: [{ xref: "paper", yref: "paper", x: 0.01, y: 0.99, xanchor: "left", showarrow: false, align: "left", font: { size: Math.max(9, unit() * 0.1) },
+      text: S.names.map((nm, k) => `<b style="color:${cols[k]}">${nm}</b> 시험 ${S.sh[k].toFixed(2)} · VaR ${S.var[k].toFixed(2)}% (곡물 ${Math.round(S.vg[k])}%) · 낙폭 ${S.mdd[k].toFixed(1)}%`).join("<br>") }] }];
+};
+
 // ── 그리기 · 자동 회전 · 숫자 세기
 function draw(el, again) {
   const key = el.dataset.plot, [tr, l] = P[key] ? P[key](el) : pptChart(key);

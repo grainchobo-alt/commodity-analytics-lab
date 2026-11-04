@@ -654,7 +654,7 @@ function mcards(s, ms) {
   const s = base();
   header(s, "별첨", "별첨 6 — 시스템 구조도: 누가 무엇을 부르고 어디에 저장하나", "요청 → 화면 → 분석 → 저장 → AI → 외부 · HTML에서는 마우스로 흐름, 누르면 설명, 휠 · ▲▼로 스크롤");
   img(s, "arch_map", 0.5, 1.55, 12.35, 5.35);
-  foot(s, "원본 = docs/architecture.html (코드를 직접 읽고 확인한 내용, 2026-11-02 기준). 사내 시스템 · 외부 AI API 연동 없음 — 모든 계산은 이 PC에서.");
+  foot(s, "원본 = docs/architecture.html (코드를 직접 읽고 확인한 내용, 2026-11-04 · v1.65.0 기준). 사내 시스템 · 외부 AI API 연동 없음 — 모든 계산은 이 PC에서.");
 }
 
 // ════════════════ 별첨 7: 시계열 분해 — 추세 · 계절성 · 잔차(정상성) (charts_ts7.py, 숫자 = data.json ts7)

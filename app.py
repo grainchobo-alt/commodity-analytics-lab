@@ -37,6 +37,50 @@ if not getattr(_DG, "_tilde_patched", False):
     _DG._tilde_patched = True
 
 st.set_page_config(page_title="Commodity Analytics Lab", layout="wide", page_icon="📈")
+st.markdown("<style>[data-testid='stMainBlockContainer']{padding-top:4.2rem;}"          # 위쪽 빈 공간 줄이기 (기본 6rem, 헤더 높이 약 3.75rem)
+            "[data-testid='stElementContainer']:has(> [data-testid='stMarkdown'] style):not(:has(p, h1, h2, h3, div[data-testid='stCaptionContainer'])){display:none;}</style>",
+            unsafe_allow_html=True)                              # CSS만 든 빈 칸은 숨겨 간격(16px)이 생기지 않게
+
+# 탭 상태 유지 + 고른 탭만 계산 (v1.65.0) — 예전 st.tabs는 화면 구성이 바뀌는 재실행 때 첫 탭으로 튀었음.
+# 고른 탭만 그리면 다른 탭 위젯 값은 Streamlit이 지우므로, 입력 위젯 값을 _keep에 보관했다가 그 탭으로 돌아올 때 되살림.
+# (버튼 · 내려받기 · 업로드 · 표 편집은 값을 넣을 수 없는 위젯이라 기록하지 않음)
+_WKEEP = ("selectbox", "multiselect", "radio", "slider", "select_slider", "checkbox", "toggle", "number_input", "text_input",
+          "text_area", "date_input", "time_input", "color_picker", "pills", "segmented_control")
+
+
+def _rec_key(name):
+    f = getattr(_DG, name)
+
+    def w(self, *a, **k):
+        if isinstance(k.get("key"), str):
+            st.session_state.setdefault("_wkeys", set()).add(k["key"])
+        return f(self, *a, **k)
+    setattr(_DG, name, w)
+    setattr(st, name, getattr(st._main, name))
+
+
+if not getattr(_DG, "_keep_patched", False):
+    for _n in _WKEEP:
+        if hasattr(_DG, _n):
+            _rec_key(_n)
+    _DG._keep_patched = True
+_KEEP = st.session_state.setdefault("_keep", {})
+for _k, _v in list(_KEEP.items()):
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
+
+
+def _keep_save():
+    ss = st.session_state
+    for k in list(st.session_state.get("_wkeys", ())):
+        if k in ss:
+            _KEEP[k] = ss[k]
+
+
+def _keep_forget(*keys):
+    """위젯 값을 지워 기본값으로 되돌릴 때는 보관본도 함께 지워야 함."""
+    for k in keys:
+        st.session_state.pop(k, None); _KEEP.pop(k, None)
 
 try:
     DARK = st.context.theme.type == "dark"
@@ -344,7 +388,9 @@ def _ui_apply():
 
 
 _ui_apply()
-tabs = st.tabs(["★ 구매 의사결정", "◆ 리스크 (VaR·꼬리)", "① 시장 구조·동조성", "①+ 요인 모형", "② 레짐", "③ 변동성·공분산", "④ 수익률 예측", "⑤ 포트폴리오", "⑥ 실험 결과", "⑦ 모델 도감", "⑧ 데이터·방법론", "⑨ 설정"])
+TAB_LABELS = ["★ 구매 의사결정", "◆ 리스크 (VaR·꼬리)", "① 시장 구조·동조성", "①+ 요인 모형", "② 레짐", "③ 변동성·공분산", "④ 수익률 예측", "⑤ 포트폴리오", "⑥ 실험 결과", "⑦ 모델 도감", "⑧ 데이터·방법론", "⑨ 설정"]
+_tdef = st.session_state.get("_test_tab")                                   # 헤드리스 테스트(AppTest)는 탭 상태를 보내지 않음 → 이 값으로 탭을 고름
+tabs = st.tabs(TAB_LABELS, key="main_tab", on_change="rerun", default=_tdef if _tdef in TAB_LABELS else None)
 
 # ============================================================================
 # ① 동조성
@@ -5957,47 +6003,107 @@ def tab_custom():
     if len(sel) > 1:
         w_eff = (w_user / w_user.sum()) if method == "직접 입력" else (pd.Series(1.0 / len(sel), sel) if method == "동일 비중" else W.mean())
         _frontier_section(X, w_eff, combo, float(tgt_v))
-    _groupcap_section()
+    _groupcap_section(X, W, method, w_user, float(tgt_v))
     st.caption("읽는 법: 각 재료는 이미 목표 변동성 10%로 맞춘 전략이라, 비중은 '위험을 얼마씩 나눠 주나'에 가까움. 기본값(MinVar 50 + 모멘텀 25 + 가치 25)이 롱숏 탭의 0.89 근처면 정상. "
                "대안 시계열·멀티모달 갈래는 단독 성과가 약하거나 기간이 짧아(2012-07~) 섞을 때 효과가 작음 — 상관이 낮으면 Sharpe가 약해도 혼합 낙폭을 줄일 수는 있음.")
 
 
 GCAP = {"없음": "없음 (기준)", "곡물 25% (권장)": "곡물 25%", "3품목군 25% (곡물 · 에너지 · 축산)": "곡물 25% + 에너지 25% + 축산 25%"}
+GCAP_RULE = {"없음": {}, "곡물 25% (권장)": {"곡물": 0.25}, "3품목군 25% (곡물 · 에너지 · 축산)": {"곡물": 0.25, "에너지": 0.25, "축산": 0.25}}
 
 
-def _groupcap_section():
-    """⑤ Portfolio Customization › 품목군 위험 한도 — 기본 혼합(MinVar 50 · 모멘텀 25 · 가치 25)의 품목별 순비중에 곡물 · 에너지 · 축산 합계 상한을 건 결과(strategy_groupcap.py 고정 결과)."""
-    fw, fc = A.DATA / "strategy_groupcap_weekly.parquet", A.DATA / "strategy_groupcap_compare.csv"
-    st.markdown("##### 품목군 위험 한도 — 곡물 · 에너지 · 축산 합계 비중 상한 (기본 혼합 50/25/25)")
-    if not (fw.exists() and fc.exists()):
-        st.info("결과가 없습니다 — `python strategy_groupcap.py`를 먼저 실행하세요."); return
-    Wk, C = pd.read_parquet(fw), pd.read_csv(fc, encoding="utf-8-sig").set_index("상한")
-    pick = st.radio("품목군 상한", list(GCAP), index=1, horizontal=True, key="cu_gcap",
-                    help="품목별 순비중에서 품목군 비중(절댓값 합)이 전체 노출의 25%를 넘으면 그 품목군만 비율대로 줄이고, 섞은 뒤 목표 10%로 다시 맞춤. "
-                         "곡물(옥수수 · 밀 · 대두 · 대두박 · 대두유) · 에너지(WTI · 난방유 · 휘발유 · 천연가스) · 축산(생우 · 돈육)")
-    rows = {}
-    for lab, col in GCAP.items():
-        r = Wk[col].loc["2008":].fillna(0); cum = (1 + r / 100).cumprod(); c_ = C.loc[col]
-        rows[lab] = {"연수익 (%)": r.mean() * 52, "연변동성 (%)": r.std() * np.sqrt(52), "Sharpe 2008–": c_["Sharpe 2008–"],
-                     "Sharpe 학습 2008–16": c_["Sharpe 학습 2008–16"], "Sharpe 시험 2017–": c_["Sharpe 시험 2017–"],
+@st.cache_data(show_spinner=False)
+def _itemw() -> dict:
+    """전략별 품목 비중 (strategy_itemw.py → data/frozen/itemw_{FROZEN_END}.pkl). 없으면 빈 사전."""
+    f = A.DATA / "frozen" / f"itemw_{FROZEN_END}.pkl"
+    return pd.read_pickle(f) if f.exists() else {}
+
+
+@st.cache_data(show_spinner=False)
+def _gcap_mine(Ws: pd.DataFrame, tgt: float, roll: bool) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """고른 전략 조합(전략 비중 Ws, _combine 결과)의 품목 순비중에 품목군 상한 3가지를 걸고 → 품목 손익(편도 5bp) → 목표 변동성 tgt로 다시 맞춤."""
+    import ls_strategies as LS
+    import strategy_groupcap as SG
+    import strategy_itemw as SI
+    Wi = _itemw()
+    L = _levels_frozen(roll)
+    Wit = SI.combine_items(Wi, Ws)
+    R = LS._ret(LS.weekly(L, list(Wit.columns), "2001-01-01")).reindex(columns=Wit.columns)
+    rows, wk = {}, {}
+    for lab, caps in GCAP_RULE.items():
+        W2 = Wit
+        for g, c in caps.items():
+            W2 = SG.cap_group(W2, SG.GROUPS[g], c)
+        raw = LS._book(W2, R, 5.0)
+        pv = raw.rolling(26, min_periods=13).std().shift(1) * np.sqrt(52)
+        sc = (tgt / pv).clip(upper=4.0 * tgt / 10.0).fillna(tgt / 10.0)
+        r = (raw * sc).reindex(Ws.index).dropna()
+        r = r[r.index >= r.ne(0).idxmax()]
+        cum = (1 + r / 100).cumprod(); g_ = [c for c in SG.GROUPS["곡물"] if c in W2]
+        sh = lambda x: float(x.mean() / x.std() * np.sqrt(52)) if len(x) > 26 and x.std() > 0 else np.nan  # noqa: E731
+        try:
+            vb = SG.var_by_group(W2.iloc[-1], L, float(sc.iloc[-1]))
+        except Exception:
+            vb = {"지금 20일 99% VaR (%)": np.nan, "VaR 기여 곡물 (%)": np.nan}
+        rows[lab] = {"연수익 (%)": r.mean() * 52, "연변동성 (%)": r.std() * np.sqrt(52), "Sharpe 전체": sh(r),
+                     "Sharpe 학습 ~2016": sh(r[r.index < "2017-01-01"]), "Sharpe 시험 2017–": sh(r[r.index >= "2017-01-01"]),
                      "최대 낙폭 (%)": float((cum / cum.cummax() - 1).min() * 100), "최악 1년 (%)": float(r.groupby(r.index.year).sum().min()),
-                     "지금 20일 99% VaR (%)": c_["지금 20일 99% VaR (%)"], "VaR 중 곡물 (%)": c_["VaR 기여 곡물 (%)"],
-                     "VaR 중 축산 (%)": c_["VaR 기여 축산 (%)"], "곡물 몫 평균 (%)": c_["곡물 몫 평균 (%)"]}
-    T = pd.DataFrame(rows).T
+                     "지금 20일 99% VaR (%)": vb["지금 20일 99% VaR (%)"], "VaR 중 곡물 (%)": vb["VaR 기여 곡물 (%)"],
+                     "곡물 몫 평균 (%)": float((W2[g_].abs().sum(1) / W2.abs().sum(1).replace(0, np.nan)).reindex(r.index).mean() * 100)}
+        wk[lab] = r
+    return pd.DataFrame(rows).T, pd.DataFrame(wk)
+
+
+def _groupcap_section(X: pd.DataFrame | None = None, Ws: pd.DataFrame | None = None, method: str = "", w_user=None, tgt: float = 10.0):
+    """⑤ Portfolio Customization › 품목군 위험 한도.
+    고른 전략이 모두 품목 비중을 가진 수치 전략이면 → 그 조합에 바로 적용(v1.65.0, strategy_itemw.py),
+    아니면 → 기본 혼합(MinVar 50 · 모멘텀 25 · 가치 25) 고정 결과(strategy_groupcap.py)."""
+    st.markdown("##### 품목군 위험 한도 — 곡물 · 에너지 · 축산 합계 비중 상한")
+    pick = st.radio("품목군 상한", list(GCAP), index=1, horizontal=True, key="cu_gcap",
+                    help="품목별 순비중에서 품목군 비중(절댓값 합)이 전체 노출의 25%를 넘으면 그 품목군만 비율대로 줄이고, 섞은 뒤 목표 변동성으로 다시 맞춤. "
+                         "곡물(옥수수 · 밀 · 대두 · 대두박 · 대두유) · 에너지(WTI · 난방유 · 휘발유 · 천연가스) · 축산(생우 · 돈육)")
+    Wi = _itemw()
+    miss = [c for c in (X.columns if X is not None else []) if c not in Wi]
+    live = X is not None and Ws is not None and len(Wi) > 0 and not miss
+    if live:
+        with st.spinner("고른 조합의 품목 비중에 상한을 거는 중… (조합마다 처음 한 번 10–30초)"):
+            T, Wk = _gcap_mine(Ws, float(tgt), ROLL)
+        st.caption(f"✅ **내 포트폴리오에 바로 적용** — 위에서 고른 전략 {X.shape[1]}개 · 비중 방식 '{method}' · 목표 변동성 {tgt:g}%. 전략별 품목 비중(저장본)을 같은 비중으로 합친 품목 순비중에 "
+                   "상한을 걸고 품목 단위로 다시 계산. '없음' 행도 품목 단위 재계산이라 위 표의 ★와 조금 다를 수 있음(전략끼리 반대 매매가 상쇄돼 거래비용이 줄어드는 몫).")
+    else:
+        fw, fc = A.DATA / "strategy_groupcap_weekly.parquet", A.DATA / "strategy_groupcap_compare.csv"
+        if not (fw.exists() and fc.exists()):
+            st.info("결과가 없습니다 — `python strategy_groupcap.py`를 먼저 실행하세요."); return
+        Wk0, C = pd.read_parquet(fw), pd.read_csv(fc, encoding="utf-8-sig").set_index("상한")
+        why = (f"품목 비중이 저장되지 않은 전략이 섞여 있음: {', '.join(m[:30] for m in miss[:4])}{' 외' if len(miss) > 4 else ''} "
+               "(대안 시계열 · 멀티모달 · 수익률끼리 섞은 혼합 전략은 품목 비중이 없음)") if miss else ("전략별 품목 비중 파일이 없음 — `python strategy_itemw.py` 실행" if not Wi else "")
+        st.caption(f"ℹ️ 기본 혼합(MinVar 50 · 모멘텀 25 · 가치 25, 목표 10%) 고정 결과를 보여 줌. {why}")
+        rows, Wk = {}, {}
+        for lab, col in GCAP.items():
+            r = Wk0[col].loc["2008":].fillna(0); cum = (1 + r / 100).cumprod(); c_ = C.loc[col]; Wk[lab] = r
+            rows[lab] = {"연수익 (%)": r.mean() * 52, "연변동성 (%)": r.std() * np.sqrt(52), "Sharpe 전체": c_["Sharpe 2008–"],
+                         "Sharpe 학습 ~2016": c_["Sharpe 학습 2008–16"], "Sharpe 시험 2017–": c_["Sharpe 시험 2017–"],
+                         "최대 낙폭 (%)": float((cum / cum.cummax() - 1).min() * 100), "최악 1년 (%)": float(r.groupby(r.index.year).sum().min()),
+                         "지금 20일 99% VaR (%)": c_["지금 20일 99% VaR (%)"], "VaR 중 곡물 (%)": c_["VaR 기여 곡물 (%)"], "곡물 몫 평균 (%)": c_["곡물 몫 평균 (%)"]}
+        T, Wk = pd.DataFrame(rows).T, pd.DataFrame(Wk)
     sel_, b_ = T.loc[pick], T.loc["없음"]
     m = st.columns(4)
     for k_, (lab, fmt) in enumerate([("Sharpe 시험 2017–", "{:.2f}"), ("최대 낙폭 (%)", "{:.1f}%"), ("지금 20일 99% VaR (%)", "{:.2f}%"), ("VaR 중 곡물 (%)", "{:.0f}%")]):
-        m[k_].metric(lab, fmt.format(sel_[lab]), None if pick == "없음" else f"{sel_[lab] - b_[lab]:+.2f}", delta_color="inverse" if "VaR" in lab else "normal")
-    st.dataframe(T.style.format("{:.2f}").apply(lambda s_: ["font-weight:600; background-color: rgba(46,125,82,0.12)" if s_.name == pick else "" for _ in s_], axis=1),
+        v_ = sel_[lab]
+        m[k_].metric(lab, "–" if pd.isna(v_) else fmt.format(v_), None if pick == "없음" or pd.isna(v_) else f"{v_ - b_[lab]:+.2f}",
+                     delta_color="inverse" if "VaR" in lab else "normal")
+    st.dataframe(T.style.format("{:.2f}", na_rep="–").apply(lambda s_: ["font-weight:600; background-color: rgba(46,125,82,0.12)" if s_.name == pick else "" for _ in s_], axis=1),
                  use_container_width=True)
     f = go.Figure()
-    for j, (lab, col) in enumerate(GCAP.items()):
-        r = Wk[col].loc["2008":].fillna(0)
+    for j, lab in enumerate(GCAP):
+        r = Wk[lab].fillna(0)
         f.add_trace(go.Scatter(x=r.index, y=r.cumsum(), name=lab, line=dict(width=2.6 if lab == pick else 1.2, color=[PAL[0], PAL[2], PAL[4]][j])))
-    st.plotly_chart(fig_layout(f, 320, title="누적 수익 (%, 로그 합) — 품목군 상한별", hovermode="x", legend=dict(orientation="h", y=-0.25)), key="cu_gcap_cum")
-    st.caption("결과 고정(2026-10-26 자료, `strategy_groupcap.py`): 곡물 25%는 수익을 거의 그대로 두고(시험 1.07 → 1.09, 차이 t 0.6 — 유의하지 않음) 지금 VaR 2.87 → 2.25%, "
+    st.plotly_chart(fig_layout(f, 320, title="누적 수익 (%, 로그 합) — 품목군 상한별" + (" · 내 포트폴리오" if live else " · 기본 혼합"), hovermode="x",
+                               legend=dict(orientation="h", y=-0.25)), key="cu_gcap_cum")
+    st.caption("기본 혼합 고정 결과(2026-10-26 자료, `strategy_groupcap.py`): 곡물 25%는 수익을 거의 그대로 두고(시험 1.07 → 1.09, 차이 t 0.6 — 유의하지 않음) 지금 VaR 2.87 → 2.25%, "
                "VaR 중 곡물 몫 62 → 34% — 스트레스 테스트에서 곡물이 위험의 절반이던 쏠림을 줄이는 위험 한도. 3품목군 25%는 낙폭이 −24.5 → −20.7%로 더 줄지만 시험 Sharpe 1.06. "
-               "축산만 15%로 강하게 막으면 오히려 손해(0.97) — 생우 · 돈육이 다른 원자재와 덜 엮여 분산 역할을 하기 때문. 상세: ⑥ 실험 결과 → '3축 신호 · 위험 한도 실험'.")
+               "축산만 15%로 강하게 막으면 오히려 손해(0.97) — 생우 · 돈육이 다른 원자재와 덜 엮여 분산 역할을 하기 때문. 다른 조합에서는 효과가 다를 수 있으니 위 표로 확인. "
+               "상세: ⑥ 실험 결과 → '3축 신호 · 위험 한도 실험'.")
 
 
 def _merged_table(PV: pd.DataFrame, fmt: str = "{:.1f}"):
@@ -6313,8 +6419,7 @@ def page_settings():
     d2.color_picker("사이드바 직접 고르기 색", sv["sb_custom"], key="ui_sb_custom", disabled=sbn != "직접 고르기" or UI_BG.get(nm) is None)
     st.checkbox("차트 바탕도 같은 배경색으로 (차트를 투명하게)", sv["chart"], key="ui_chart", disabled=UI_BG.get(nm) is None)
     if st.button("기본값으로 되돌리기", key="ui_reset"):
-        for k_ in ("ui_bg", "ui_bg_custom", "ui_sb", "ui_sb_custom", "ui_chart"):
-            st.session_state.pop(k_, None)
+        _keep_forget("ui_bg", "ui_bg_custom", "ui_sb", "ui_sb_custom", "ui_chart")
         try:
             UI_FILE.unlink()
         except Exception:
@@ -6335,4 +6440,8 @@ def page_atlas():
 
 for _t, _fn in zip(tabs, [page_procure, tab_risk, page_structure, page_factor, tab_regime, page_vol, page_predict, page_portfolio, tab_experiments, page_atlas, tab_data, page_settings]):
     with _t:
-        _fn()
+        if _t.open is not False:                                            # 고른 탭만 계산 (상태 추적이 꺼진 환경이면 None → 전부)
+            try:
+                _fn()
+            finally:
+                _keep_save()

@@ -73,7 +73,8 @@ html body .stApp::after { content: "유리 테마판"; position: fixed; right: 1
 @media (prefers-reduced-motion: reduce) { html body .stApp { animation: none; } }
 """
 
-_set_page_config = st.set_page_config
+_set_page_config = getattr(st, "_orig_set_page_config", st.set_page_config)   # 재실행마다 감싸기가 겹쳐 CSS가 쌓이던 문제 방지 (st 모듈은 재실행 사이 유지)
+st._orig_set_page_config = _set_page_config
 
 
 def _with_glass(*a, **k):                                   # app.py의 첫 화면 설정 직후에 유리 CSS를 넣음
