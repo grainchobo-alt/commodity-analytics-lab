@@ -2,7 +2,7 @@
 
 > 새 세션은 이 문서를 먼저 읽고 시작한다. 세션을 마칠 때는 **현재 상태 · 남은 과제 · 최근 결정**을 갱신하고 `CHANGELOG.md`에 버전을 추가한다.
 
-- **최종 갱신**: 2026-11-03 · **현재 버전**: v1.59.0 (git 태그) · 로컬 LLM 계층 `llm/`(도구 24개 = 대시보드 전 기능, 대조 테스트 `tests/test_llm_parity.py`, LangGraph 4계층 흐름 `llm/graph.py`, 보기 `docs/LLM_graph.html`, 평가 `llm/eval/`)(설계 `docs/LLM_설계.md`) · 발표 인터랙티브 HTML `docs/발표/원자재_퀀트_MI_발표_v4.html`(한 파일) · `_v4_web.zip`(폴더판, 전달용)(다시 만들기 `docs/발표/scripts/html_v4.py`) · 학습 노트 `docs/학습/모델도감_학습노트_v2.docx`(⑦ 도감 42개 + LSTM·GNN 심화 + 모델별 기호 풀이·파라미터 영향 표) · `블랙숄즈_학습노트.docx`(옵션 랩 해설)(다시 만들기 `docs/학습/scripts/build.py`) · 발표 PPT `docs/발표/원자재_퀀트_MI_발표_v1.pptx`(46장 상세)·`_v2`(10분판 14장)·`_v3`(18장)·`_v4`(22장, 최신) · 유리판 `_v4_유리.pptx`(`build.py v4 --glass`)( 10분 대본 `docs/발표/발표대본_v4.md`), git 제외, 다시 만들기 = `docs/발표/scripts/build.py v4` · push 전 `push_check.py` — HTML 변환 완료(v1.38.5)
+- **최종 갱신**: 2026-11-03 · **현재 버전**: v1.60.0 (git 태그) · 로컬 LLM 계층 `llm/`(도구 24개 = 대시보드 전 기능, 대조 테스트 `tests/test_llm_parity.py`, LangGraph 4계층 흐름 `llm/graph.py`, 보기 `docs/LLM_graph.html`, 평가 `llm/eval/`)(설계 `docs/LLM_설계.md`) · 발표 인터랙티브 HTML `docs/발표/원자재_퀀트_MI_발표_v4.html`(한 파일) · `_v4_web.zip`(폴더판, 전달용)(다시 만들기 `docs/발표/scripts/html_v4.py`) · 학습 노트 `docs/학습/모델도감_학습노트_v2.docx`(⑦ 도감 42개 + LSTM·GNN 심화 + 모델별 기호 풀이·파라미터 영향 표) · `블랙숄즈_학습노트.docx`(옵션 랩 해설)(다시 만들기 `docs/학습/scripts/build.py`) · 발표 PPT `docs/발표/원자재_퀀트_MI_발표_v1.pptx`(46장 상세)·`_v2`(10분판 14장)·`_v3`(18장)·`_v4`(22장, 최신) · 유리판 `_v4_유리.pptx`(`build.py v4 --glass`)( 10분 대본 `docs/발표/발표대본_v4.md`), git 제외, 다시 만들기 = `docs/발표/scripts/build.py v4` · push 전 `push_check.py` — HTML 변환 완료(v1.38.5)
 - **사용자**: 곡물·에너지·금속·운임을 다루는 **중간 트레이더**(직접 사용 X, 매입 후 재판매). 실무 의사결정 = **"언제, 얼마나 살까"** (숏 아님).
 - **저장소**: https://github.com/grainchobo-alt/commodity-analytics-lab (private, `main`) · 협업자 `seokhwan33`(write, 초대 발송)
 - **작업 폴더**: `C:\Users\user\Desktop\Commodity` (구 폴더 `Desktop\261013`에는 다른 프로젝트 공존 — 삭제 금지)
@@ -103,6 +103,7 @@
 7. `Desktop\261013` 폴더의 옛 원자재 파일 정리 (삭제는 사용자 확인 후에만).
 
 ## 7. 최근 결정 로그
+- 2026-11-04 (v1.60.0): 사용자 요청 — 위험 신호로 현금 피신(이자 0) → `strategy_cash.py` 신호 9종 모두 비유의, 낙폭 감소는 대부분 '덜 투자한 몫'(늘 70% 투자와 비슷). 미채택. 다음 후보: 단기 금리(DTB3) 이자 반영 · 목표 변동성 낮추기 비교.
 - 2026-11-04 (v1.59.0): 사용자 요청 — 칼만 · HMM · 뉴스 · DCC로 3축 비중 적응 → `strategy_adaptive.py` 시험에서 고정 대비 개선 없음(칼만은 학습만 우세). 50/25/25는 후보 14개 중 학습 1위로 고른 것(사후 선택 아님)으로 정정.
 - 2026-11-04 (v1.58.0): 사용자 제안 — 학습 2005–2016 전체로 연도별 사후 최적 축을 미리 읽는 레이어를 3축에 더하기 → `strategy_meta.py` 결과 적중률 무작위 수준 · 시험 Sharpe 개선 없음(위약 p 0.26) → 미채택. 3축 고정 비중 유지, 비교 기준에 동일 비중 병기.
 - 2026-11-04 (v1.57.0): 사용자 질문 — 연도별 투자선 최적 비중으로 자주 갈아타면 유리한가 → `strategy_switch.py` 백테스트 결과 전 규칙 열위(사후 투자선은 늘 이기지만 사전 추정은 되돌림). 비중 동적 전환은 채택 안 함, 기준선에 동일 비중 · 역변동성 병기 권장.
