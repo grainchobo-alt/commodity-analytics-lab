@@ -5187,17 +5187,7 @@ def tab_ls():
                                  "보유 주 비율": "{:.0%}", "바스켓과 상관": "{:+.2f}", "t값": "{:+.2f}", "위약 95%": "{:+.2f}"}, na_rep="–"),
                  height=min(38 * (len(T) + 1) + 3, 470))
     st.caption(f"전략 {len(T)}개 — 표 안에서 스크롤. ⑩ 혼합 후보 = ⑨ '사전 선택 검증'에서 2016년까지 학습 Sharpe 상위 조합(가치 1위 · 따라잡기 2위 · 칼만 페어 4위, 3위 왜도는 단독 성과가 약해 제외)")
-    sel = st.multiselect("누적 수익 비교", list(D.columns), [c for c in D.columns if c.startswith(("기준", "④ 시계열 모멘텀 52", "⑥ 혼합 · MinVar 70",
-                                                                                             "⑩ 혼합 후보 · MinVar 50 + 모멘텀 25 + 가치", "⑩ 혼합 후보 · MinVar 50 + 모멘텀 25 + 섹터"))], key="ls_sel")
-    norm_ = st.checkbox("변동성 10%로 맞춰 비교 (사후 배율 — 모양 비교용)", True, key="ls_norm")
-    if sel:
-        f = go.Figure()
-        for j, c in enumerate(sel):
-            r = D[c]
-            if norm_ and r.std() > 0:
-                r = r * (10 / (r.std() * np.sqrt(52)))
-            f.add_trace(go.Scatter(x=r.index, y=r.cumsum(), name=c, line=dict(width=2.2 if c.startswith("④ 시계열 모멘텀 52") else 1.3, color=PAL[j % 8])))
-        st.plotly_chart(shade(fig_layout(f, 380, title="누적 수익 (%, 로그 합)", hovermode="x"), D.index), key="ls_cum")
+    _ls_cum_section(D, float(cost))
     with st.expander("① 페어별 성과 · 스프레드 z 점수"):
         PB = o["pairs"].get("pairs_b")
         import procurement as PR
@@ -5261,13 +5251,7 @@ def tab_ls():
                "섞은 뒤 목표 변동성 10%로 맞추는 배율(직전 26주 실현 변동성)의 출발점만 다름. 여기는 2001년부터 이어진 배율을 쓰고, Customization은 고정 재료가 2007년부터라 "
                "2007년 초 약 반년(처음 13주 배율 1, 26주까지 짧은 창)을 새로 계산 → 2007년 중반 이후는 완전히 같음(상관 1.0, 처음 26주를 빼면 둘 다 0.896).")
     st.caption("목표 변동성을 10% 대신 5–50%로 바꾼 결과는 ⑤ 포트폴리오 › '목표변동성에 따른 수익율 변화 Backtest' 서브탭.")
-    DX = LX_["returns"]
-    selx = st.multiselect("누적 수익 비교 (⑨)", list(DX.columns), [c for c in DX.columns if c.startswith(("혼합 · MinVar 70 + 모멘텀 30", "혼합 · MinVar 70 + 칼만",
-                                                                                                     "V1", "S2", "K1 칼만 추세 (느림", "혼합 · MinVar 50 + 모멘텀 25 + 가치"))], key="ls_x_sel")
-    if selx:
-        f = go.Figure([go.Scatter(x=DX.index, y=DX[c].fillna(0).cumsum(), name=c, line=dict(width=2.2 if c.startswith("혼합 · MinVar 50 + 모멘텀 25 + 가치") else 1.3,
-                                                                                         color=PAL[j % 8])) for j, c in enumerate(selx)])
-        st.plotly_chart(shade(fig_layout(f, 380, title="누적 수익 (%, 모두 목표 변동성 10%)", hovermode="x"), DX.index), key="ls_x_cum")
+    st.caption("⑨ 전략의 누적 수익은 위 '누적 수익 비교'에서 묶음 = ⑨ 확장으로 고르면 같은 그림에 겹쳐 볼 수 있음.")
     with st.expander("사전 선택 검증 — 2016년까지 자료로만 혼합을 고르고 2017년 이후로 확인", expanded=True):
         SL = LX_["selection"]
         st.dataframe(SL.style.format("{:+.2f}"), height=min(36 * (len(SL) + 1) + 4, 470))
@@ -5298,15 +5282,13 @@ def tab_ls():
         st.dataframe(AT.set_index(["전략", "기간"]).style.format({c: "{:+.2f}" for c in AT.columns if c not in ("전략", "기간")}), height=min(36 * (len(AT) + 1) + 4, 470))
         pick_ = st.selectbox("기간별 분해 그림", list(key_s), 1, key="ls_ab_pick")
         q_ = AT[AT["전략"] == pick_]
-        f = go.Figure([go.Bar(x=q_["기간"], y=q_["시장 몫 = β×바스켓 (%)"], name="시장 몫 (β × 바스켓 수익)", marker_color="#898781"),
-                       go.Bar(x=q_["기간"], y=q_["알파 = 전략 몫 (연 %)"], name="전략 몫 (알파)", marker_color=PAL[2])])
-        st.plotly_chart(fig_layout(f, 300, barmode="relative", title=f"{pick_} — 연수익 = 시장 몫 + 전략 몫 (%)", hovermode="x"), key="ls_ab_fig")
         rw_lbl = st.radio("롤링 창", ["1년", "2년", "3년"], 1, horizontal=True, key="ls_ra_win", help="짧을수록 최근 변화에 민감(흔들림 큼), 길수록 장기 추세")
         rw = {"1년": 52, "2년": 104, "3년": 156}[rw_lbl]
         RA = LX.rolling_alpha(LX_["cands"][key_s[pick_]], LX_["bh"], rw).dropna()
         RB_ = LX.rolling_alpha(LX_["cands"][key_s["기존 MinVar 70 + 모멘텀 30"]], LX_["bh"], rw).dropna()
-        f = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.65, 0.35], vertical_spacing=0.07,
-                          subplot_titles=(f"{rw_lbl} 롤링 알파 (연 %, 시장 몫을 뺀 전략 몫) · 주황 점 = 그 {rw_lbl} 알파가 유의(|t| ≥ 2)", f"{rw_lbl} 롤링 베타 (원자재 시장을 탄 정도)"))
+        f = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.45, 0.2, 0.35], vertical_spacing=0.06,
+                          subplot_titles=(f"{rw_lbl} 롤링 알파 (연 %, 시장 몫을 뺀 전략 몫) · 주황 점 = 그 {rw_lbl} 알파가 유의(|t| ≥ 2)", f"{rw_lbl} 롤링 베타 (원자재 시장을 탄 정도)",
+                                          "기간별 연수익 = 시장 몫(회색, β × 바스켓) + 전략 몫(초록, 알파) — 막대 폭 = 그 기간"))
         f.add_trace(go.Scatter(x=RA.index, y=RA["알파 (연 %)"], name=pick_, line=dict(color=PAL[2], width=2)), 1, 1)
         if pick_ != "기존 MinVar 70 + 모멘텀 30":
             f.add_trace(go.Scatter(x=RB_.index, y=RB_["알파 (연 %)"], name="기존 70/30", line=dict(color="#898781", width=1.3)), 1, 1)
@@ -5314,7 +5296,17 @@ def tab_ls():
         f.add_trace(go.Scatter(x=RA.index[sig_], y=RA["알파 (연 %)"][sig_], mode="markers", marker=dict(size=4, color=PAL[1]), name="|t| ≥ 2 (유의)"), 1, 1)
         f.add_hline(y=0, line_color="#898781", row=1, col=1)
         f.add_trace(go.Scatter(x=RA.index, y=RA["베타"], name="베타", line=dict(color=PAL[0], width=1.5), showlegend=False), 2, 1)
-        st.plotly_chart(shade(fig_layout(f, 460, hovermode="x"), RA.index), key="ls_ra_fig")
+        for per_nm, (pa_, pb_) in LX.PERIODS.items():                       # 기간 분해 막대 (전체 기간 행은 제외)
+            q1 = q_[q_["기간"] == per_nm]
+            if per_nm.startswith("전체") or q1.empty:
+                continue
+            a0, b0 = pd.Timestamp(pa_), min(pd.Timestamp(pb_), RA.index.max())
+            mid, wd = a0 + (b0 - a0) / 2, (b0 - a0).total_seconds() * 1000 * 0.92
+            for col_, nm_, clr in [("시장 몫 = β×바스켓 (%)", "시장 몫", "#898781"), ("알파 = 전략 몫 (연 %)", "전략 몫 (알파)", PAL[2])]:
+                f.add_trace(go.Bar(x=[mid], y=[float(q1[col_].iloc[0])], width=[wd], name=nm_, marker_color=clr, showlegend=per_nm == "2007–2012",
+                                   hovertemplate=f"{per_nm} · {nm_} %{{y:+.1f}}%<extra></extra>"), 3, 1)
+        f.update_layout(barmode="relative")
+        st.plotly_chart(shade(fig_layout(f, 620, hovermode="x"), RA.index), key="ls_ra_fig")
         last_a, last_b = RA["알파 (연 %)"].iloc[-1], RA["베타"].iloc[-1]
         rec = RA["알파 (연 %)"].loc[RA.index >= RA.index[-1] - pd.DateOffset(years=2)].mean()
         prev = RA["알파 (연 %)"].loc[(RA.index < RA.index[-1] - pd.DateOffset(years=2)) & (RA.index >= RA.index[-1] - pd.DateOffset(years=6))].mean()
@@ -5333,25 +5325,29 @@ def tab_ls():
         X_ = PnL[st_nm].loc[a_:b_]
         yrs = max(len(X_) / 52, 1e-9)
         ct = (X_.sum() / yrs).rename(lambda i: PR.BUY_IDS.get(i, short(i))).sort_values()
-        f = go.Figure(go.Bar(x=ct.values, y=ct.index, orientation="h", marker_color=[PAL[2] if v > 0 else PAL[1] for v in ct.values],
-                             text=[f"{v:+.2f}" for v in ct.values], textposition="outside"))
-        st.plotly_chart(fig_layout(f, 120 + 24 * len(ct), title=f"{st_nm} · {per_} — 품목별 연평균 기여 (%p, 합계 {ct.sum():+.1f}%)", hovermode="y"), key="ls_ct_fig")
+        inv_ = {PR.BUY_IDS.get(i, short(i)): LX.SECTOR.get(i, "기타") for i in PnL[st_nm].columns}
         st.caption("기여 = 그 품목 비중 × 그 품목 수익률을 기간 동안 더해 연평균으로 (거래비용 제외, 목표 변동성 배율 반영). 혼합은 구성 전략의 품목 손익을 비율대로 더한 뒤 혼합 배율까지 반영.")
         Y_ = PnL[st_nm].loc["2007-01-01":].groupby(PnL[st_nm].loc["2007-01-01":].index.year).sum().T
         Y_.index = [PR.BUY_IDS.get(i, short(i)) for i in Y_.index]
         Y_ = Y_.loc[Y_.abs().sum(1).sort_values(ascending=False).index]
-        inv_ = {PR.BUY_IDS.get(i, short(i)): LX.SECTOR.get(i, "기타") for i in PnL[st_nm].columns}
         SEC = Y_.groupby(lambda nm: inv_.get(nm, "기타")).sum()
         SEC = SEC.loc[SEC.sum(1).sort_values(ascending=False).index]
         SEC.index = [f"▣ 섹터 · {i}" for i in SEC.index]
         Y_ = pd.concat([SEC, Y_])
         vmx = float(np.nanquantile(np.abs(Y_.values), 0.97)) or 1.0
-        fy = go.Figure(go.Heatmap(z=Y_.values, x=[str(c) for c in Y_.columns], y=list(Y_.index), zmin=-vmx, zmax=vmx, colorscale=DIV,
-                                  text=[[f"{v:+.1f}" for v in row] for row in Y_.values], texttemplate="%{text}", textfont=dict(size=9),
-                                  hovertemplate="%{y} · %{x}: %{z:+.2f}%p<extra></extra>", colorbar=dict(title="%p", thickness=12)))
+        sec_ct = ct.groupby(lambda nm: inv_.get(nm, "기타")).sum()
+        bar_v = [float(sec_ct.get(i.replace("▣ 섹터 · ", ""), 0.0)) if i.startswith("▣") else float(ct.get(i, 0.0)) for i in Y_.index]
+        fy = make_subplots(rows=1, cols=2, shared_yaxes=True, column_widths=[0.8, 0.2], horizontal_spacing=0.015,
+                           subplot_titles=("섹터 · 품목 × 연도 기여 (%p, 그해 합계)", f"{per_} 연평균 (%p)"))
+        fy.add_trace(go.Heatmap(z=Y_.values, x=[str(c) for c in Y_.columns], y=list(Y_.index), zmin=-vmx, zmax=vmx, colorscale=DIV,
+                                text=[[f"{v:+.1f}" for v in row] for row in Y_.values], texttemplate="%{text}", textfont=dict(size=9),
+                                hovertemplate="%{y} · %{x}: %{z:+.2f}%p<extra></extra>", colorbar=dict(title="%p", thickness=12, x=-0.12)), 1, 1)
+        fy.add_trace(go.Bar(x=bar_v, y=list(Y_.index), orientation="h", marker_color=[PAL[2] if v > 0 else PAL[1] for v in bar_v],
+                            text=[f"{v:+.2f}" for v in bar_v], textposition="outside", textfont=dict(size=9), showlegend=False,
+                            hovertemplate="%{y}: %{x:+.2f}%p/년<extra></extra>"), 1, 2)
         fy.add_hline(y=len(SEC) - 0.5, line_color="#898781", line_width=2)
-        fy.update_layout(title=f"{st_nm} — 섹터·품목 × 연도 기여 (%p, 그해 합계) · 위 ▣ = 섹터 합계, 아래 = 품목(기여 큰 순)", height=140 + 26 * len(Y_),
-                         margin=dict(l=10, r=10, t=40, b=10), yaxis=dict(autorange="reversed"), xaxis=dict(dtick=1, tickangle=-45, tickfont=dict(size=10)))
+        fy.update_layout(title=f"{st_nm} — 위 ▣ = 섹터 합계, 아래 = 품목(기여 큰 순) · 오른쪽 막대 = {per_} 연평균 기여 (합계 {ct.sum():+.1f}%)", height=160 + 26 * len(Y_),
+                         margin=dict(l=10, r=10, t=60, b=10), yaxis=dict(autorange="reversed"), xaxis=dict(dtick=1, tickangle=-45, tickfont=dict(size=10)))
         st.plotly_chart(fy, key="ls_ct_heat")
         tot_ = Y_.sum()
         st.caption("빨강 = 그해 이익을 낸 품목, 보라·파랑 = 손실. 연도별 합계: " + " · ".join(f"{y} {v:+.1f}" for y, v in tot_.items()))
@@ -5364,16 +5360,12 @@ def tab_ls():
                "모두 사전 목표 변동성 10% (직전 26주 실현 변동성으로 배율, 최대 4배)로 맞춰 같은 위험에서 비교. "
                "μ = IC 0.05 × 품목 변동성 × 52주 추세 부호 (Grinold 공식), 평균-분산 위험회피 λ = 5.")
     AL = _alloc_run(float(cost), ROLL)
-    k1, k2 = st.columns([1.25, 1])
     spa = [c for c in AL["table"].columns if c.startswith("Sharpe ~") or c.startswith("Sharpe 2")]
-    k1.dataframe(AL["table"].style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}",
+    st.dataframe(AL["table"].style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}",
                                            spa[0]: "{:+.2f}", spa[1]: "{:+.2f}", "t값": "{:+.2f}"}, na_rep="–"))
-    f = go.Figure()
-    for j, c in enumerate(AL["returns"].columns):
-        f.add_trace(go.Scatter(x=AL["returns"].index, y=AL["returns"][c].cumsum(), name=c, line=dict(color=PAL[j % 8], width=2 if "MinVar" in c else 1.2)))
-    k2.plotly_chart(fig_layout(f, 330, title="누적 수익 (%, 목표 변동성 10%)", hovermode="x", legend=dict(orientation="h", y=-0.35, font=dict(size=10))), key="ls_alloc")
     st.caption("최소분산은 변동성이 낮고 다른 품목과 덜 같이 움직이는 생우·금·돈육에 평균 19%·17%·12%를 두게 됨 → 이 기간 그 품목들이 강해 성과가 좋았지만 "
-               "소수 품목 집중의 결과일 수 있음. 평균-분산에 모멘텀 μ를 넣으면 추세 품목으로 몰려 오히려 나빠짐(낙폭 확대). 모멘텀은 롱숏 · 역변동성이 가장 안정적.")
+               "소수 품목 집중의 결과일 수 있음. 평균-분산에 모멘텀 μ를 넣으면 추세 품목으로 몰려 오히려 나빠짐(낙폭 확대). 모멘텀은 롱숏 · 역변동성이 가장 안정적. "
+               "누적 수익 = 위 '누적 수익 비교'에서 묶음 = ⑧ 비중 결정 방식.")
     with st.expander("크기 조정(변동성 사이징) 방식 · 창 길이 비교 — 과거 실현 손익 vs 현시점 Ledoit-Wolf 공분산"):
         SZ, WN = _sizing_run(float(cost), ROLL)
         st.markdown("**① 같은 상대 비중에 크기만 다르게** (목표 10%, 최대 4배)")
@@ -5394,13 +5386,9 @@ def tab_ls():
         spr = [c for c in RB.columns if c.startswith("Sharpe ~") or c.startswith("Sharpe 2")]
         st.dataframe(RB.style.format({"Sharpe": "{:+.2f}", "연수익 (%)": "{:+.2f}", "연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}", spr[0]: "{:+.2f}",
                                       spr[1]: "{:+.2f}", "t값": "{:+.2f}", "MinVar와 상관": "{:+.2f}"}, na_rep="–"), height=min(36 * (len(RB) + 1) + 4, 470))
-        f = go.Figure()
-        for j, c in enumerate([c for c in DB.columns if c.startswith(("MinVar (상한 25%", "MinVar — 생우·금·돈육", "MinVar (상한 15%", "모멘텀", "혼합"))]):
-            f.add_trace(go.Scatter(x=DB.index, y=DB[c].cumsum(), name=c, line=dict(color=PAL[j % 8], width=2.2 if c.startswith("혼합") else 1.3)))
-        st.plotly_chart(fig_layout(f, 320, title="누적 수익 (%, 모두 목표 변동성 10%)", hovermode="x"), key="ls_alloc_rb")
         st.caption("생우·금·돈육을 모두 빼면 MinVar Sharpe가 절반으로 떨어짐 → 성과의 상당 부분이 그 세 품목(이 기간 저변동·상승) 덕. "
                    "상한을 낮춰 집중을 줄이면 Sharpe가 단계적으로 내려감. MinVar와 모멘텀은 상관이 낮아(약 0.2) 섞으면 하위기간 간 차이가 줄어듦 — "
-                   "혼합 비율 = 두 전략(각 변동성 10%)에 주는 비중, 섞은 뒤 다시 10%로 배율.")
+                   "혼합 비율 = 두 전략(각 변동성 10%)에 주는 비중, 섞은 뒤 다시 10%로 배율. 누적 수익 = 위 '누적 수익 비교'에서 묶음 = MinVar 강건성.")
     _sig_bt_section()
 
 
@@ -5453,6 +5441,49 @@ def _sig_metrics() -> pd.DataFrame:
                      "최대낙폭 (%)": float((cum / cum.cummax() - 1).min() * 100), "Sharpe 학습 2008–16": sh(x.loc[:"2016"]), "Sharpe 시험 2017–": sh(x.loc["2017":]),
                      "t값": sh(x) * np.sqrt(len(x) / 52), "MinVar와 상관": float(x.corr(mv.reindex(x.index))), "기준 대비 시험 차이 t": r["시험 차이 t"]})
     return pd.DataFrame(rows)
+
+
+LS_BASE_COL = "혼합 · MinVar 50 + 모멘텀 25 + 가치 25 (사후 선택 주의)"
+
+
+def _ls_cum_section(D: pd.DataFrame, cost: float):
+    """⑤ 롱숏 탭 통합 누적 수익: ①–⑦ 표 · ⑨ 확장 · ⑧ 비중 방식 · MinVar 강건성 · ⑪ 3축 추가 백테스트 규칙을 한 그림에서 (기준 50/25/25 점선 고정)."""
+    LX_ = _lx_run(cost, ROLL); AL = _alloc_run(cost, ROLL); _, DB = _alloc_robust(cost, ROLL)
+    G = {"①–⑦ 기본 전략 (위 표)": (D, "ls_sel", [c for c in D.columns if c.startswith(("기준", "④ 시계열 모멘텀 52", "⑥ 혼합 · MinVar 70",
+                                                                                       "⑩ 혼합 후보 · MinVar 50 + 모멘텀 25 + 가치", "⑩ 혼합 후보 · MinVar 50 + 모멘텀 25 + 섹터"))]),
+         "⑨ 확장 (칼만 · 상대가치)": (LX_["returns"], "ls_x_sel", [c for c in LX_["returns"].columns if c.startswith(("혼합 · MinVar 70 + 모멘텀 30", "혼합 · MinVar 70 + 칼만", "V1", "S2", "K1 칼만 추세 (느림"))]),
+         "⑧ 비중 결정 방식": (AL["returns"], "ls_al_sel", list(AL["returns"].columns)),
+         "MinVar 강건성": (DB, "ls_rb_sel", [c for c in DB.columns if c.startswith(("MinVar (상한 25%", "MinVar — 생우·금·돈육", "MinVar (상한 15%", "모멘텀", "혼합"))])}
+    fp = A.DATA / "strategy_rules_weekly.parquet"
+    if fp.exists():
+        W_ = pd.read_parquet(fp).astype(float); R_ = _sig_rows()
+        R_ = R_[R_["키"].isin(W_.columns) & ~R_["기준"]]
+        lab = {k: f"{e.split(' ')[0]} · {n[:60]}{' ◆' if b else ''}" for k, e, n, b in zip(R_["키"], R_["실험"], R_["규칙"], R_["학습 최고"] == "◆")}
+        RW = W_[list(lab)].rename(columns=lab)
+        RW = RW.loc[:, ~RW.columns.duplicated()]
+        G["⑪ 3축 추가 백테스트 규칙"] = (RW, "ls_rule_sel", [c for c in RW.columns if c.endswith("◆")][:4])
+    st.markdown("##### 누적 수익 비교 — 이 탭의 모든 전략을 한 그림에서")
+    c1, c2 = st.columns([2, 1])
+    grp = c1.radio("전략 묶음", list(G), horizontal=True, key="ls_cum_grp")
+    per = c2.radio("기간", ["전체", "학습 ~2016", "시험 2017~"], horizontal=True, key="ls_cum_per")
+    X, k_, dflt = G[grp]
+    sel = st.multiselect(f"{grp} — 겹쳐 볼 전략", list(X.columns), [c for c in dflt if c in X.columns], key=k_)
+    norm_ = st.checkbox("변동성 10%로 맞춰 비교 (사후 배율 — 모양 비교용)", True, key="ls_norm")
+    base = LX_["returns"].get(LS_BASE_COL)
+    lo, hi = {"전체": ("2007-01-01", None), "학습 ~2016": ("2007-01-01", "2016-12-31"), "시험 2017~": ("2017-01-01", None)}[per]
+    f = go.Figure()
+    for j, c in enumerate(sel):
+        r = X[c].loc[lo:hi].fillna(0)
+        if norm_ and r.std() > 0:
+            r = r * (10 / (r.std() * np.sqrt(52)))
+        f.add_trace(go.Scatter(x=r.index, y=r.cumsum(), name=c[:60], line=dict(width=1.5, color=PAL[j % 8])))
+    if base is not None:
+        b = base.loc[lo:hi].fillna(0)
+        f.add_trace(go.Scatter(x=b.index, y=b.cumsum(), name="기준 · 3축 혼합 50/25/25", line=dict(width=2.6, dash="dash", color="#e8e6e1" if DARK else "#0b0b0b")))
+    st.plotly_chart(shade(fig_layout(f, 400, title=f"누적 수익 (%, 로그 합) · {grp} · {per} — 점선 = 기준 50/25/25", hovermode="x",
+                                     legend=dict(orientation="h", y=-0.25, font=dict(size=10))), base.loc[lo:hi].index if base is not None else D.index), key="ls_cum")
+    st.caption("예전에는 ①–⑦ · ⑨ · ⑧ · MinVar 강건성 표마다 누적 수익 그림이 따로 있었음 → 한 그림으로 합침. 기간을 바꾸면 그 구간 시작을 0으로 다시 쌓음. "
+               "⑪ 규칙의 ◆ = 그 실험에서 학습 성적이 가장 좋은 규칙.")
 
 
 def _sig_bt_section():
