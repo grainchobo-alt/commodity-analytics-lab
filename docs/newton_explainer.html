@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>뉴턴-랩슨 vs 경사하강 · 포트폴리오 최적화 해설</title>
+<style>
+:root{--bg:#f7f8fa;--card:#fff;--ink:#1b2430;--mut:#5d6b7c;--line:#dde3ea;--a:#2563eb;--b:#e5532d;--c:#14966a;--warn:#b7791f}
+@media (prefers-color-scheme:dark){:root{--bg:#10151c;--card:#171e28;--ink:#e6ebf2;--mut:#93a1b3;--line:#2a3442;--a:#6ea0ff;--b:#ff8a63;--c:#4cd3a0;--warn:#e8b45a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 "Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif}
+main{max-width:1020px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:24px;margin:8px 0 4px}h2{font-size:19px;margin:34px 0 8px;border-left:4px solid var(--a);padding-left:10px}
+h3{font-size:16px;margin:18px 0 6px}
+p{margin:6px 0}.mut{color:var(--mut)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+.grid{display:grid;gap:12px;grid-template-columns:1fr 1fr}@media(max-width:760px){.grid{grid-template-columns:1fr}}
+code,.m{font-family:Consolas,"Courier New",monospace;background:rgba(127,127,127,.14);padding:1px 5px;border-radius:4px}
+.eq{font-family:Cambria,"Times New Roman",serif;font-size:17px;text-align:center;margin:10px 0;overflow-x:auto;white-space:nowrap}
+canvas{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--card);display:block}
+.ctl{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;margin:8px 0;font-size:14px}
+.ctl label{display:flex;align-items:center;gap:6px}.ctl input[type=range]{width:150px}
+.pill{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;color:#fff}
+.gd{background:var(--b)}.nt{background:var(--a)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{color:var(--mut);font-weight:600}
+.ok{color:var(--c);font-weight:700}.no{color:var(--b);font-weight:700}.wn{color:var(--warn);font-weight:700}
+.sum li{margin:4px 0}
+</style>
+</head>
+<body>
+<main>
+<h1>뉴턴-랩슨 vs 경사하강 — 포트폴리오 최적화 해설</h1>
+<p class="mut">원자재 대시보드의 ⑤ 포트폴리오 탭에서 쓰는 최적화가 어떤 방식인지, 변수가 3개 이상일 때 어떻게 되는지, 경사하강과 무엇이 다른지를 직접 움직여 보며 확인하는 페이지입니다. (이 파일 하나로 열리며 인터넷이 필요 없습니다.)</p>
+
+<div class="card sum">
+<b>먼저 결론 3줄</b>
+<ol>
+<li><b>"μ와 MinVar 두 개 사이의 조합"은 변수 개수와 상관이 없습니다.</b> 평균-분산은 <span class="m">품목 N개 비중 w 전체</span>(N차원 벡터)를 한 번에 푸는 문제입니다. 모멘텀·칼만 페어 같은 신호는 변수로 늘어나는 것이 아니라 기대수익 <span class="m">μ</span>를 만드는 재료입니다. 위험회피계수 λ가 μ를 얼마나 믿을지(MinVar ↔ 순수 수익 추구)를 정합니다.</li>
+<li><b>우리 코드의 Newton은 '바스켓 포트폴리오' 계산에 씁니다</b>(<code>portfolio.py</code>의 <code>newton_mv</code>, <code>newton_risk_parity</code>). Portfolio Customization에서 <b>전략 3개 이상을 섞을 때</b>는 Newton이 아니라 직접·동일·역변동성·최소분산(SLSQP)·Sharpe 비례 방식으로 전략 비중을 정합니다(<code>app.py</code>의 <code>_combine</code>).</li>
+<li><b>경사하강은 기울기만, 뉴턴은 기울기 + 곡률(헤시안)을 씁니다.</b> 위험 행렬 Σ가 비뚤어져 있을수록(상관이 높을수록) 경사하강은 지그재그로 느려지고, 뉴턴은 곡률로 보정해 몇 번 만에 도착합니다.</li>
+</ol>
+</div>
+
+<h2>① 평균-분산 문제를 N차원으로 보기</h2>
+<p>한 시점의 목표는 아래와 같습니다. w는 N개 품목의 비중, μ는 기대수익 벡터, Σ는 공분산 행렬입니다.</p>
+<div class="eq">max<sub>w</sub> &nbsp; μ′w − (λ/2)·w′Σw − Σ<sub>i</sub> c<sub>i</sub>·|w<sub>i</sub> − w<sub>i</sub><sup>0</sup>| &nbsp;&nbsp;(Σw = 1, w ≥ 0)</div>
+<p>제약이 없다면 정답은 한 줄입니다: <b>w* = (1/λ)·Σ<sup>−1</sup>μ</b>. 여기서 λ가 커지면 μ의 영향이 작아져 <b>최소분산(MinVar)</b>에 가까워지고, λ가 작으면 μ가 큰 품목에 몰립니다. 합이 1이라는 제약 아래에서는 이 해가 "MinVar 포트폴리오 + μ를 반영한 투기 포트폴리오"의 두 덩어리 조합이 되는데(Two-Fund), 이것이 "두 개 사이의 조합"이라는 기억의 출처입니다. 품목이 3개든 19개든, 신호가 하나든 다섯이든 같은 식입니다.</p>
+<h3>신호가 여러 개일 때 (모멘텀 + 칼만 페어 + 가치 …)</h3>
+<ul>
+<li><b>방법 A. 신호를 μ에 합치기:</b> μ = Σ<sub>k</sub> θ<sub>k</sub>·(신호 k의 기대수익 환산). 변수는 여전히 w (N개). 우리 바스켓 탭이 이 방식입니다(모멘텀 신호 IC로 μ 환산).</li>
+<li><b>방법 B. 전략을 자산처럼 다루기:</b> 전략 K개의 수익률을 "자산 K개"로 보고, 전략 비중 K개를 같은 평균-분산으로 푸는 것. Portfolio Customization이 이쪽인데, 최적화 대신 단순 규칙(동일·역변동성·MinVar·Sharpe 비례)을 씁니다. 전략 수익률의 μ 추정이 불안정하기 때문입니다.</li>
+</ul>
+<p class="mut">참고: 변수가 늘면 <b>Σ가 N×N</b>으로 커지고 추정 오차가 폭발합니다. 이 때문에 우리 코드는 모든 곳에서 Ledoit-Wolf 수축 공분산을 씁니다(표본 공분산 S를 단순한 목표 행렬 F 쪽으로 δ만큼 당겨 줌, Σ̂ = δF + (1−δ)S, 평균 δ ≈ 0.16).</p>
+
+<h2>② 경사하강 vs 뉴턴 — 직접 움직여 보기</h2>
+<p>두 자산의 "위험" 곡면입니다(타원 모양 등고선, 가운데가 최적점). 상관이 높을수록 타원이 길쭉해집니다(조건수 κ가 커짐). <span class="pill gd">경사하강</span>은 가장 가파른 방향으로 일정 보폭씩, <span class="pill nt">뉴턴</span>은 곡면의 곡률을 반영한 방향으로 갑니다. 캔버스를 클릭하면 출발점이 바뀝니다.</p>
+<div class="card">
+<div class="ctl">
+<label>조건수 κ(길쭉함) <input id="kap" type="range" min="1" max="200" value="30"><b id="kapv">30</b></label>
+<label>기울기(회전) <input id="rot" type="range" min="0" max="90" value="35"><b id="rotv">35°</b></label>
+<label>경사하강 보폭(×1/L) <input id="lr" type="range" min="2" max="204" value="100"><b id="lrv">1.00</b></label>
+<label>비선형 정도 <input id="nl" type="range" min="0" max="100" value="0"><b id="nlv">0</b></label>
+<label>반복 횟수 <input id="it" type="range" min="0" max="60" value="12"><b id="itv">12</b></label>
+</div>
+<div class="grid">
+<div><canvas id="c2d" width="520" height="420"></canvas></div>
+<div><canvas id="cconv" width="520" height="420"></canvas></div>
+</div>
+<p id="note2" class="mut"></p>
+</div>
+<p><b>읽는 법.</b> 왼쪽: 주황 점선=경사하강 경로, 파랑 실선=뉴턴 경로. 오른쪽: 반복마다 남은 오차(로그). 뉴턴은 직선에 가깝게 떨어지고, 경사하강은 κ가 클수록 완만하게 줄어듭니다. 보폭을 2/L 근처로 키우면 경사하강이 발산합니다. 비선형 정도를 올리면 뉴턴도 한 번에 끝나지 않고 몇 번 반복합니다(이차식일 때만 1번).</p>
+
+<h3>두 방법의 한 줄 차이</h3>
+<div class="eq">경사하강: &nbsp; x<sub>k+1</sub> = x<sub>k</sub> − α·∇f(x<sub>k</sub>) &nbsp;&nbsp;&nbsp;&nbsp; 뉴턴: &nbsp; x<sub>k+1</sub> = x<sub>k</sub> − [∇²f(x<sub>k</sub>)]<sup>−1</sup>·∇f(x<sub>k</sub>)</div>
+<table>
+<tr><th></th><th>경사하강</th><th>뉴턴-랩슨</th></tr>
+<tr><td>쓰는 정보</td><td>기울기(1차 미분)</td><td>기울기 + 헤시안(2차 미분)</td></tr>
+<tr><td>평균-분산에서 헤시안</td><td colspan="2">−λΣ (거래비용·배리어 항이 더해짐) — 이미 공분산을 알고 있으니 공짜에 가깝습니다</td></tr>
+<tr><td>보폭</td><td>직접 정해야 함(너무 크면 발산, 작으면 느림)</td><td>자동(곡률이 정함). 안전하게 줄이는 백트래킹만 사용</td></tr>
+<tr><td>수렴 속도</td><td>선형(κ가 크면 느림)</td><td>해 근처에서 2차(자릿수가 매 반복 2배)</td></tr>
+<tr><td>반복당 비용</td><td>작음 O(N²)</td><td>큼 O(N³) — 품목 19개라면 무시할 수준</td></tr>
+<tr><td>유리한 곳</td><td>변수가 수만 개 이상(딥러닝)</td><td>변수 수십 개, 헤시안이 있는 문제(포트폴리오)</td></tr>
+</table>
+<p class="mut">Ridge·Lasso·LSTM 같은 모델 학습에는 변수가 많아 경사하강류(Adam 등)를 씁니다. 포트폴리오 비중은 변수가 19개 안팎이라 뉴턴이 훨씬 정확하고 빠릅니다.</p>
+
+<h2>③ 제약(합 100%, 롱온리)은 어떻게 푸나 — 배리어 + 뉴턴</h2>
+<p>"w ≥ 0"을 그대로 두면 뉴턴을 쓸 수 없어서, 경계에 가까울수록 값이 −∞로 떨어지는 <b>로그 배리어</b> τ·Σlog w<sub>i</sub>를 목적함수에 더합니다. τ를 크게 시작해 점점 줄이면(1e-3 → 1e-12) 해가 경계(0 비중)까지 부드럽게 따라갑니다. "합 = 1"은 KKT 연립방정식에 한 줄을 더해 매 반복 지킵니다(우리 <code>newton_mv</code>가 이 방식, 내부점법).</p>
+<div class="card">
+<div class="ctl"><label>배리어 강도 τ(로그) <input id="tau" type="range" min="-8" max="-1" value="-2" step="0.1"><b id="tauv"></b></label>
+<label>기대수익 μ <input id="mu1" type="range" min="-4" max="8" value="3" step="0.1"><b id="mu1v"></b>%</label></div>
+<canvas id="cbar" width="1000" height="300"></canvas>
+<p id="barnote" class="mut"></p>
+</div>
+<p class="mut">1차원 예시: 품목 하나의 비중 w를 0~1 사이에서 정합니다(나머지 비중은 변동성이 다른 다른 품목). μ가 작거나 음수면 배리어 없는 해가 w&lt;0(공매도)이지만 롱온리에서는 0 쪽 경계로 밀립니다.</p>
+
+<h2>④ 3개 품목으로 직접 풀어 보기 (Newton, 롱온리)</h2>
+<p>대두·구리·금처럼 3개 품목을 가정하고, 실제 코드와 같은 방식(배리어 + 등식제약 KKT 뉴턴)을 이 페이지 안에서 계산합니다. 품목이 늘어도 방식은 같고 행렬 크기만 커집니다.</p>
+<div class="card">
+<div class="ctl">
+<label>μ₁(대두) <input id="m1" type="range" min="-5" max="15" value="6" step="0.5"><b id="m1v"></b>%</label>
+<label>μ₂(구리) <input id="m2" type="range" min="-5" max="15" value="4" step="0.5"><b id="m2v"></b>%</label>
+<label>μ₃(금) <input id="m3" type="range" min="-5" max="15" value="3" step="0.5"><b id="m3v"></b>%</label>
+<label>상관 ρ <input id="rho" type="range" min="-20" max="90" value="40"><b id="rhov"></b></label>
+<label>위험회피 λ <input id="lam" type="range" min="1" max="60" value="8" step="1"><b id="lamv"></b></label>
+</div>
+<div class="grid">
+<div><canvas id="cw" width="520" height="320"></canvas></div>
+<div><canvas id="cfr" width="520" height="320"></canvas></div>
+</div>
+<div id="itlog" class="mut" style="font-size:13px"></div>
+</div>
+<p>변동성은 대두 20%, 구리 25%, 금 15%로 고정했습니다. 막대는 위에서부터 <b>평균-분산(Newton)</b>, <b>MinVar</b>(μ를 안 믿는 극단), <b>리스크 패리티</b>(μ를 안 쓰고 위험기여만 균등)입니다. 오른쪽은 λ를 바꿔 가며 그린 위험-수익 곡선(효율적 투자선)이고 점이 현재 λ입니다. μ를 조금만 바꿔도 평균-분산 비중이 크게 흔들리는데, 이것이 원자재처럼 예측력이 약한 자산에서 리스크 패리티가 실전에 강한 이유입니다.</p>
+
+<h2>⑤ 우리 프로젝트에서 어디에 무엇을 쓰고 있나</h2>
+<table>
+<tr><th>위치</th><th>방법</th><th>최적화 도구</th></tr>
+<tr><td>⑤ 바스켓 포트폴리오(품목 단위)</td><td>평균-분산(비용 포함), 리스크 패리티, 리스크 버짓, 1/N</td><td>내부점 Newton(<code>newton_mv</code>), Spinu Newton(<code>newton_risk_parity</code>)</td></tr>
+<tr><td>⑤ Portfolio Customization(전략 단위)</td><td>직접 · 동일 · 역변동성 · 최소분산 · Sharpe 비례</td><td>최소분산만 SLSQP(<code>scipy</code>), 나머지는 닫힌 식</td></tr>
+<tr><td>효율적 투자선 그림</td><td>전략들로 만든 투자선·최소분산·최대 Sharpe</td><td>SLSQP(<code>_frontier_calc</code>)</td></tr>
+<tr><td>공분산 추정</td><td>Ledoit-Wolf 수축(기본), EWMA·HAR·MIDAS 변동성 교체 옵션</td><td><code>sklearn.covariance.LedoitWolf</code></td></tr>
+</table>
+<p class="mut">SLSQP는 "순차 이차계획"으로 헤시안을 BFGS로 근사하는 준-뉴턴 계열입니다. 헤시안을 직접 계산하는 순수 뉴턴과 경사하강의 중간쯤입니다.</p>
+
+<h2>⑥ 이미 해 본 백테스트 vs 아직 안 한 것</h2>
+<table>
+<tr><th>항목</th><th>상태</th><th>근거</th></tr>
+<tr><td>Ledoit-Wolf 수축 공분산</td><td class="ok">사용 중, 효과 점검 있음</td><td>전 구간 기본값. 수축 강도 δ 평균 0.16(0.09~0.30). 크기 조정에서 과거 실현 손익 vs 현시점 LW 비교(MinVar 0.73 vs 0.60 → 기존 방식 유지)</td></tr>
+<tr><td>리스크 패리티</td><td class="ok">있음</td><td>주간 모멘텀 롱숏 기준 Sharpe: 최적화(Newton) 0.37 / 리스크 패리티 0.57 / 리스크 버짓 0.62 / 1/N 0.47. Ridge 신호에서는 0.38 / 0.35 / 0.40 / 0.35로 차이가 작음. 일간 모멘텀은 모두 0.1 안팎</td></tr>
+<tr><td>3축 혼합(MinVar·모멘텀·가치)</td><td class="ok">있음</td><td>고정 50/25/25 시험 Sharpe 1.07. 적응형·메타·갈아타기 모두 미채택(<code>docs/백테스트_로그.md</code> A~L)</td></tr>
+<tr><td>Black-Litterman 방식</td><td class="wn">부분</td><td><code>strategy_adaptive.py</code>가 "기본 50/25/25가 최적이 되는 기대수익을 신호 쪽으로 이동"하는 BL 방식을 이미 시험 → 고정 대비 개선 없음. 사용자 본인 view는 아직 없음</td></tr>
+<tr><td>Fama-French식 요인 모형 × 포트폴리오</td><td class="no">아직 없음</td><td>패널 탭에 Fama-MacBeth 추론(<code>panel_factors_*.csv</code>)은 있으나 포트폴리오로 이어지지 않음. FAVAR·PCA는 분석 탭이고 PCA 잔차 차익만 −0.09로 미채택. 모멘텀·가치 축은 사실상 원자재 요인 포트폴리오(Asness 등)이므로 "요인 노출 분해" 형태로 묶는 것이 다음 후보</td></tr>
+</table>
+<p class="mut">정리: 요인 모형과의 혼합 백테스트는 새로 만들어야 합니다. 후보 설계: (1) PCA 요인 수익률을 위험 모형으로 써서 Σ를 요인 구조로 대체(Ledoit-Wolf와 비교), (2) 3축 수익률을 모멘텀·가치·시장(캐리) 요인으로 회귀해 노출을 보고 위험 한도 설정, (3) 요인 중립 전략과 비교. 시험 시 학습 2008~2016 / 시험 2017~, 비용 5bp, 위약 비교를 그대로 적용합니다.</p>
+</main>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function fit(c){const r=c.getBoundingClientRect(),d=window.devicePixelRatio||1;const w=Math.max(280,Math.round(r.width||c.width));const h=Math.round(w*c.height/c.width);c.style.height=h+'px';c.width=w*d;c.height=h*d;const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);return[x,w,h]}
+function text(x,s,px,py,col,size,al){x.fillStyle=col||css('--ink');x.font=(size||12)+'px sans-serif';x.textAlign=al||'left';x.fillText(s,px,py)}
+
+/* ---------- ② 2D 곡면 ---------- */
+let start=[-2.3,2.0];
+function model(){
+  const k=+$('kap').value,th=+$('rot').value*Math.PI/180,nl=+$('nl').value/100*0.6;
+  const c=Math.cos(th),s=Math.sin(th);
+  // A = R diag(1,k) R'
+  const A=[[c*c+k*s*s,(1-k)*c*s],[(1-k)*c*s,s*s+k*c*c]];
+  const L=Math.max(1,k);
+  const f=p=>0.5*(p[0]*(A[0][0]*p[0]+A[0][1]*p[1])+p[1]*(A[1][0]*p[0]+A[1][1]*p[1]))+nl*(p[0]**4+p[1]**4)/4;
+  const g=p=>[A[0][0]*p[0]+A[0][1]*p[1]+nl*p[0]**3,A[1][0]*p[0]+A[1][1]*p[1]+nl*p[1]**3];
+  const H=p=>[[A[0][0]+3*nl*p[0]**2,A[0][1]],[A[1][0],A[1][1]+3*nl*p[1]**2]];
+  return{f,g,H,L,k};
+}
+function runs(M,n){
+  const al=(+$('lr').value/100)/M.L;
+  let a=start.slice(),b=start.slice();const pa=[a.slice()],pb=[b.slice()];
+  for(let i=0;i<n;i++){
+    const ga=M.g(a);a=[a[0]-al*ga[0],a[1]-al*ga[1]];
+    if(!isFinite(a[0])||Math.abs(a[0])>1e6||Math.abs(a[1])>1e6){a=[NaN,NaN]}
+    pa.push(a.slice());
+    const gb=M.g(b),h=M.H(b),det=h[0][0]*h[1][1]-h[0][1]*h[1][0];
+    const d=[(h[1][1]*gb[0]-h[0][1]*gb[1])/det,(-h[1][0]*gb[0]+h[0][0]*gb[1])/det];
+    b=[b[0]-d[0],b[1]-d[1]];pb.push(b.slice());
+  }
+  return{pa,pb,al};
+}
+function draw2d(){
+  const M=model(),n=+$('it').value,R=runs(M,60);
+  $('kapv').textContent=$('kap').value;$('rotv').textContent=$('rot').value+'°';$('lrv').textContent=(+$('lr').value/100).toFixed(2);$('nlv').textContent=$('nl').value;$('itv').textContent=n;
+  const [x,w,h]=fit($('c2d'));const D=3,sx=p=>(p[0]+D)/(2*D)*w,sy=p=>h-(p[1]+D)/(2*D)*h;
+  const img=x.createImageData(Math.floor(w),Math.floor(h));
+  const dark=matchMedia('(prefers-color-scheme:dark)').matches;
+  for(let j=0;j<img.height;j++)for(let i=0;i<img.width;i++){
+    const p=[i/w*2*D-D,(h-j)/h*2*D-D];const v=Math.log10(M.f(p)+1e-9);
+    const band=Math.floor(v*2.2),t=((v+3)/7);const sh=(band%2===0)?0:6;
+    const base=dark?[28,38,52]:[236,242,250];const hi=dark?[70,110,170]:[120,160,225];
+    const q=Math.max(0,Math.min(1,1-t));const o=(j*img.width+i)*4;
+    for(let ch=0;ch<3;ch++)img.data[o+ch]=base[ch]+(hi[ch]-base[ch])*q*0.9+(sh*(dark?1:-1));
+    img.data[o+3]=255;
+  }
+  x.putImageData(img,0,0);
+  const path=(P,col,dash)=>{x.strokeStyle=col;x.lineWidth=2;x.setLineDash(dash||[]);x.beginPath();let st=false;for(let i=0;i<=n;i++){const p=P[i];if(!isFinite(p[0])||Math.abs(p[0])>D*2||Math.abs(p[1])>D*2){break}const X=sx(p),Y=sy(p);if(!st){x.moveTo(X,Y);st=true}else x.lineTo(X,Y)}x.stroke();x.setLineDash([]);
+    for(let i=0;i<=n;i++){const p=P[i];if(!isFinite(p[0])||Math.abs(p[0])>D*2)break;x.fillStyle=col;x.beginPath();x.arc(sx(p),sy(p),i===0?5:3,0,7);x.fill()}};
+  path(R.pa,css('--b'),[6,4]);path(R.pb,css('--a'));
+  x.strokeStyle=css('--mut');x.beginPath();x.moveTo(sx([0,0])-6,sy([0,0]));x.lineTo(sx([0,0])+6,sy([0,0]));x.moveTo(sx([0,0]),sy([0,0])-6);x.lineTo(sx([0,0]),sy([0,0])+6);x.stroke();
+  text(x,'최적점',sx([0,0])+8,sy([0,0])-8,css('--mut'),12);text(x,'출발점(클릭으로 이동)',sx(start)+8,sy(start)-8,css('--mut'),12);
+  // convergence
+  const [y,w2,h2]=fit($('cconv'));const err=P=>P.slice(0,n+1).map(p=>isFinite(p[0])?Math.max(1e-16,M.f(p)):NaN);
+  const ea=err(R.pa),eb=err(R.pb);
+  const pad=36,lo=-14,hi=Math.max(2,Math.ceil(Math.log10(Math.max(...ea.filter(isFinite),...eb,1))));
+  y.strokeStyle=css('--line');y.lineWidth=1;
+  for(let e=lo;e<=hi;e+=2){const Y=h2-pad-(e-lo)/(hi-lo)*(h2-2*pad);y.beginPath();y.moveTo(pad,Y);y.lineTo(w2-10,Y);y.stroke();text(y,'1e'+e,4,Y+4,css('--mut'),11)}
+  const X=i=>pad+i/Math.max(1,60)*(w2-pad-12);
+  const line=(E,col)=>{y.strokeStyle=col;y.lineWidth=2.2;y.beginPath();let st=false;E.forEach((v,i)=>{if(!isFinite(v)){return}const Y=h2-pad-(Math.log10(v)-lo)/(hi-lo)*(h2-2*pad);const YY=Math.max(8,Math.min(h2-pad,Y));if(!st){y.moveTo(X(i),YY);st=true}else y.lineTo(X(i),YY)});y.stroke()};
+  line(ea,css('--b'));line(eb,css('--a'));
+  text(y,'반복 횟수 →',w2/2,h2-8,css('--mut'),12,'center');text(y,'남은 오차 f(x) − f*  (로그)',pad,16,css('--ink'),12);
+  text(y,'경사하강',w2-120,28,css('--b'),13);text(y,'뉴턴',w2-120,46,css('--a'),13);
+  const last=v=>v[v.length-1];
+  const dv=!isFinite(last(ea))||last(ea)>1e3;
+  $('note2').innerHTML=`${n}회 반복 후 오차 — 경사하강 <b>${dv?'발산':last(ea).toExponential(1)}</b>, 뉴턴 <b>${last(eb).toExponential(1)}</b>. 조건수 κ=${M.k}일 때 경사하강 최적 보폭은 약 1/L이며, 이때 오차가 반복당 약 (1−1/κ)² 배로 줄어듭니다.`;
+}
+$('c2d').addEventListener('click',e=>{const r=e.target.getBoundingClientRect();start=[(e.clientX-r.left)/r.width*6-3,3-(e.clientY-r.top)/r.height*6];draw2d()});
+['kap','rot','lr','nl','it'].forEach(i=>$(i).addEventListener('input',draw2d));
+
+/* ---------- 선형대수 ---------- */
+function solve(A,b){const n=b.length;const M=A.map((r,i)=>[...r,b[i]]);
+  for(let i=0;i<n;i++){let p=i;for(let r=i+1;r<n;r++)if(Math.abs(M[r][i])>Math.abs(M[p][i]))p=r;[M[i],M[p]]=[M[p],M[i]];
+    const d=M[i][i]||1e-18;for(let r=i+1;r<n;r++){const f=M[r][i]/d;for(let c=i;c<=n;c++)M[r][c]-=f*M[i][c]}}
+  const x=Array(n).fill(0);for(let i=n-1;i>=0;i--){let s=M[i][n];for(let c=i+1;c<n;c++)s-=M[i][c]*x[c];x[i]=s/(M[i][i]||1e-18)}return x}
+const mv=(S,w)=>S.map(r=>r.reduce((a,v,j)=>a+v*w[j],0));
+const dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0);
+
+/* 롱온리 평균-분산 (배리어 + 등식제약 Newton) — portfolio.newton_mv 와 같은 구조(거래비용 0) */
+function newtonMV(mu,S,lam){const n=mu.length;let w=Array(n).fill(1/n),its=0,log=[];
+  const F=(w,t)=>w.some(v=>v<=0)?-Infinity:dot(mu,w)-0.5*lam*dot(w,mv(S,w))+t*w.reduce((s,v)=>s+Math.log(v),0);
+  for(let tau=1e-3;tau>=1e-10;tau*=0.1){
+    for(let k=0;k<60;k++){
+      const Sw=mv(S,w);const g=mu.map((m,i)=>m-lam*Sw[i]+tau/w[i]);
+      const K=[];for(let i=0;i<n;i++){K.push([...S[i].map((v,j)=>-lam*v-(i===j?tau/w[i]**2:0)),1])}K.push([...Array(n).fill(1),0]);
+      const sol=solve(K,[...g.map(v=>-v),0]);const dx=sol.slice(0,n);const dec=dot(g,dx);its++;
+      if(dec/2<1e-13)break;let t=1,F0=F(w,tau);while(t>1e-14){const wn=w.map((v,i)=>v+t*dx[i]);const Fn=F(wn,tau);if(isFinite(Fn)&&Fn>=F0+0.25*t*dec)break;t/=2}
+      w=w.map((v,i)=>v+t*dx[i]);
+    }
+    log.push([tau,its]);
+  }
+  return{w,its,log}}
+function riskParity(S){const n=S.length;let y=S.map((r,i)=>1/Math.sqrt(r[i]));const b=1/n;const f=y=>0.5*dot(y,mv(S,y))-b*y.reduce((s,v)=>s+Math.log(v),0);
+  for(let k=0;k<100;k++){const Sy=mv(S,y);const g=Sy.map((v,i)=>v-b/y[i]);const H=S.map((r,i)=>r.map((v,j)=>v+(i===j?b/y[i]**2:0)));
+    const dx=solve(H,g.map(v=>-v));if(-dot(g,dx)/2<1e-14)break;let t=1;while(y.some((v,i)=>v+t*dx[i]<=0)||f(y.map((v,i)=>v+t*dx[i]))>f(y)+0.25*t*dot(g,dx))t/=2;y=y.map((v,i)=>v+t*dx[i])}
+  const s=y.reduce((a,v)=>a+v,0);return y.map(v=>v/s)}
+
+/* ---------- ③ 배리어 1D ---------- */
+function drawBar(){
+  const tau=Math.pow(10,+$('tau').value),mu=+$('mu1').value/100;$('tauv').textContent='1e'+(+$('tau').value).toFixed(1);$('mu1v').textContent=mu*100;
+  const [x,w,h]=fit($('cbar'));const lam=8,s1=0.2,s2=0.25,rho=0.3,mu2=0.04;
+  // 두 품목 w, 1-w :  F(w)
+  const F=u=>{const v=u*u*s1*s1+(1-u)**2*s2*s2+2*u*(1-u)*rho*s1*s2;return u*mu+(1-u)*mu2-0.5*lam*v};
+  const Fb=u=>u>0&&u<1?F(u)+tau*(Math.log(u)+Math.log(1-u)):-Infinity;
+  const pad=40;let best=0,bv=-1e9,bu=0,bvu=-1e9;
+  for(let i=1;i<2000;i++){const u=i/2000;if(Fb(u)>bv){bv=Fb(u);best=u}}
+  for(let i=-400;i<=1400;i++){const u=i/1000;if(F(u)>bvu){bvu=F(u);bu=u}}
+  const umin=-0.3,umax=1.3;const vals=[];for(let i=0;i<=400;i++){const u=umin+(umax-umin)*i/400;vals.push([u,F(u)])}
+  const lo=Math.min(...vals.map(v=>v[1])),hi=Math.max(...vals.map(v=>v[1]));const X=u=>pad+(u-umin)/(umax-umin)*(w-pad-10),Y=v=>h-pad-(Math.max(v,lo)-lo)/(hi-lo)*(h-2*pad);
+  x.strokeStyle=css('--line');x.beginPath();x.moveTo(X(0),10);x.lineTo(X(0),h-pad);x.moveTo(X(1),10);x.lineTo(X(1),h-pad);x.stroke();
+  text(x,'w = 0 (경계)',X(0)+4,22,css('--mut'));text(x,'w = 1 (경계)',X(1)-76,22,css('--mut'));
+  const draw=(fn,col,dash)=>{x.strokeStyle=col;x.lineWidth=2.4;x.setLineDash(dash||[]);x.beginPath();let st=false;for(let i=0;i<=800;i++){const u=umin+(umax-umin)*i/800,v=fn(u);if(!isFinite(v)||v<lo-0.02){st=false;continue}if(!st){x.moveTo(X(u),Y(v));st=true}else x.lineTo(X(u),Y(v))}x.stroke();x.setLineDash([])};
+  draw(F,css('--mut'),[5,4]);draw(Fb,css('--a'));
+  x.fillStyle=css('--b');x.beginPath();x.arc(X(best),Y(Fb(best)),6,0,7);x.fill();
+  text(x,`배리어 포함 해 w=${best.toFixed(3)}`,X(best)+8,Y(Fb(best))-10,css('--b'),13);
+  x.fillStyle=css('--mut');x.beginPath();x.arc(X(Math.max(umin,Math.min(umax,bu))),Y(bvu),4,0,7);x.fill();
+  text(x,`배리어 없는 해 w=${bu.toFixed(3)}${bu<0||bu>1?' (경계 밖)':''}`,X(Math.max(umin,Math.min(umax,bu)))+8,Y(bvu)+16,css('--mut'),12);
+  text(x,'목적함수 (회색 점선: 원래 / 파랑: τ·Σlog w 배리어 추가)',pad,h-10,css('--mut'),12);
+  $('barnote').textContent=`τ가 작아질수록 파랑 곡선이 회색 곡선에 가까워지고, 해는 경계 안쪽에서 진짜 해로 수렴합니다. 경계에 닿는 해(w=0 또는 1)는 τ→0에서 경계에 한없이 가까워지는 식으로 표현됩니다.`;
+}
+['tau','mu1'].forEach(i=>$(i).addEventListener('input',drawBar));
+
+/* ---------- ④ 3품목 ---------- */
+const VOL=[0.20,0.25,0.15];
+function cov(rho){return VOL.map((a,i)=>VOL.map((b,j)=>i===j?a*a:rho*a*b))}
+function draw3(){
+  const mu=[+$('m1').value,+$('m2').value,+$('m3').value].map(v=>v/100),rho=+$('rho').value/100,lam=+$('lam').value;
+  $('m1v').textContent=mu[0]*100;$('m2v').textContent=mu[1]*100;$('m3v').textContent=mu[2]*100;$('rhov').textContent=rho.toFixed(2);$('lamv').textContent=lam;
+  const S=cov(rho);const A=newtonMV(mu,S,lam),B=newtonMV([0,0,0],S,1),C=riskParity(S);
+  const names=['대두','구리','금'],cols=[css('--a'),css('--b'),css('--c')];
+  const [x,w,h]=fit($('cw'));const rows=[['평균-분산 (Newton)',A.w],['MinVar',B.w],['리스크 패리티',C]];
+  const pad=14,bh=34,top=44,L=140,W=w-L-pad-10;
+  rows.forEach(([nm,ws],r)=>{const y0=top+r*(bh+28);text(x,nm,8,y0+bh/2+4,css('--ink'),13);let cx=L;
+    ws.forEach((v,i)=>{x.fillStyle=cols[i];x.fillRect(cx,y0,v*W,bh);if(v>0.07)text(x,(v*100).toFixed(0)+'%',cx+v*W/2,y0+bh/2+4,'#fff',12,'center');cx+=v*W});
+    const rc=ws.map((v,i)=>v*mv(S,ws)[i]);const tot=rc.reduce((a,b)=>a+b,0);
+    text(x,'위험기여 '+rc.map(v=>(v/tot*100).toFixed(0)).join(' / ')+'%',L,y0+bh+14,css('--mut'),11)});
+  names.forEach((n,i)=>{x.fillStyle=cols[i];x.fillRect(L+i*90,10,12,12);text(x,n,L+i*90+16,21,css('--ink'),12)});
+  // 효율적 투자선
+  const [y,w2,h2]=fit($('cfr'));const pts=[];for(let e=-1;e<=2.6;e+=0.04){const l=Math.pow(10,e);const r=newtonMV(mu,S,l);const v=Math.sqrt(dot(r.w,mv(S,r.w)));pts.push([v,dot(mu,r.w),l])}
+  const vx=pts.map(p=>p[0]),ry=pts.map(p=>p[1]);const vmin=Math.min(...vx)*0.95,vmax=Math.max(...vx)*1.05,rmin=Math.min(...ry)*0.97-0.002,rmax=Math.max(...ry)*1.03+0.002,p2=44;
+  const X=v=>p2+(v-vmin)/(vmax-vmin)*(w2-p2-12),Y=r=>h2-p2-(r-rmin)/(rmax-rmin)*(h2-2*p2);
+  y.strokeStyle=css('--a');y.lineWidth=2.4;y.beginPath();pts.forEach((p,i)=>i?y.lineTo(X(p[0]),Y(p[1])):y.moveTo(X(p[0]),Y(p[1])));y.stroke();
+  const cur=[Math.sqrt(dot(A.w,mv(S,A.w))),dot(mu,A.w)];y.fillStyle=css('--b');y.beginPath();y.arc(X(cur[0]),Y(cur[1]),7,0,7);y.fill();
+  const mvp=[Math.sqrt(dot(B.w,mv(S,B.w))),dot(mu,B.w)];y.fillStyle=css('--mut');y.beginPath();y.arc(X(mvp[0]),Y(mvp[1]),5,0,7);y.fill();
+  const rp=[Math.sqrt(dot(C,mv(S,C))),dot(mu,C)];y.fillStyle=css('--c');y.beginPath();y.arc(X(rp[0]),Y(rp[1]),5,0,7);y.fill();
+  text(y,'현재 λ',X(cur[0])+9,Y(cur[1])-6,css('--b'),12);text(y,'MinVar',X(mvp[0])+8,Y(mvp[1])+14,css('--mut'),12);text(y,'리스크 패리티',X(rp[0])+8,Y(rp[1])+4,css('--c'),12);
+  text(y,'연 변동성 →',w2/2,h2-8,css('--mut'),12,'center');text(y,'기대수익(연) ↑',p2,16,css('--ink'),12);
+  text(y,'효율적 투자선 (λ를 키우면 MinVar 쪽)',p2,32,css('--mut'),11);
+  $('itlog').innerHTML=`<b>Newton 반복:</b> 총 ${A.its}회(배리어 τ를 1e-3에서 1e-10까지 줄이는 8단계 합계, 단계마다 보통 2~6회). 비중 합 = ${A.w.reduce((a,b)=>a+b,0).toFixed(6)}.`;
+}
+['m1','m2','m3','rho','lam'].forEach(i=>$(i).addEventListener('input',draw3));
+function all(){draw2d();drawBar();draw3()}
+window.addEventListener('resize',all);all();
+})();
+</script>
+</body>
+</html>
