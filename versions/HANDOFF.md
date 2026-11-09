@@ -55,8 +55,7 @@
 
 ## 5. 환경 · 작업 요령
 - Windows 11, Python 3.12 `.venv` (`.venv\Scripts\python.exe`), LightGBM 4.7, linearmodels, hmmlearn, numba, torch 포함.
-- GitHub CLI: `C:\Program Files\GitHub CLI\gh.exe` (PATH 미등록일 수 있음), 계정 `grainchobo-alt`. 레포 로컬 작성자 = grainchobo@gmail.com.
-- Streamlit 재시작: 8501 포트를 이전 프로세스가 잡고 있으면 `netstat -ano | findstr :8501` → 해당 PID 종료 후 재실행.
+- GitHub CLI: `C:\Program Files\GitHub CLI\gh.exe` (PATH 미등록일 수 있음), 계정 `grainchobo-alt`.- Streamlit 재시작: 8501 포트를 이전 프로세스가 잡고 있으면 `netstat -ano | findstr :8501` → 해당 PID 종료 후 재실행.
 - Bash heredoc에 `'''`·한글이 섞이면 파싱 실패하는 경우가 있음 → 긴 패치는 스크래치 파일(.py)로 작성 후 실행.
 - 실행 시간: 앱 전체 테스트 10~20분, `experiments.py` 전체 ~20분, `reports.py --full` 수집 ~10분(EIA 서버 느림). 오래 걸리는 작업은 **시작 전 예상 시간을 사용자에게 알릴 것**(사용자 요청).
 - 데이터(`data/`)는 git 제외 → 새 PC에서는 `collect.py --full`, `reports.py --full`, `run_daily.bat`로 재생성.
