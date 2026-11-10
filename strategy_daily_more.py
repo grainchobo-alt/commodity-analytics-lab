@@ -281,7 +281,7 @@ def run_F(L, P, R, S, sig):
     res = {}
     for tn, on in trig.items():
         for wn, wd in ons.items():
-            r = rw(X, Wof(on, wd)); res[(tn, wn)] = (r, on); rows.append({"규칙": "트리거", "트리거": tn, "켜지면": wn, **sc(r, base), "켜진 날 (%)": float(on.reindex(idx).fillna(False).mean() * 100)})
+            r = rw(X, Wof(on, wd)); res[(tn, wn)] = (r, on); store[f"{tn} → {wn}"] = r; rows.append({"규칙": "트리거", "트리거": tn, "켜지면": wn, **sc(r, base), "켜진 날 (%)": float(on.reindex(idx).fillna(False).mean() * 100)})
     best = max(res, key=lambda k: sc(res[k][0], base)["Sharpe 학습 2008–16"])
     for x in rows:
         if x["트리거"] == best[0] and x["켜지면"] == best[1] and x["규칙"] == "트리거":
@@ -342,6 +342,7 @@ def main():
     suffix = "" if which == {"A", "B", "E", "F", "JK", "GI"} else "_" + "".join(sorted(which))
     pd.DataFrame(allrows).to_csv(A.DATA / f"strategy_daily_more_compare{suffix}.csv", index=False, encoding="utf-8-sig")
     pd.DataFrame({k: v.resample("W-FRI").sum() for k, v in store.items()}).to_parquet(A.DATA / f"strategy_daily_more_weekly{suffix}.parquet")
+    pd.DataFrame(store).astype("float32").to_parquet(A.DATA / f"strategy_daily_more_daily{suffix}.parquet")        # 대시보드 일간 모드 · F 서브탭이 읽음 (전 후보 일간 수익률 %)
     print(f"저장 완료 · 총 {time.time() - t00:.0f}s")
 
 

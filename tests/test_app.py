@@ -158,6 +158,15 @@ def g_buy(at, A):
     assert at.scan(lambda at: any("주간 합산 Sharpe" in str(getattr(d.value, "columns", [])) for d in at.dataframe))
     at.selectbox(key="cu_method").set_value("최소분산 (직전 104주 공분산)").run(); check(at, "⑤ Customization: 일간 · 최소분산 비중")
     at.selectbox(key="cu_method").set_value("직접 입력").run()
+    ms_d = at.multiselect(key="cu_sel_일간 실험 결과_d")                                                            # v1.68.0: 일간 실험 결과(메타 · 갈아타기 · 현금 피신 …) 드롭박스
+    assert len(ms_d.options) > 100, "일간 실험 결과 옵션이 너무 적음"
+    ms_d.set_value([o for o in ms_d.options if o.startswith("[B 메타 레이어]")][:1] + [o for o in ms_d.options if o.startswith("[D 현금 피신]")][:1]).run(); check(at, "⑤ Customization: 일간 실험 결과 전략 섞기")
+    ov = at.selectbox(key="cu_ov_sig")                                                                          # 일간 신호 오버레이 (DCC · VIX · … · 칼만 · 낙폭 손절)
+    for k_ in (0, 1, len(ov.options) - 2, len(ov.options) - 1):
+        at.selectbox(key="cu_ov_sig").set_value(ov.options[k_]).run(); check(at, f"⑤ Customization: 일간 신호 오버레이 {ov.options[k_][:14]}")
+    at.multiselect(key="cu_sel_일간 실험 결과_d").set_value([]).run()
+    assert at.scan(lambda at: any(m.key == "dly_pick" for m in at.selectbox))                                   # F 서브탭: 일간 백테스트 결과
+    at.selectbox(key="dly_pick").set_value(at.selectbox(key="dly_pick").options[1]).run(); check(at, "⑤ F 서브탭: 일간 백테스트 결과 묶음 선택")
     at.radio(key="cu_freq").set_value("주간 (고정 결과 — 롱숏 · 대안 시계열 · 멀티모달 재료 포함)").run(); check(at, "⑤ Customization: 데이터 주기 주간으로 복귀")
     assert at.scan(lambda at: any("롱숏 전략 2년 롤링 알파" in x.value for x in list(at.warning) + list(at.info) + list(at.caption)))   # 리스크 탭 전략 우위 경고
     assert at.scan(lambda at: any(str(i).startswith("⑩ 혼합 후보") for d in at.dataframe for i in getattr(d.value, "index", [])))   # ⑩ 혼합 후보 행

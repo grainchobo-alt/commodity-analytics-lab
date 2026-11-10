@@ -3,6 +3,12 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.68.0 — 2026-11-10 — F 서브탭(일간 백테스트 결과) · 일간 모드 실험 드롭박스 · 일간 신호 오버레이
+- ⑤ 포트폴리오에 서브탭 F '롱숏 전략 (Alpha) Backtest · 일간 자료' 추가: 일간 백테스트 결과 전체를 묶음별 표 · 누적 수익 비교로(`_daily_table` · `_daily_results_section`)
+- ⑤ A. Customization 일간 모드: '일간 실험 결과' 드롭박스 189개(A 갈아타기 · B 메타 · C 적응형 · D 현금 피신 · E 동적 변동성 · F 상관 급등 · J·K · G·I · 멀티모달 일간 실행) — `strategy_daily_more/signals/multimodal.py`가 모든 후보의 일간 수익률을 `data/strategy_daily_*_daily.parquet`로 저장(숫자 불변)
+- 일간 신호 오버레이(`daily_sleeves.py`): DCC · VIX · HMM · 변동성 · 흡수비율 · 뉴스 · 칼만 · 낙폭 손절로 내 포트폴리오 노출 조절, 신호는 `data/frozen/signals_daily_*.pkl`
+- tests/test_app.py: 일간 드롭박스 · 오버레이 · F 서브탭 단계 추가(구매 · 포트폴리오 묶음 통과)
+
 ## v1.67.0 — 2026-11-10 — Customization 전략 조합 '일간' 주기 옵션 · 나머지 3축 실험 · 멀티모달 갈래의 일간 백테스트
 - ⑤ Portfolio Customization › 전략 조합: 데이터 주기 라디오(주간 기본 / 일간). 일간 = `daily_sleeves.py`가 일간 자료로 새로 만든 재료 11개(`data/frozen/sleeves_daily_*.pkl`), 비중 규칙 5종 · 목표 변동성 그대로 작동(창 ×5, 연율 √252), 표에 주간 합산 Sharpe 병기. 효율적 투자선 · 품목군 상한은 주간 모드에서만. `app.py` `_combine(f=)` · `_metrics_f` · `_sleeves_daily`, tests/test_app.py에 일간 단계 추가(구매 · 포트폴리오 묶음 통과)
 - `strategy_daily_more.py`(신규, 약 90초): A 갈아타기 · B 메타 레이어 · E 목표 변동성 동적 · F 상관 급등기 · J 짧은 추세 · K 모멘텀 기간 · G·I 품목군 상한을 일간으로 — 모두 주간과 같은 결론(미채택), 곡물 25% 상한은 일간 Sharpe 이득 없음(−0.03). 백테스트 로그 S

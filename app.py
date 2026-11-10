@@ -5916,6 +5916,34 @@ def _metrics_f(r: pd.Series, f: int = 1) -> dict:
     return {"Sharpe": float(r.mean() / r.std() * np.sqrt(a)), "연수익 (%)": float(r.mean() * a), "연변동성 (%)": float(r.std() * np.sqrt(a)), "최대낙폭 (%)": float((cum - cum.cummax()).min())}
 
 
+def _daily_overlay(combo: pd.Series):
+    """일간 모드: 내 포트폴리오에 일간 신호(DCC · VIX · HMM · 변동성 · 흡수비율 · 뉴스 · 칼만 · 낙폭 손절)로 노출 조절(현금 피신)을 얹어 직접 섞어 보기."""
+    import daily_sleeves as DS
+    with st.expander("일간 신호로 노출 조절 — DCC · VIX · HMM · 흡수비율 · 칼만 · 뉴스 · 낙폭 손절 (현금 피신 오버레이)", expanded=False):
+        sigs = DS.load_signals()
+        if sigs.empty:
+            st.info("일간 신호 파일(data/frozen/signals_daily_*.pkl)이 없습니다 — `strategy_daily_signals.py`를 실행하세요.")
+            return
+        c1, c2, c3 = st.columns([2, 1, 1])
+        sg = c1.selectbox("신호", list(DS.SIGNALS), key="cu_ov_sig", help="신호가 문턱보다 위험하면 다음 날부터 노출을 줄임(현금 몫 수익 0). 노출을 바꿀 때 |Δ노출| × 1.15 × 5bp 비용.")
+        col, d0, lo_, hi_, stp, desc = DS.SIGNALS[sg]
+        thr = c2.slider("문턱", float(lo_), float(hi_), float(d0), float(stp), key=f"cu_ov_thr_{col}") if hi_ > lo_ else 0.0
+        low = c3.selectbox("위험일 때 노출", [0.0, 0.5], 0, key="cu_ov_low", format_func=lambda v: "전부 현금 (0%)" if v == 0 else "절반 현금 (50%)")
+        e = DS.exposure(sg, float(thr), float(low), combo, sigs); r2 = DS.overlay(combo, e)
+        rows = []
+        for nm, r in (("★ 내 포트폴리오 (신호 없음)", combo), (f"+ 신호 오버레이 · {sg.split(' (')[0]}", r2)):
+            m_ = _metrics_f(r, 5); ee = e if nm.startswith("+") else pd.Series(1.0, r.index)
+            rows.append({"전략": nm, **m_, "Sharpe ~2016": _metrics_f(r[r.index < "2017-01-01"], 5)["Sharpe"], "Sharpe 2017~": _metrics_f(r[r.index >= "2017-01-01"], 5)["Sharpe"],
+                         "주간 합산 Sharpe": _metrics_f(r.resample("W-FRI").sum(), 1)["Sharpe"], "평균 노출": float(ee.mean()), "현금 구간 (%)": float((ee < 1).mean() * 100),
+                         "연 전환 횟수": float((ee.diff().abs() > 0).sum() / (len(ee) / 252))})
+        T_ = pd.DataFrame(rows).set_index("전략")
+        st.dataframe(T_.style.format({c_: "{:+.2f}" for c_ in T_.columns} | {"연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}", "평균 노출": "{:.2f}", "현금 구간 (%)": "{:.0f}", "연 전환 횟수": "{:.1f}"}), use_container_width=True)
+        fo = go.Figure([go.Scatter(x=combo.index, y=combo.fillna(0).cumsum(), name="내 포트폴리오", line=dict(width=2.2, color=PAL[2])),
+                        go.Scatter(x=r2.index, y=r2.fillna(0).cumsum(), name="+ 신호 오버레이", line=dict(width=1.6, color=PAL[1]))])
+        st.plotly_chart(shade(fig_layout(fo, 300, title="누적 수익 (%, 일간 로그 합)", hovermode="x", legend=dict(orientation="h", y=-0.25)), combo.index), key="cu_ov_fig")
+        st.caption(f"신호: {desc}. ⚠ 문턱을 시험 기간 결과를 보며 고르면 사후 선택 — 백테스트 로그 R · S에서 일간 신호(HMM · 변동성 · DCC · 흡수비율 · VIX · 뉴스 · 칼만 · 낙폭) 모두 기본 혼합(1.32)을 의미 있게 못 넘었음(미채택). 노출을 줄이면 낙폭이 줄어도 '덜 투자한 몫'이 큼.")
+
+
 def _combine(X: pd.DataFrame, method: str, w_user: pd.Series, reb: int = 4, tgt: float = 10.0, f: int = 1) -> tuple[pd.Series, pd.DataFrame]:
     """전략 비중: 직접·동일은 고정, 나머지는 4주(일간 20일)마다 그 전 기간까지 자료로만 다시 계산(미래 정보 없음) → 합친 뒤 사전 목표 변동성 tgt%.
     레버리지 상한 = 4배 × tgt/10 (재료가 10% 기준이라, 재료를 tgt로 키운 뒤 롱숏 탭처럼 4배 상한을 거는 것과 같음). f = 주→기간 배수 (주간 1 · 일간 5)."""
@@ -6093,9 +6121,13 @@ def tab_custom():
                "고른 전략이 모두 있는 구간만 사용(대안 시계열을 넣으면 2012-07~). 합친 뒤 직전 26주 실현 변동성으로 아래에서 고른 목표 변동성(기본 10%)에 맞춤(레버리지 상한 4배 × 목표/10, 롱숏 탭 혼합과 같은 방식).")
     with st.spinner("전략 재료 읽는 중… (처음 한 번만 1–2분, 이후 저장된 결과 사용)"):
         X0, G = _sleeves_daily() if fz > 1 else _sleeves(ROLL)
+        if fz > 1:                                               # 일간 실험 결과(메타 · 갈아타기 · 현금 피신 · 동적 변동성 · 적응형 · 멀티모달 …)도 재료로
+            Ex_ = pd.DataFrame(_daily_exp()).reindex(X0.index)
+            X0 = pd.concat([X0, Ex_], axis=1); G = {**G, **{c_: "일간 실험 결과" for c_ in Ex_.columns}}
     groups = {"수치 전략": "수치 전략 (롱숏 탭: MinVar · 모멘텀 · 가치 · 칼만 · COT …)", "대안 시계열": "대안 시계열 (모델 예측 → 방향 / 순위 롱숏)",
-              "멀티모달": "멀티모달 (텍스트·리포트·포지션·기상·매크로 갈래)"}
-    defaults = {"수치 전략": ["기준 · MinVar 롱 (⑥)", "기준 · 52주 모멘텀 (④)", "V1 가치 (5년 평균 대비 싼 품목 롱)"], "대안 시계열": [], "멀티모달": []}
+              "멀티모달": "멀티모달 (텍스트·리포트·포지션·기상·매크로 갈래)",
+              "일간 실험 결과": "일간 실험 결과 (혼합 전략 — A 갈아타기 · B 메타 · C 적응형 · D 현금 피신 · E 동적 변동성 · F 상관 급등 · J·K · G·I · 멀티모달 일간 실행; 이름 앞 [ ]로 검색)"}
+    defaults = {"수치 전략": ["기준 · MinVar 롱 (⑥)", "기준 · 52주 모멘텀 (④)", "V1 가치 (5년 평균 대비 싼 품목 롱)"], "대안 시계열": [], "멀티모달": [], "일간 실험 결과": []}
     sel = []
     for g, lab in groups.items():
         opts = [c for c in X0.columns if G[c] == g]
@@ -6174,6 +6206,7 @@ def tab_custom():
                               textposition="outside"))
         k2.plotly_chart(fig_layout(fw, 160 + 32 * max(len(sel), 3), title="비중 (%, 고정)", hovermode="y"), key="cu_w_fig")
     if fz > 1:
+        _daily_overlay(combo)
         st.caption("※ 일간 모드에서는 효율적 투자선 · 품목군 위험 한도(곡물 25% 등)를 제공하지 않습니다 — 두 화면은 주간 재료(전략별 품목 비중)를 전제로 하며, 주간 모드에서 확인하세요. "
                    "일간 자료의 곡물 25% 상한 시험은 백테스트 로그 S(시험 Sharpe 1.33 → 1.30, 낙폭 변화 없음)에 있음.")
     else:
@@ -6382,9 +6415,96 @@ def _voltgt_section():
 """)
 
 
+@st.cache_data(show_spinner=False)
+def _daily_exp() -> dict:
+    """일간 백테스트 실험 결과의 전략별 일간 수익률(%, 각 실험의 목표 변동성 10%): data/strategy_daily_*_daily.parquet (로그 R · S · T). 라벨 → Series."""
+    import re
+    out, skip = {}, {"고정 50/25/25", "고정 10%", "상한 없음", "없음 (기준)", "고정 목표 10% (기준)", "고정 동일 비중", "동일 비중", "D 위험 균등"}
+    sets = [("strategy_daily_more_daily", {"A": "A 갈아타기 · 트리거", "B": "B 메타 레이어", "E": "E 동적 목표 변동성", "F": "F 상관 급등기", "GI": "G·I 품목군 상한", "JK": None}),
+            ("strategy_daily_signals_daily", {"D": "D 현금 피신", "C": "C 환경 적응형 비중"}), ("strategy_daily_multimodal_daily", None)]
+    for fn, pref in sets:
+        p = A.DATA / f"{fn}.parquet"
+        if not p.exists():
+            continue
+        D = pd.read_parquet(p)
+        for c in D:
+            if pref is None:
+                lab = f"[멀티모달 일간 실행] {c}"
+            else:
+                k, _, rest = c.partition("|")
+                if k == "A" and rest == "고정 50/25/25":
+                    lab = "[기준] 일간 3축 고정 50/25/25 (혼합)"
+                elif rest in skip or k not in pref:
+                    continue
+                elif k == "JK":
+                    t_, _, nm = rest.partition(" ")
+                    lab = f"[K 모멘텀 기간] 혼합 · 모멘텀 {nm}" if t_ == "K" else f"[J 짧은 추세] 상승 추세 집중 {nm.split()[0]}일 · 상위 {nm.split()[1]}개 (혼합 25/50/25)"
+                elif k == "D":
+                    m_ = re.match(r"^(.*) ([\d.\-]+) 노출 ([\d.]+)$", rest)
+                    lab = f"[D 현금 피신] {m_.group(1)} (문턱 {m_.group(2)}) · 위험 시 노출 {m_.group(3)}" if m_ else f"[D 현금 피신] {rest}"
+                else:
+                    lab = f"[{pref[k]}] {rest}"
+            if lab not in out:
+                out[lab] = D[c].astype(float)
+    return out
+
+
+@st.cache_data(show_spinner=False)
+def _daily_table() -> pd.DataFrame:
+    """일간 백테스트 결과표 통합: 묶음 · 규칙 · 학습 · 시험 · 주간 합산 시험 · 차이 t · 낙폭 · 판정 (strategy_daily_*_compare.csv)."""
+    rd_ = lambda n: pd.read_csv(A.DATA / n, encoding="utf-8-sig") if (A.DATA / n).exists() else pd.DataFrame()      # noqa: E731
+    P_, rows = [], []
+
+    def put(grp, rule, tr, te, wk, t, dd, best="", p=np.nan):
+        rows.append({"묶음": grp, "규칙": rule, "학습 2008–16": tr, "시험 2017–": te, "주간 합산 시험": wk, "시험 차이 t": t, "최대 낙폭 (%)": dd, "학습 최고": best, "위약 p (시험)": p})
+    fq = rd_("strategy_daily_freq_compare.csv")
+    for _, x in fq.iterrows():
+        put("3축 혼합 — 주간 vs 일간", f"{x['자료']} · {x['전략']}", x["Sharpe 학습 2008–16"], x["Sharpe 시험 2017–"], x["주간 환산 시험"], np.nan, x["최대 낙폭 (%)"])
+    for _, x in rd_("strategy_daily_signals_compare.csv").iterrows():
+        nm = str(x["신호"]) + ("" if pd.isna(x.get("문턱")) or x.get("문턱") == "" else f" · 문턱 {x['문턱']}") + ("" if pd.isna(x.get("현금 시 노출")) else f" · 노출 {x['현금 시 노출']}")
+        put(x["실험"].replace(" (일간)", ""), nm, x["Sharpe 학습 2008–16"], x["Sharpe 시험 2017–"], x["주간 합산 시험"], x.get("시험 차이 t", np.nan), x["최대 낙폭 (%)"], x.get("학습 최고", ""), x.get("위약 p (시험)", np.nan))
+    for _, x in rd_("strategy_daily_more_compare.csv").iterrows():
+        parts = [str(x[c]) for c in ("규칙", "상한", "트리거", "켜지면") if c in x and pd.notna(x[c]) and str(x[c]) not in ("", "nan")]
+        put(x["실험"], " → ".join(parts) if parts else "기준", x["Sharpe 학습 2008–16"], x["Sharpe 시험 2017–"], x["주간 합산 시험"], x.get("시험 차이 t", np.nan), x["최대 낙폭 (%)"], x.get("학습 최고", ""), x.get("위약 p (시험)", np.nan))
+    for _, x in rd_("strategy_daily_multimodal_compare.csv").iterrows():
+        put("멀티모달 갈래 (일간 실행 · 혼합)", x["신호"], x["혼합 학습"], x["혼합 시험"], x["혼합 주간 합산 시험"], x["혼합 시험 차이 t"], np.nan)
+    T = pd.DataFrame(rows)
+    if len(T):
+        T["학습 최고"] = T["학습 최고"].fillna("")
+        T["판정"] = T["규칙"].map(lambda s: "기준" if ("기준" in s or s.startswith("고정 50/25/25") or s.startswith("W 주간") or "혼합 50/25/25" in s) else "참고" if any(k in s for k in ("동일 비중", "역변동성", "대조군")) else "미채택")
+    return T
+
+
+def _daily_results_section():
+    """F. 롱숏 전략 (Alpha) Backtest — 일간 자료: 최근 일간 백테스트(3축 · 신호 전략 · 갈아타기 · 메타 · 동적 변동성 · 모멘텀 기간 · 멀티모달) 결과 모음."""
+    st.subheader(f"롱숏 전략 (Alpha) Backtest — 일간 자료 ({PLS_S})")
+    st.caption("📌 결과 고정: 2026-10-26 자료로 일간 수익률을 새로 계산해 저장한 값입니다(`strategy_daily_*.py`, 백테스트 로그 R · S · T). 창은 주간과 달력 기간이 같게 ×5(52주 = 260일 · 26주 = 130일 · 4주 = 20일), "
+               "편도 5bp, 각 전략 목표 변동성 10%, 학습 2008–16 · 시험 2017–. 일간 Sharpe는 √252, '주간 합산 시험'은 일간 수익을 주 단위로 합산한 Sharpe(주간 탭과 비교용). 기준 = 일간 3축 고정 50/25/25.")
+    T = _daily_table()
+    if T.empty:
+        st.info("일간 백테스트 결과 파일(data/strategy_daily_*_compare.csv)이 없습니다 — strategy_daily_freq.py · strategy_daily_signals.py · strategy_daily_more.py · strategy_daily_multimodal.py를 실행하세요.")
+        return
+    groups = ["전체 — 학습 최고 설정만"] + list(dict.fromkeys(T["묶음"]))
+    pick = st.selectbox("실험 묶음", groups, key="dly_pick", help="학습 2008–16 Sharpe로만 고른 설정(←)의 시험 결과와 기준을 한 표로, 또는 묶음별 전체 후보를 봅니다.")
+    S_ = T[(T["학습 최고"] == "←") | T["판정"].eq("기준")] if pick == groups[0] else T[T["묶음"] == pick]
+    fm = {"학습 2008–16": "{:+.2f}", "시험 2017–": "{:+.2f}", "주간 합산 시험": "{:+.2f}", "시험 차이 t": "{:+.2f}", "최대 낙폭 (%)": "{:.1f}", "위약 p (시험)": "{:.2f}"}
+    st.dataframe(S_.reset_index(drop=True).style.format(fm, na_rep="–"), use_container_width=True, height=min(36 * (len(S_) + 1) + 4, 560))
+    st.caption("읽는 법: 판정 열은 기준보다 시험 Sharpe가 의미 있게 높지 않으면 '미채택'(학습에서 고른 설정이 시험에서 기준을 넘고 위약 p < 0.05, 두 기간 모두 같은 방향일 때만 채택). "
+               "이번 일간 결과는 모든 신호 · 규칙이 주간과 같은 결론(미채택)입니다. 시험 차이 t가 크게 나와도 트리거가 시험 기간에 거의 안 켜진 경우(F)는 의미 없음 — 로그 S 참조. "
+               "HMM은 주간 확률을 일간으로 이어 붙인 것이고 뉴스는 문서 공표일에만 갱신됩니다.")
+    E = _daily_exp()
+    if E:
+        dflt = [k for k in ("[기준] 일간 3축 고정 50/25/25 (혼합)", "[B 메타 레이어] κ=0.05", "[D 현금 피신] VIX (문턱 0.9) · 위험 시 노출 0.0") if k in E]
+        sel = st.multiselect("누적 수익 비교 — 일간 수익 누적합(%, 로그 합)", sorted(E), dflt, key="dly_cum")
+        if sel:
+            f = go.Figure([go.Scatter(x=E[k].index, y=E[k].fillna(0).cumsum(), name=k[:48], line=dict(width=2.4 if k.startswith("[기준]") else 1.3, color=PAL[j % 8])) for j, k in enumerate(sel)])
+            st.plotly_chart(shade(fig_layout(f, 380, title="누적 수익 (%, 일간 로그 합)", hovermode="x", legend=dict(orientation="h", y=-0.3, font=dict(size=10))), E[sel[0]].index), key="dly_cum_fig")
+        st.caption(f"전략 {len(E)}개를 고를 수 있음 — 같은 목록이 ⑤ A. Portfolio Customization › 일간 주기의 '일간 실험 결과' 드롭박스에도 있어 섞어 볼 수 있습니다.")
+
+
 def page_portfolio():
-    a, b, v, c, d = subtabs(["Portfolio Customization", f"롱숏 전략 (Alpha) Backtest ({PLS_S})", f"목표변동성별 수익율 Backtest ({PLS_S})",
-                             f"대안 시계열 모델 ({PALT_S})", f"멀티모달 (뉴스·리포트·기상) ({PMM_S})"])
+    a, b, v, c, d, f6 = subtabs(["Portfolio Customization", f"롱숏 전략 (Alpha) Backtest ({PLS_S})", f"목표변동성별 수익율 Backtest ({PLS_S})",
+                                 f"대안 시계열 모델 ({PALT_S})", f"멀티모달 (뉴스·리포트·기상) ({PMM_S})", f"롱숏 전략 (Alpha) Backtest · 일간 자료 ({PLS_S})"])
     with a:
         tab_custom()
     with b:
@@ -6395,6 +6515,8 @@ def page_portfolio():
         _alt_ts_section()
     with d:
         _multimodal_section()
+    with f6:
+        _daily_results_section()
 
 
 @st.cache_data(show_spinner=False)

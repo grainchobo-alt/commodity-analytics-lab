@@ -69,6 +69,7 @@ def main():
     T = pd.DataFrame(rows)
     T.to_csv(A.DATA / "strategy_daily_multimodal_compare.csv", index=False, encoding="utf-8-sig")
     pd.DataFrame({k: v.resample("W-FRI").sum() for k, v in store.items()}).to_parquet(A.DATA / "strategy_daily_multimodal_weekly.parquet")
+    pd.DataFrame(store).astype("float32").to_parquet(A.DATA / "strategy_daily_multimodal_daily.parquet")          # 대시보드 일간 모드 재료
     pd.set_option("display.width", 250); pd.set_option("display.max_columns", 20); pd.set_option("display.max_colwidth", 40)
     print(T.round(2).to_string(index=False))
     print(f"기준(일간 3축 50/25/25): 학습 {SDS.sh(base.loc['2008':'2016']):.2f} 시험 {SDS.sh(base.loc['2017':]):.2f} · 총 {time.time() - t00:.0f}s")

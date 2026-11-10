@@ -145,6 +145,7 @@ def run_D(S, sig, bench_w):
         for low in (0.5, 0.0):
             cands[("결합 (4개 중 k개)", k, low)] = pd.Series(np.where(cnt >= k, low, 1.0), idx)
     res = {key: (SC.apply(base, e), e) for key, e in cands.items()}
+    store.update({f"{k[0]} {k[1]} 노출 {k[2]}": r for k, (r, _) in res.items()})                  # 전 후보 저장 (대시보드 일간 모드)
     sc = {key: score(r, base, e) for key, (r, e) in res.items()}
     best = {}
     for key, s_ in sc.items():
@@ -224,6 +225,7 @@ def run_C(S, sig, cache):
             for lam in (0.25, 0.5, 1.0):
                 r = run_weights_d(S, build_C(S, cov, V, lam, kind)); sc = score(r, bench)
                 tag = f"q={q:g} λ={lam}" if kind in ("K", "ALL") else f"λ={lam}"
+                store[f"{kind} {tag}"] = r
                 rows.append({"규칙": {"K": "K 칼만 평균 추적", "H": "H HMM 위기 국면", "N": "N 뉴스 감성", "C": "C DCC 동조성", "ALL": "ALL 관점 4개 평균"}[kind], "λ·q": tag, **sc})
                 if kind not in best or sc["Sharpe 학습 2008–16"] > best[kind][0]["Sharpe 학습 2008–16"]:
                     best[kind] = (sc, r, tag, lam, q)
@@ -280,6 +282,8 @@ def main():
     suffix = "" if which == {"D", "C"} else "_" + "".join(sorted(which))
     pd.DataFrame(allrows).to_csv(A.DATA / f"strategy_daily_signals_compare{suffix}.csv", index=False, encoding="utf-8-sig")
     pd.DataFrame({k: v.resample("W-FRI").sum() for k, v in store.items()}).to_parquet(A.DATA / f"strategy_daily_signals_weekly{suffix}.parquet")
+    pd.DataFrame(store).astype("float32").to_parquet(A.DATA / f"strategy_daily_signals_daily{suffix}.parquet")      # 대시보드 일간 모드 재료
+    pd.DataFrame(sig).to_pickle(A.DATA / "frozen" / f"signals_daily_{FROZEN_END}.pkl")                           # 일간 신호(HMM · 변동성 · 동조성 · 흡수비율 · VIX · 뉴스) — 신호 오버레이용
     print(f"저장 완료 · 총 {time.time() - t00:.0f}s")
 
 
