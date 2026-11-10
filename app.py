@@ -5234,9 +5234,65 @@ def _factor_risk_section():
         st.dataframe(t4.style.format({"분산 몫": "{:.0%}", "주파수 몫(무작위 기대)": "{:.0%}", "연 변동성 (%)": "{:.1f}", "PC1 분산 기여": "{:.0%}", "PC1 시장 설명력": "{:.0%}", "유효 요인 수": "{:.1f}"}), use_container_width=True)
         st.caption("Spectral(주파수) 분해 = 각 품목 수익을 푸리에 변환해 주기 8주 미만(단기 수급 충격 · 급등락) · 8~26주(경기 · 수요 순환) · 26주 이상(구조적 변화)으로 나눈 뒤, 같은 비중으로 기간별 분산과 PC1 몫을 계산. "
                    "분산 몫이 '무작위 기대'와 비슷하면 특정 기간에 위험이 몰리지 않은 것(자기상관이 거의 없음). 장기 성분은 주파수 칸 수가 적어 불확실성이 큽니다 — 진단용이며 투자 기간별 최적 포트폴리오를 구성한 것은 아닙니다.")
+        _spectral_results_section()
     with T5:
         _factor_risk_summary(res, nm)
     st.caption("방법론: 요인 모형(PCA · 관측 요인 · FAVAR 요인 · 주파수 분해)을 '비중을 짜는 데'가 아니라 '위험을 읽는 데' 쓴 것 — 비중 설계 시험은 앞 서브탭(미채택). 섹터별 VaR 기여는 ◆ 리스크 › 포트폴리오 VaR.")
+
+
+def _spectral_results_section():
+    """④ 주파수별 아래: 코히어런스 · 정보 밀도(우리 자료)와 Spectral 포트폴리오 백테스트(고정 결과, strategy_spectral.py)."""
+    pc, pt, pp = A.DATA / "strategy_spectral_coherence.csv", A.DATA / "strategy_spectral_compare.csv", A.DATA / "strategy_spectral_placebo.csv"
+    if not (pc.exists() and pt.exists()):
+        st.info("결과 파일(data/strategy_spectral_*.csv)이 없습니다 — `strategy_spectral.py`를 실행하세요.")
+        return
+    st.markdown("---")
+    st.markdown("##### 주파수별 코히어런스 · 정보 밀도 — 장기일수록 품목이 더 같이 움직이나 (우리 자료, 고정)")
+    C = pd.read_csv(pc, encoding="utf-8-sig")
+    c1, c2, c3 = st.columns(3)
+    dat = c1.selectbox("자료", list(dict.fromkeys(C["자료"])), key="sp_dat")
+    per = c2.selectbox("구간", list(dict.fromkeys(C["구간"])), key="sp_per")
+    bd = c3.selectbox("밴드 정의", list(dict.fromkeys(C["밴드 정의"])), key="sp_bd")
+    X = C[(C["자료"] == dat) & (C["구간"] == per) & (C["밴드 정의"] == bd)].set_index("성분")
+    fc_ = go.Figure([go.Bar(name="평균 Coh² (품목 쌍)", x=list(X.index), y=X["Coh2"], marker_color=PAL[7]), go.Bar(name="영가설 Coh² (상호 의존 제거)", x=list(X.index), y=X["영가설Coh2"], marker_color=PAL[3])])
+    fc_.update_layout(barmode="group")
+    fd_ = go.Figure([go.Bar(name="정보 밀도 (Coh² ÷ 에너지 몫)", x=list(X.index), y=X["정보밀도"], marker_color=PAL[0], text=[f"{v:.2f}×" for v in X["정보밀도"]], textposition="outside")])
+    g1, g2 = st.columns(2)
+    g1.plotly_chart(fig_layout(fc_, 300, title="평균 코히어런스 — 장기로 갈수록 올라가나", hovermode="x", legend=dict(orientation="h", y=-0.3)), key="sp_coh")
+    g2.plotly_chart(fig_layout(fd_, 300, title="정보 밀도 (1× 이상 = 에너지 대비 공통 움직임이 많음)", hovermode="x"), key="sp_dens")
+    st.dataframe(X[["주파수칸", "에너지몫", "Coh2", "영가설Coh2", "초과Coh2", "정보밀도", "초과정보밀도"]].rename(columns={"에너지몫": "에너지 몫", "Coh2": "평균 Coh²", "영가설Coh2": "영가설 Coh²", "초과Coh2": "초과 Coh²", "정보밀도": "정보 밀도", "초과정보밀도": "초과 정보 밀도"})
+                 .style.format({"에너지 몫": "{:.1%}", "평균 Coh²": "{:.3f}", "영가설 Coh²": "{:.3f}", "초과 Coh²": "{:+.3f}", "정보 밀도": "{:.2f}×", "초과 정보 밀도": "{:.2f}×"}), use_container_width=True)
+    st.caption("멀티테이퍼(DPSS 5개) 교차 스펙트럼으로 품목 쌍 평균 Coh² 계산 · 에너지 몫 = 표준화 수익의 스펙트럼 비중 · 정보 밀도 = 평균 Coh² ÷ 에너지 몫 · 영가설 = 품목별 원형 이동(스펙트럼은 유지, 상호 의존만 파괴)의 평균 Coh² — "
+               "장기는 주파수 칸이 적어 영가설 값도 높으므로 '초과'를 함께 봅니다. 정보 밀도가 큰 데는 장기 에너지 몫이 작다는 분모 효과가 큽니다.")
+    st.markdown("##### Spectral 포트폴리오 백테스트 — 주파수별로 위험을 다르게 배분하면 MinVar 축이 좋아지나 (고정 결과)")
+    st.markdown("| 묶음 | 하는 일 |\n|---|---|\n"
+                "| S1 주파수 가중 공분산 | 창 수익을 단기 · 중기 · 장기 성분으로 나눠 λ 비중으로 다시 합친 뒤 Ledoit-Wolf → MinVar (λ=(1,1,1)이 기준) |\n"
+                "| S2 주파수별 요인 공분산 | 밴드마다 상위 K개 PC로 공통 부분을 만들어 합산 + 품목 고유 대각 → MinVar |\n"
+                "| S3 기간별 위험 배분 | 밴드별 공분산만 쓴 MinVar 3개를 균등 혼합(또는 한 밴드만) |")
+    T = pd.read_csv(pt, encoding="utf-8-sig")
+    groups = ["요약 (묶음 · 창 · 밴드별 학습 최고)"] + [g for g in dict.fromkeys(T["묶음"]) if g != "기준"]
+    pk = st.selectbox("묶음", groups, key="sp_pick")
+    SH = pd.concat([T[T["묶음"] == "기준"], T[T["학습 최고"] == "←"]]) if pk == groups[0] else pd.concat([T[T["묶음"] == "기준"], T[T["묶음"] == pk]])
+    show = SH[["묶음", "구성", "창(주)", "밴드", "λ(단·중·장)", "Sharpe 학습 2008–16", "Sharpe 시험 2017–", "시험 차이 t", "최대 낙폭 (%)", "장기(≥26주) 분산 몫 (시험)", "혼합 학습", "혼합 시험", "혼합 시험 차이 t"]]
+    st.dataframe(show.reset_index(drop=True).style.format({"Sharpe 학습 2008–16": "{:+.2f}", "Sharpe 시험 2017–": "{:+.2f}", "시험 차이 t": "{:+.2f}", "최대 낙폭 (%)": "{:.1f}", "장기(≥26주) 분산 몫 (시험)": "{:.0%}", "혼합 학습": "{:.2f}", "혼합 시험": "{:.2f}", "혼합 시험 차이 t": "{:+.2f}"}, na_rep="–"),
+                 use_container_width=True, height=min(36 * (len(show) + 1) + 4, 560))
+    st.caption("MinVar 축 단독 Sharpe(편도 5bp, 목표 변동성 10%)와 '혼합'(MinVar 축 자리에 이 전략을 넣은 3축 50/25/25). 시험 차이 t = 같은 창 Ledoit-Wolf MinVar 대비, 혼합 시험 차이 t = 3축 혼합(학습 0.61 · 시험 1.07) 대비. "
+               "기준 창이 달라 기준 값도 다릅니다(104주 · 260주 · 520주). 밴드 B1 = 8주 · 26주 경계, B2 = 26주 · 78주(6개월 · 18개월) 경계.")
+    if pp.exists():
+        PL = pd.read_csv(pp, encoding="utf-8-sig")
+        st.markdown("**위약 검정 — '장기 강조(0.5, 1, 3)'가 장기라서 좋은가, 아무 주파수 칸이나 강조해도 비슷한가**")
+        st.dataframe(PL.style.format({"기준(LW)": "{:+.2f}", "장기 강조 실제": "{:+.2f}", "위약 평균": "{:+.2f}", "위약 95% 상한": "{:+.2f}", "위약 p": "{:.2f}"}), hide_index=True, use_container_width=True)
+        st.caption("위약 = 밴드 크기는 그대로 두고 어느 주파수 칸이 장기 이득(3배)을 받는지 무작위로 섞은 같은 구조(20회). 실제가 위약 상한을 넘지 못하면 '장기'라는 주기 정보가 아니라 일반적인 재가중 · 수축 효과일 수 있음.")
+    st.success(SPECTRAL_CONCLUSION)
+
+
+SPECTRAL_CONCLUSION = (
+    "결론: ① 우리 자료에서도 장기일수록 품목이 더 같이 움직입니다(평균 Coh² 단기 0.245 → 장기 0.287 · 영가설 0.205 → 0.214, 초과분도 0.039 → 0.073 · 6개월/18개월 정의에서는 0.039 → 0.100). "
+    "정보 밀도 0.3× → 3.8×(또는 13×)는 장기 에너지 몫이 작은 분모 효과가 커서 과장되어 보입니다. "
+    "② 단기에 변동성 75~92%가 몰려 있는 것은 무작위 기대와 같습니다. "
+    "③ 장기 성분을 강조한 공분산(S1 장기 강조)은 창 260주 이상에서 같은 창 Ledoit-Wolf MinVar보다 학습 · 시험 모두 소폭 좋았고(시험 +0.03~+0.10, 혼합 +0.04~+0.11) 주파수 칸을 무작위로 섞은 위약보다 대체로 높았지만(12개 지표 모두 위약 평균 이상, 10개는 위약 95% 상한 이상), "
+    "차이 t가 +1.57 · +1.24 · +0.32로 유의하지 않고 104주 창에서는 오히려 나빠지며 260주 창에서 위험 예측 편향이 1.10 → 1.28~1.31로 악화됩니다. 창 길이를 104주 → 260주로 바꾸는 효과가 더 큽니다. "
+    "S2(주파수별 요인 공분산) · S3(기간별 MinVar 혼합)는 개선 없음. → 미채택(후속 확인 후보): '장기 주파수 강조'는 방향은 일관되지만 크기가 작아 3축 혼합을 바꿀 근거로는 부족합니다.")
 
 
 def _factor_risk_summary(res: dict, nm):

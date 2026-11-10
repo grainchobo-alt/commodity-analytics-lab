@@ -264,6 +264,11 @@ def g_factor_regime(at, A):
     for key_, val_ in [("fr_win", 260), ("fr_n2", 520), ("fr_n3", 156), ("fr_n4", 780)]:
         at.selectbox(key=key_).set_value(val_).run(); check(at, f"요인별 위험 진단: {key_}={val_}")
     at.slider(key="fr_k3").set_value(5).run(); check(at, "요인별 위험 진단: 거시 요인 5개")
+    assert at.scan(lambda at: any(m.key == "sp_pick" for m in at.selectbox))                                      # v1.72.0 주파수 코히어런스 · Spectral 포트폴리오 결과
+    at.selectbox(key="sp_dat").set_value(at.selectbox(key="sp_dat").options[1]).run(); check(at, "Spectral: 자료 VAR 잔차")
+    at.selectbox(key="sp_bd").set_value(at.selectbox(key="sp_bd").options[1]).run(); check(at, "Spectral: 밴드 B2")
+    for k_ in (1, 2, 3):
+        at.selectbox(key="sp_pick").set_value(at.selectbox(key="sp_pick").options[k_]).run(); check(at, f"Spectral: 포트폴리오 묶음 {k_}")
     at.radio(key="fr_init").set_value("직접 고른 품목 (기본 5%씩)").run(); check(at, "요인별 위험 진단: 직접 고른 품목")
 
 
