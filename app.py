@@ -5897,9 +5897,28 @@ def _sleeves(roll: bool) -> tuple[pd.DataFrame, dict]:
     return pd.DataFrame(S).sort_index(), G
 
 
-def _combine(X: pd.DataFrame, method: str, w_user: pd.Series, reb: int = 4, tgt: float = 10.0) -> tuple[pd.Series, pd.DataFrame]:
-    """전략 비중: 직접·동일은 고정, 나머지는 4주마다 그 전 주까지 자료로만 다시 계산(미래 정보 없음) → 합친 뒤 사전 목표 변동성 tgt%.
-    레버리지 상한 = 4배 × tgt/10 (재료가 10% 기준이라, 재료를 tgt로 키운 뒤 롱숏 탭처럼 4배 상한을 거는 것과 같음)."""
+@st.cache_data(show_spinner=False)
+def _sleeves_daily() -> tuple[pd.DataFrame, dict]:
+    """Portfolio Customization '일간' 모드 재료: 일간 자료로 새로 계산한 전략별 일간 수익률(%, 각 목표 변동성 10%) — daily_sleeves.py, 고정 저장."""
+    import daily_sleeves as DS
+    return _frozen("sleeves_daily", DS.build)
+
+
+def _metrics_f(r: pd.Series, f: int = 1) -> dict:
+    """f = 주→기간 배수(주간 1 · 일간 5): 연율 = 52 × f."""
+    if f == 1:
+        import ls_strategies as LS
+        return LS.metrics(r)
+    r = r.dropna(); a = 52 * f
+    if len(r) < 26 * f or r.std() == 0:
+        return {"Sharpe": np.nan, "연수익 (%)": np.nan, "연변동성 (%)": np.nan, "최대낙폭 (%)": np.nan}
+    cum = r.cumsum()
+    return {"Sharpe": float(r.mean() / r.std() * np.sqrt(a)), "연수익 (%)": float(r.mean() * a), "연변동성 (%)": float(r.std() * np.sqrt(a)), "최대낙폭 (%)": float((cum - cum.cummax()).min())}
+
+
+def _combine(X: pd.DataFrame, method: str, w_user: pd.Series, reb: int = 4, tgt: float = 10.0, f: int = 1) -> tuple[pd.Series, pd.DataFrame]:
+    """전략 비중: 직접·동일은 고정, 나머지는 4주(일간 20일)마다 그 전 기간까지 자료로만 다시 계산(미래 정보 없음) → 합친 뒤 사전 목표 변동성 tgt%.
+    레버리지 상한 = 4배 × tgt/10 (재료가 10% 기준이라, 재료를 tgt로 키운 뒤 롱숏 탭처럼 4배 상한을 거는 것과 같음). f = 주→기간 배수 (주간 1 · 일간 5)."""
     from scipy.optimize import minimize
     from sklearn.covariance import LedoitWolf
     k = X.shape[1]
@@ -5909,8 +5928,8 @@ def _combine(X: pd.DataFrame, method: str, w_user: pd.Series, reb: int = 4, tgt:
     elif method == "동일 비중":
         W.loc[:, :] = 1 / k
     else:
-        win = {"역변동성 (직전 52주)": 52, "최소분산 (직전 104주 공분산)": 104, "과거 Sharpe 비례 (직전 156주, 음수 = 0)": 156}[method]
-        for t in range(min(win, 52), len(X), reb):
+        win = {"역변동성 (직전 52주)": 52, "최소분산 (직전 104주 공분산)": 104, "과거 Sharpe 비례 (직전 156주, 음수 = 0)": 156}[method] * f
+        for t in range(min(win, 52 * f), len(X), reb * f):
             past = X.iloc[max(0, t - win):t]
             if method.startswith("역변동성"):
                 w = 1 / past.std().replace(0, np.nan)
@@ -5925,7 +5944,7 @@ def _combine(X: pd.DataFrame, method: str, w_user: pd.Series, reb: int = 4, tgt:
             W.iloc[t] = (w / w.sum()).values
         W = W.ffill()
     m = (W * X).sum(1, min_count=1).dropna()
-    pv = m.rolling(26, min_periods=13).std().shift(1) * np.sqrt(52)
+    pv = m.rolling(26 * f, min_periods=13 * f).std().shift(1) * np.sqrt(52 * f)
     return m * (tgt / pv).clip(upper=4.0 * tgt / 10.0).fillna(tgt / 10.0), W.loc[m.index]
 
 
@@ -6062,17 +6081,27 @@ def tab_custom():
     if mode.startswith("품목"):
         tab_portfolio()
         return
-    st.caption(f"재료 = 롱숏 탭 · 대안 시계열 탭 · 멀티모달 탭의 전략별 주간 수익률(편도 5bp 비용 차감, 각각 목표 변동성 10%). 결과가 고정된 탭에서 읽으므로 기간은 최대 {PLS_MD}, "
+    fq = st.radio("데이터 주기", ["주간 (고정 결과 — 롱숏 · 대안 시계열 · 멀티모달 재료 포함)", "일간 (일간 자료로 새로 계산한 재료 — 3축 + 일간 신규 전략)"], horizontal=True, key="cu_freq",
+                  help="일간: 창은 달력 기간이 같게 ×5(52주 = 260일 · 26주 = 130일 · 4주 = 20일), 연율 √252. 재료는 일간 자료로 다시 만든 전략만(대안 시계열 · 멀티모달은 주간 모델이라 없음). "
+                       "효율적 투자선 · 품목군 상한은 주간 모드에서만 제공.")
+    fz = 5 if fq.startswith("일간") else 1
+    if fz > 1:
+        st.caption(f"재료 = 일간 자료로 다시 계산한 전략별 일간 수익률(편도 5bp 비용 차감, 각각 목표 변동성 10%, `daily_sleeves.py`로 {PLS_MD}까지 고정 저장). 합친 뒤 직전 130일 실현 변동성으로 아래에서 고른 목표 변동성에 맞춤"
+                   "(레버리지 상한 4배 × 목표/10). Sharpe · 수익 · 변동성은 일간 수익률 기준(연율 √252)이라 주간 모드 숫자와 직접 비교는 주간 합산 Sharpe(일간 수익을 주 단위로 합산)로.")
+    cap_ = st.caption if fz == 1 else (lambda *_a, **_k: None)
+    cap_(f"재료 = 롱숏 탭 · 대안 시계열 탭 · 멀티모달 탭의 전략별 주간 수익률(편도 5bp 비용 차감, 각각 목표 변동성 10%). 결과가 고정된 탭에서 읽으므로 기간은 최대 {PLS_MD}, "
                "고른 전략이 모두 있는 구간만 사용(대안 시계열을 넣으면 2012-07~). 합친 뒤 직전 26주 실현 변동성으로 아래에서 고른 목표 변동성(기본 10%)에 맞춤(레버리지 상한 4배 × 목표/10, 롱숏 탭 혼합과 같은 방식).")
     with st.spinner("전략 재료 읽는 중… (처음 한 번만 1–2분, 이후 저장된 결과 사용)"):
-        X0, G = _sleeves(ROLL)
+        X0, G = _sleeves_daily() if fz > 1 else _sleeves(ROLL)
     groups = {"수치 전략": "수치 전략 (롱숏 탭: MinVar · 모멘텀 · 가치 · 칼만 · COT …)", "대안 시계열": "대안 시계열 (모델 예측 → 방향 / 순위 롱숏)",
               "멀티모달": "멀티모달 (텍스트·리포트·포지션·기상·매크로 갈래)"}
     defaults = {"수치 전략": ["기준 · MinVar 롱 (⑥)", "기준 · 52주 모멘텀 (④)", "V1 가치 (5년 평균 대비 싼 품목 롱)"], "대안 시계열": [], "멀티모달": []}
     sel = []
     for g, lab in groups.items():
         opts = [c for c in X0.columns if G[c] == g]
-        sel += st.multiselect(lab, opts, [d for d in defaults[g] if d in opts], key=f"cu_sel_{g}")
+        if not opts:                                             # 일간 모드: 대안 시계열 · 멀티모달 재료 없음
+            continue
+        sel += st.multiselect(lab, opts, [d for d in defaults[g] if d in opts], key=f"cu_sel_{g}" if fz == 1 else f"cu_sel_{g}_d")
     if not sel:
         st.info("전략을 하나 이상 고르세요.")
         return
@@ -6092,10 +6121,10 @@ def tab_custom():
             return
         c2.caption(f"합계 {w_user.sum():.0f}% → 합 100%로 맞춰 사용")
     X = X0[sel].dropna()
-    if len(X) < 104:
-        st.warning(f"고른 전략이 함께 있는 기간이 {len(X)}주뿐이라 평가하기 어렵습니다.")
+    if len(X) < 104 * fz:
+        st.warning(f"고른 전략이 함께 있는 기간이 {len(X)}{'일' if fz > 1 else '주'}뿐이라 평가하기 어렵습니다.")
         return
-    combo, W = _combine(X, method, w_user, tgt=float(tgt_v))
+    combo, W = _combine(X, method, w_user, tgt=float(tgt_v), f=fz)
     k_ = float(tgt_v) / 10.0                                  # 비교 대상(기존 70/30·재료, 모두 10% 기준)도 같은 목표 변동성으로 비례 조정
     base = X0["혼합 · MinVar 70 + 모멘텀 30 (기존)"].reindex(combo.index).fillna(0) * k_
     series = {"★ 내 포트폴리오": combo, "기준 · MinVar 70 + 모멘텀 30 (롱숏 탭 기존)": base, **{s_: X[s_].reindex(combo.index) * k_ for s_ in sel}}
@@ -6105,19 +6134,21 @@ def tab_custom():
     for nm, r in series.items():
         r = r.fillna(0)
         d = r - base
-        rows.append({"전략": nm, **LS.metrics(r), "Sharpe ~2016": LS.metrics(r[r.index < "2017-01-01"])["Sharpe"],
-                     "Sharpe 2017~2021-10": LS.metrics(r[(r.index >= "2017-01-01") & (r.index < "2021-11-01")])["Sharpe"],
-                     "Sharpe 최근 5년": LS.metrics(r[r.index >= "2021-11-01"])["Sharpe"], "t값": LS.metrics(r)["Sharpe"] * np.sqrt(len(r) / 52),
-                     "기존 대비 연 수익 차 (%p)": float(d.mean() * 52), "차이 t값": float(d.mean() / d.std() * np.sqrt(len(d))) if d.std() > 0 else np.nan})
+        wk_ = r.resample("W-FRI").sum() if fz > 1 else None         # 일간 모드: 주간 모드와 비교하려면 일간 수익을 주 단위로 합산한 Sharpe
+        rows.append({"전략": nm, **_metrics_f(r, fz), "Sharpe ~2016": _metrics_f(r[r.index < "2017-01-01"], fz)["Sharpe"],
+                     "Sharpe 2017~2021-10": _metrics_f(r[(r.index >= "2017-01-01") & (r.index < "2021-11-01")], fz)["Sharpe"],
+                     "Sharpe 최근 5년": _metrics_f(r[r.index >= "2021-11-01"], fz)["Sharpe"], "t값": _metrics_f(r, fz)["Sharpe"] * np.sqrt(len(r) / (52 * fz)),
+                     **({"주간 합산 Sharpe": _metrics_f(wk_, 1)["Sharpe"]} if fz > 1 else {}),
+                     "기존 대비 연 수익 차 (%p)": float(d.mean() * 52 * fz), "차이 t값": float(d.mean() / d.std() * np.sqrt(len(d))) if d.std() > 0 else np.nan})
     T = pd.DataFrame(rows).drop_duplicates("전략").set_index("전략")
     f_ = {c: "{:+.2f}" for c in T.columns}
     f_.update({"연변동성 (%)": "{:.1f}", "최대낙폭 (%)": "{:.1f}"})
     st.dataframe(T.style.format(f_, na_rep="–"), use_container_width=True, height=min(36 * (len(T) + 1) + 4, 470))
     mc, bc = T.loc["★ 내 포트폴리오"], T.loc["기준 · MinVar 70 + 모멘텀 30 (롱숏 탭 기존)"]
-    st.info(f"평가 {combo.index.min():%Y-%m} ~ {combo.index.max():%Y-%m} ({len(combo) / 52:.1f}년) · 내 포트폴리오 Sharpe {mc['Sharpe']:+.2f} vs 기존 70/30 {bc['Sharpe']:+.2f} "
-            f"(연 {mc['기존 대비 연 수익 차 (%p)']:+.2f}%p, 차이 t {mc['차이 t값']:+.2f}). Sharpe 95% 구간은 약 ±{1.96 / np.sqrt(len(combo) / 52):.2f}라 그보다 작은 차이는 우연과 구별 어려움. "
+    st.info(f"평가 {combo.index.min():%Y-%m} ~ {combo.index.max():%Y-%m} ({len(combo) / (52 * fz):.1f}년) · 내 포트폴리오 Sharpe {mc['Sharpe']:+.2f} vs 기존 70/30 {bc['Sharpe']:+.2f} "
+            f"(연 {mc['기존 대비 연 수익 차 (%p)']:+.2f}%p, 차이 t {mc['차이 t값']:+.2f}). Sharpe 95% 구간은 약 ±{1.96 / np.sqrt(len(combo) / (52 * fz)):.2f}라 그보다 작은 차이는 우연과 구별 어려움. "
             "여러 조합을 시험해 보고 가장 좋은 것을 고르면 과대평가(사후 선택) — 고르기 전에 이유를 정해 두는 것이 안전.")
-    st.caption("※ 기본값(MinVar 50 + 모멘텀 25 + 가치 25)이 롱숏 탭 표의 0.88과 조금 다르게(0.89–0.90) 나오는 이유: 계산 주기·재료는 같고, 섞은 뒤 목표 변동성 10%로 맞추는 배율"
+    cap_("※ 기본값(MinVar 50 + 모멘텀 25 + 가치 25)이 롱숏 탭 표의 0.88과 조금 다르게(0.89–0.90) 나오는 이유: 계산 주기·재료는 같고, 섞은 뒤 목표 변동성 10%로 맞추는 배율"
                "(직전 26주 실현 변동성)의 출발점만 다름 — 여기는 고정 재료가 2007년부터라 2007년 초 약 반년(처음 13주 배율 1, 26주까지 짧은 창)을 새로 계산하고, 롱숏 탭은 2001년부터 이어진 배율을 씀. "
                "2007년 중반 이후는 완전히 같음(상관 1.0, 처음 26주를 빼면 둘 다 0.896).")
     f = go.Figure()
@@ -6142,10 +6173,14 @@ def tab_custom():
         fw = go.Figure(go.Bar(x=wv.values, y=[s_[:28] for s_ in wv.index], orientation="h", marker_color=PAL[2], text=[f"{v:.0f}%" for v in wv.values],
                               textposition="outside"))
         k2.plotly_chart(fig_layout(fw, 160 + 32 * max(len(sel), 3), title="비중 (%, 고정)", hovermode="y"), key="cu_w_fig")
-    if len(sel) > 1:
-        w_eff = (w_user / w_user.sum()) if method == "직접 입력" else (pd.Series(1.0 / len(sel), sel) if method == "동일 비중" else W.mean())
-        _frontier_section(X, w_eff, combo, float(tgt_v))
-    _groupcap_section(X, W, method, w_user, float(tgt_v))
+    if fz > 1:
+        st.caption("※ 일간 모드에서는 효율적 투자선 · 품목군 위험 한도(곡물 25% 등)를 제공하지 않습니다 — 두 화면은 주간 재료(전략별 품목 비중)를 전제로 하며, 주간 모드에서 확인하세요. "
+                   "일간 자료의 곡물 25% 상한 시험은 백테스트 로그 S(시험 Sharpe 1.33 → 1.30, 낙폭 변화 없음)에 있음.")
+    else:
+        if len(sel) > 1:
+            w_eff = (w_user / w_user.sum()) if method == "직접 입력" else (pd.Series(1.0 / len(sel), sel) if method == "동일 비중" else W.mean())
+            _frontier_section(X, w_eff, combo, float(tgt_v))
+        _groupcap_section(X, W, method, w_user, float(tgt_v))
     st.caption("읽는 법: 각 재료는 이미 목표 변동성 10%로 맞춘 전략이라, 비중은 '위험을 얼마씩 나눠 주나'에 가까움. 기본값(MinVar 50 + 모멘텀 25 + 가치 25)이 롱숏 탭의 0.89 근처면 정상. "
                "대안 시계열·멀티모달 갈래는 단독 성과가 약하거나 기간이 짧아(2012-07~) 섞을 때 효과가 작음 — 상관이 낮으면 Sharpe가 약해도 혼합 낙폭을 줄일 수는 있음.")
 

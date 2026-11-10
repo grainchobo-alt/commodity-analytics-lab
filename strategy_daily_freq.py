@@ -29,7 +29,7 @@ FROZEN_END, START, SPLIT = "2026-10-26", "2005-01-01", "2017-01-01"
 BASE = np.array([0.5, 0.25, 0.25])
 
 
-def minvar_w(P, R, win, reb):
+def minvar_w(P, R, win, reb, cap=CAP):
     from scipy.optimize import minimize
     from sklearn.covariance import LedoitWolf
     W = pd.DataFrame(np.nan, index=P.index, columns=P.columns)
@@ -38,7 +38,7 @@ def minvar_w(P, R, win, reb):
         cols = [c for c in P.columns if wd[c].notna().sum() >= win * 0.8]
         if len(cols) < 4:
             continue
-        S = LedoitWolf().fit(wd[cols].fillna(0.0).values / 100).covariance_; n = len(cols); capn = max(CAP, 1.0 / n + 1e-6)
+        S = LedoitWolf().fit(wd[cols].fillna(0.0).values / 100).covariance_; n = len(cols); capn = max(cap, 1.0 / n + 1e-6)
         res = minimize(lambda w: 1e4 * (w @ S @ w), np.ones(n) / n, jac=lambda w: 1e4 * 2 * S @ w, bounds=[(0, capn)] * n,
                        constraints=[{"type": "eq", "fun": lambda w: w.sum() - 1}], method="SLSQP", options={"maxiter": 500, "ftol": 1e-12})
         x = np.clip(res.x, 0, capn)

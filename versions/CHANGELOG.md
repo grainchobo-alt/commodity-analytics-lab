@@ -3,6 +3,12 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.67.0 — 2026-11-10 — Customization 전략 조합 '일간' 주기 옵션 · 나머지 3축 실험 · 멀티모달 갈래의 일간 백테스트
+- ⑤ Portfolio Customization › 전략 조합: 데이터 주기 라디오(주간 기본 / 일간). 일간 = `daily_sleeves.py`가 일간 자료로 새로 만든 재료 11개(`data/frozen/sleeves_daily_*.pkl`), 비중 규칙 5종 · 목표 변동성 그대로 작동(창 ×5, 연율 √252), 표에 주간 합산 Sharpe 병기. 효율적 투자선 · 품목군 상한은 주간 모드에서만. `app.py` `_combine(f=)` · `_metrics_f` · `_sleeves_daily`, tests/test_app.py에 일간 단계 추가(구매 · 포트폴리오 묶음 통과)
+- `strategy_daily_more.py`(신규, 약 90초): A 갈아타기 · B 메타 레이어 · E 목표 변동성 동적 · F 상관 급등기 · J 짧은 추세 · K 모멘텀 기간 · G·I 품목군 상한을 일간으로 — 모두 주간과 같은 결론(미채택), 곡물 25% 상한은 일간 Sharpe 이득 없음(−0.03). 백테스트 로그 S
+- `strategy_daily_multimodal.py`(신규, 약 40초): 7개 갈래 + 전체 평균(부호 롤링 · 고정)을 일간 실행 → 주간 결과를 거의 그대로 재현, 혼합은 모두 기준(1.32) 미만. 백테스트 로그 T
+- `strategy_daily_freq.py` `minvar_w`에 cap 인자, `strategy_daily_signals.py` `score(lo=)` 인자 추가(기존 결과 불변)
+
 ## v1.66.2 — 2026-11-10 — 신호 전략(DCC · 칼만 · HMM · VIX · 뉴스) 일간 자료 백테스트
 - `strategy_daily_signals.py`(신규, 일간 DCC 추정 포함 약 20분): 현금 피신(D) · 환경 적응형 비중(C)을 일간 자료로 재실행. 일간에서도 시험 Sharpe가 기준(1.32)을 넘는 신호 없음(최대 +0.04), 적응형 관점은 시험 차이 t −2.0 ~ −0.7 → 주간과 같은 미채택. 일간 HMM 미구현(주간 확률 이어 붙임) · 뉴스는 공표일에만 갱신. 백테스트 로그 R. `data/strategy_daily_signals_compare.csv`
 

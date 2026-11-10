@@ -60,8 +60,8 @@ def sh(x: pd.Series, ann=ANN) -> float:
     return float(x.mean() / x.std() * np.sqrt(ann)) if len(x) > 30 and x.std() > 0 else np.nan
 
 
-def score(r: pd.Series, bench: pd.Series, e: pd.Series | None = None) -> dict:
-    ev, b = r.loc["2008":], bench.loc["2008":]
+def score(r: pd.Series, bench: pd.Series, e: pd.Series | None = None, lo: str = "2008") -> dict:
+    ev, b = r.loc[lo:], bench.loc[lo:]
     wk = ev.resample("W-FRI").sum(); cum = ev.cumsum()
     o = {"Sharpe 2008–": sh(ev), "Sharpe 학습 2008–16": sh(ev.loc[:"2016"]), "Sharpe 시험 2017–": sh(ev.loc[SPLIT:]),
          "주간 합산 학습": sh(wk.loc[:"2016"], 52), "주간 합산 시험": sh(wk.loc[SPLIT:], 52), "주간 합산 2008–": sh(wk, 52),

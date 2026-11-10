@@ -153,6 +153,12 @@ def g_buy(at, A):
     ms_.set_value(ms_.options[:1]).run(); check(at, "⑤ Customization: 대안 시계열 섞으면 품목군 상한은 기본 혼합 고정 결과로")
     assert at.scan(lambda at: any("고정 결과를 보여 줌" in c.value for c in at.caption))
     at.multiselect(key="cu_sel_대안 시계열").set_value([]).run()
+    at.radio(key="cu_freq").set_value("일간 (일간 자료로 새로 계산한 재료 — 3축 + 일간 신규 전략)").run(); check(at, "⑤ Customization: 데이터 주기 일간")   # v1.67.0
+    assert at.scan(lambda at: any("일간 수익률 기준" in c.value for c in at.caption))
+    assert at.scan(lambda at: any("주간 합산 Sharpe" in str(getattr(d.value, "columns", [])) for d in at.dataframe))
+    at.selectbox(key="cu_method").set_value("최소분산 (직전 104주 공분산)").run(); check(at, "⑤ Customization: 일간 · 최소분산 비중")
+    at.selectbox(key="cu_method").set_value("직접 입력").run()
+    at.radio(key="cu_freq").set_value("주간 (고정 결과 — 롱숏 · 대안 시계열 · 멀티모달 재료 포함)").run(); check(at, "⑤ Customization: 데이터 주기 주간으로 복귀")
     assert at.scan(lambda at: any("롱숏 전략 2년 롤링 알파" in x.value for x in list(at.warning) + list(at.info) + list(at.caption)))   # 리스크 탭 전략 우위 경고
     assert at.scan(lambda at: any(str(i).startswith("⑩ 혼합 후보") for d in at.dataframe for i in getattr(d.value, "index", [])))   # ⑩ 혼합 후보 행
     assert at.scan(lambda at: any("MinVar 강건성" in e.label for e in at.expander))                               # ⑦ 강건성 점검
