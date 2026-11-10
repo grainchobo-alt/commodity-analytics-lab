@@ -3,6 +3,10 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.68.1 — 2026-11-10 — 일간 백테스트 전략 쉬운 설명 Word 문서 · 앱 전체 테스트 통과
+- `docs/실험요약/일간_백테스트_전략_쉬운설명_20261110.docx`(신규): 일간 백테스트 전략 묶음별로 한 줄 요약 · 비유 · 사고파는 순서 · 세부 설정표 · 결과 그림 · 판정, 신호 오버레이 8종, 드롭박스 재료 전략 설명, 종합 판정. 그림 16장(`figs_daily/`) · 표 49개, 숫자는 결과 CSV에서 직접 읽음. 생성: `docs/실험요약/make_daily_doc.py`(python-docx — node · LibreOffice 없는 PC용, `pip install python-docx`)
+- 앱 전체 테스트 통과(363단계, 1096초) — v1.67.0 · v1.68.0 변경(일간 모드 · F 서브탭 · 오버레이) 포함
+
 ## v1.68.0 — 2026-11-10 — F 서브탭(일간 백테스트 결과) · 일간 모드 실험 드롭박스 · 일간 신호 오버레이
 - ⑤ 포트폴리오에 서브탭 F '롱숏 전략 (Alpha) Backtest · 일간 자료' 추가: 일간 백테스트 결과 전체를 묶음별 표 · 누적 수익 비교로(`_daily_table` · `_daily_results_section`)
 - ⑤ A. Customization 일간 모드: '일간 실험 결과' 드롭박스 189개(A 갈아타기 · B 메타 · C 적응형 · D 현금 피신 · E 동적 변동성 · F 상관 급등 · J·K · G·I · 멀티모달 일간 실행) — `strategy_daily_more/signals/multimodal.py`가 모든 후보의 일간 수익률을 `data/strategy_daily_*_daily.parquet`로 저장(숫자 불변)
