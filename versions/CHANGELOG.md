@@ -3,6 +3,9 @@
 형식: `vMAJOR.MINOR.PATCH — 날짜 — 요약`. 기능 단위로 MINOR, 버그 수정은 PATCH. 버전마다 git 태그(`git tag vX.Y.Z`)를 단다.
 v1.0.0 이전 단계는 git 도입 전 작업(2026-10-13 ~ 15, 날짜는 대략)을 정리한 것.
 
+## v1.66.2 — 2026-11-10 — 신호 전략(DCC · 칼만 · HMM · VIX · 뉴스) 일간 자료 백테스트
+- `strategy_daily_signals.py`(신규, 일간 DCC 추정 포함 약 20분): 현금 피신(D) · 환경 적응형 비중(C)을 일간 자료로 재실행. 일간에서도 시험 Sharpe가 기준(1.32)을 넘는 신호 없음(최대 +0.04), 적응형 관점은 시험 차이 t −2.0 ~ −0.7 → 주간과 같은 미채택. 일간 HMM 미구현(주간 확률 이어 붙임) · 뉴스는 공표일에만 갱신. 백테스트 로그 R. `data/strategy_daily_signals_compare.csv`
+
 ## v1.66.1 — 2026-11-10 — 3축 혼합 일간 자료 백테스트 · HANDOFF 이메일 제거
 - `strategy_daily_freq.py`(신규, 약 30초): 3축(MinVar · 52주 모멘텀 · 가치) 혼합을 주간 · 일간 자료로 같은 코드에서 비교(창 ×5). 주간 재현은 기존과 차이 0. 일간에서도 Sharpe 유지(혼합 시험 1.07 → 1.24, 차이 t 1.57 비유의), 모멘텀 매일 결정은 이득 없음. 백테스트 로그 Q. `data/strategy_daily_freq_compare.csv`
 - `versions/HANDOFF.md`: 공개 저장소 전환에 따라 개인 이메일 주소 줄 제거
