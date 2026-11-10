@@ -5122,14 +5122,157 @@ def _factor_portfolio_section():
             "- 요인 충격이 품목 가격에 미치는 경로(FAVAR IRF · FEVD)는 이 탭 'FAVAR' 서브탭에서 볼 수 있습니다 — 설명 도구로는 유효하지만 예측력(순위 IC ≈ 0)은 확인되지 않았습니다.")
 
 
+@st.cache_data(show_spinner="요인 진단 입력(주간 수익 · 관측 요인 · 거시 변화) 준비 중…")
+def _fr_inputs(extra_bytes, roll: bool):
+    """전체 바스켓 주간 수익률(%) · 관측 롱숏 요인(시장 · 모멘텀 · 가치 · 저변동) · 거시 변수 주간 변화(공표 지연 1주 제거 = 같은 주 정렬, 진단용)."""
+    import ls_strategies as LS
+    import strategy_cov_factor as CF
+    import strategy_factor_portfolio as SF
+    L = _levels(extra_bytes, roll)
+    P = LS.weekly(L, LS.BASKET, "2001-01-01"); P = P[[c for c in LS.BASKET if c in P]]; R = LS._ret(P)
+    Fac = CF.make_factors(P, R)
+    try:
+        M = SF.macro_panel(L, R.index).shift(-1)
+    except Exception:
+        M = pd.DataFrame(index=R.index)
+    return R, Fac, M
+
+
+def _factor_risk_section():
+    """① 요인 모형 › 요인별 위험 진단: 요인이 모델마다 무엇을 뜻하고, 지금 포트폴리오 변동성에 얼마나 기여하나 (수익 · 비중 설계가 아니라 위험 평가)."""
+    import factor_risk as FRK
+    import ls_strategies as LS
+    import procurement as PR
+    st.subheader("요인별 위험 진단 — 요인이 무엇을 뜻하고, 지금 포트폴리오의 변동성에 얼마나 기여하나")
+    st.caption("앞 서브탭은 요인으로 비중을 짜 보는 시험(미채택)이었습니다. 여기서는 같은 요인 모형을 '지금 내 위험을 읽는 렌즈'로만 씁니다 — "
+               "① 동적 PCA(위험 구조가 시간에 따라 어떻게 변했나) ② 관측 요인(시장 · 모멘텀 · 가치 · 저변동) ③ 거시 요인(FAVAR 요인) ④ 주파수별(단기 · 중기 · 장기) 분해. "
+               "수익 예측이 아닌 진단입니다.")
+    ids_all = [i for i in LS.BASKET if i in NAME]
+    nm = lambda i: PR.BUY_IDS.get(i, short(i))                                            # noqa: E731
+    cur = _pf_curr_w()
+    c1, c2 = st.columns([1.4, 2.6])
+    init = c1.radio("분석할 포트폴리오", ["기본 혼합 50/25/25 지금 비중", "직접 고른 품목 (기본 5%씩)"], key="fr_init")
+    base_mix = init.startswith("기본")
+    d_ids = [i for i in cur.index if i in ids_all] if base_mix else [i for i in ["yf:ZC=F", "yf:ZS=F", "yf:ZW=F", "yf:CL=F", "yf:GC=F", "yf:LE=F"] if i in ids_all]
+    sel = c2.multiselect("품목", ids_all, d_ids, format_func=nm, key="fr_ids_b" if base_mix else "fr_ids_c")
+    if len(sel) < 3:
+        st.info("품목을 3개 이상 고르세요.")
+        return
+    dfw = pd.DataFrame({"품목": [nm(i) for i in sel], "비중 (% 자본, + 롱 / − 숏)": [round(float(cur[i]) * 100, 2) if (base_mix and i in cur.index) else 5.0 for i in sel]})
+    with st.expander("품목별 비중 (직접 수정 가능)", expanded=False):
+        ed = st.data_editor(dfw, hide_index=True, disabled=["품목"], key="fr_w_" + str(abs(hash((base_mix, tuple(sel))))), use_container_width=True)
+    w = pd.Series(ed["비중 (% 자본, + 롱 / − 숏)"].values / 100.0, index=sel); w = w[w.abs() > 1e-9]
+    if len(w) < 3:
+        st.info("비중이 0이 아닌 품목을 3개 이상 두세요.")
+        return
+    R, Fac, M = _fr_inputs(extra_bytes, ROLL)
+    rp = FRK.port_ret(R, w)
+    st.caption(f"계산 구간: 주간 수익률 · 품목 {len(w)}개 · 현재 비중을 과거 구간에 그대로 대입(what-if)한 포트폴리오 수익으로 분석. 최근 52주 연 변동성 {rp.iloc[-52:].std() * np.sqrt(52):.1f}%.")
+    T1, T2, T3, T4, T5 = st.tabs(["① 동적 PCA (구조의 변화)", "② 관측 요인 (시장 · 모멘텀 · 가치 · 저변동)", "③ 거시 요인 (FAVAR 요인)", "④ 주파수별 (단기 · 중기 · 장기)", "⑤ 종합 진단"])
+    res = {}
+    with T1:
+        win = st.selectbox("추정 창 (주)", [52, 104, 156, 260], 1, key="fr_win")
+        D = FRK.dynamic_pca(R, w, int(win), 4)
+        now = D.iloc[-1]; pr = float((D["pc1_pf"] <= now["pc1_pf"]).mean())
+        res["dyn"] = (now, pr, D)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("PC1 분산 기여 (지금)", f"{now['pc1_pf']:.0%}", f"역사 평균 {D['pc1_pf'].mean():.0%} · 백분위 {pr:.0%}", delta_color="off")
+        m2.metric("유효 요인 수 (지금)", f"{now['enb']:.1f}", f"역사 평균 {D['enb'].mean():.1f}", delta_color="off")
+        m3.metric("시장 PC1 설명력 (지금)", f"{now['pc1_mkt']:.0%}", f"역사 평균 {D['pc1_mkt'].mean():.0%}", delta_color="off")
+        m4.metric("PC1 구조 안정성", f"{D['stab'].iloc[-1]:.2f}" if pd.notna(D["stab"].iloc[-1]) else "–", "1 = 직전 구간과 같은 구조", delta_color="off")
+        fa = go.Figure([go.Scatter(x=D.index, y=D["pc1_pf"] * 100, name="내 포트폴리오 PC1 분산 기여", line=dict(color=PAL[7], width=2)),
+                        go.Scatter(x=D.index, y=D["pc1_mkt"] * 100, name="시장 전체 PC1 설명력", line=dict(color=PAL[0], width=2, dash="dot"))])
+        fe = go.Figure([go.Scatter(x=D.index, y=D["enb"], name="유효 요인 수 (ENB)", line=dict(color=PAL[2], width=2))])
+        g1, g2 = st.columns(2)
+        g1.plotly_chart(fig_layout(fa, 320, title="PC1이 만드는 몫 (%) — 현재 비중을 과거 구조에 대입", hovermode="x unified", legend=dict(orientation="h", y=-0.25)), key="fr_dyn1")
+        g2.plotly_chart(fig_layout(fe, 320, title="유효 요인 수 (클수록 위험이 여러 요인에 분산)", hovermode="x unified"), key="fr_dyn2")
+        st.caption("Dynamic PCA = 창을 굴리며 PCA를 다시 추정(4주마다). 같은 비중이라도 시장 구조에 따라 PC1 쏠림이 달라집니다 — 지금 값이 역사 분포에서 어디쯤인지가 핵심. "
+                   "PC1 구조 안정성은 겹치지 않는 직전 창의 PC1 적재 벡터와의 코사인 유사도(1에 가까우면 '공통 원자재 요인'의 모양이 유지).")
+    with T2:
+        n2 = st.selectbox("회귀 구간 (주)", [104, 156, 260, 520], 2, key="fr_n2")
+        o2 = FRK.named_factor_risk(R, w, Fac, int(n2)); res["named"] = o2
+        t2 = o2["table"]
+        m1, m2, m3 = st.columns(3)
+        m1.metric("4개 요인이 설명하는 분산", f"{o2['r2']:.0%}", f"나머지 {o2['resid']:.0%}는 품목 고유 위험", delta_color="off")
+        top = t2["분산 기여"].abs().idxmax(); m2.metric("가장 큰 요인", t2.loc[top, "요인"], f"기여 {t2.loc[top, '분산 기여']:+.0%}", delta_color="off")
+        m3.metric("연 변동성", f"{o2['vol']:.1f}%", f"{o2['n']}주", delta_color="off")
+        labs = list(t2["요인"]) + ["품목 고유(설명 안 됨)"]; vals = list(t2["분산 기여"] * 100) + [o2["resid"] * 100]
+        fb = go.Figure(go.Bar(x=labs, y=vals, marker_color=[PAL[0] if v >= 0 else PAL[4] for v in vals[:-1]] + [PAL[3]], text=[f"{v:+.0f}%" for v in vals], textposition="outside"))
+        st.plotly_chart(fig_layout(fb, 320, title="변동성(분산) 기여 (%) — 음수 = 그 요인이 위험을 상쇄(헤지)", hovermode="x"), key="fr_named")
+        st.dataframe(t2.style.format({"베타": "{:+.2f}", "분산 기여": "{:+.0%}"}), use_container_width=True)
+        st.caption("포트폴리오 주간 수익을 4개 롱숏 요인(비용 0)에 회귀 — 기여 = 베타 × 공분산 ÷ 포트폴리오 분산(오일러식, 합 = 설명력 R²). 요인끼리 상관이 있어 개별 기여는 부호가 음수일 수 있습니다. "
+                   "'시장' = 19개 동일비중 바스켓(PCA의 PC1과 같은 뜻), 나머지 3개는 품목 간 상대 요인.")
+    with T3:
+        c1, c2 = st.columns(2)
+        K3 = c1.slider("거시 요인 수 K", 1, 5, 3, key="fr_k3"); n3 = c2.selectbox("구간 (주)", [156, 260, 520], 1, key="fr_n3")
+        if M.shape[1] < 3:
+            st.info("거시 변수 자료(data/mm/fred_extra.parquet 등)가 없어 계산할 수 없습니다.")
+        else:
+            o3 = FRK.macro_factor_risk(R, w, M, int(K3), int(n3)); res["macro"] = o3
+            t3 = o3["table"]
+            m1, m2, m3 = st.columns(3)
+            m1.metric("거시 요인이 설명하는 분산", f"{o3['r2']:.0%}", f"거시 변수 {o3['nvar']}개 → 요인 {K3}개", delta_color="off")
+            m2.metric("나머지 (거시와 무관)", f"{o3['resid']:.0%}", "원자재 고유 · 수급 요인", delta_color="off")
+            m3.metric("가장 큰 거시 요인", t3["분산 기여"].idxmax(), f"{t3['분산 기여'].max():.1%}", delta_color="off")
+            st.dataframe(t3.style.format({"거시 변수 설명력": "{:.0%}", "포트폴리오 상관": "{:+.2f}", "분산 기여": "{:.1%}"}), use_container_width=True)
+            st.plotly_chart(heat(o3["loadings"].T, "거시 요인 적재값 — 각 요인이 어떤 거시 변수의 움직임인가", h=70 + 60 * int(K3), text_max=30), key="fr_macro_load")
+            st.caption("FAVAR의 요인(거시 변수 PCA)을 위험 설명에만 씀: 같은 주의 거시 변화(달러 · 금리 · VIX · 신용 스프레드 · 금융여건 · 환율 등 21개)와 포트폴리오 수익의 상관의 제곱 = 요인별 분산 기여(요인끼리 무상관이라 합이 R²). "
+                       "요인 부호는 적재값이 가장 큰 변수가 +가 되게 맞춤 — '의미'는 적재 상위 변수로 읽습니다.")
+    with T4:
+        n4 = st.selectbox("구간 (주)", [520, 780], 0, key="fr_n4", help="주파수 분해에 쓰는 최근 주 수. 길수록 장기 성분이 더 정확하지만 오래된 구조가 섞임")
+        o4 = FRK.spectral_risk(R, w, int(n4)); res["spec"] = o4
+        t4 = o4["table"]
+        fs = go.Figure([go.Bar(name="포트폴리오 분산 몫", x=list(t4.index), y=t4["분산 몫"] * 100, marker_color=PAL[7], text=[f"{v:.0%}" for v in t4["분산 몫"]], textposition="outside"),
+                        go.Bar(name="무작위(백색잡음)일 때 기대 몫", x=list(t4.index), y=t4["주파수 몫(무작위 기대)"] * 100, marker_color=PAL[3])])
+        fs.update_layout(barmode="group")
+        fp_ = go.Figure([go.Bar(name="내 포트폴리오 PC1 분산 기여", x=list(t4.index), y=t4["PC1 분산 기여"] * 100, marker_color=PAL[7], text=[f"{v:.0%}" for v in t4["PC1 분산 기여"]], textposition="outside"),
+                         go.Bar(name="시장 PC1 설명력", x=list(t4.index), y=t4["PC1 시장 설명력"] * 100, marker_color=PAL[0])])
+        fp_.update_layout(barmode="group")
+        g1, g2 = st.columns(2)
+        g1.plotly_chart(fig_layout(fs, 330, title="변동성이 어느 투자 기간에서 오나 (분산 몫, %)", hovermode="x", legend=dict(orientation="h", y=-0.3)), key="fr_spec1")
+        g2.plotly_chart(fig_layout(fp_, 330, title="기간별 공통 요인(PC1) 쏠림 (%)", hovermode="x", legend=dict(orientation="h", y=-0.3)), key="fr_spec2")
+        st.dataframe(t4.style.format({"분산 몫": "{:.0%}", "주파수 몫(무작위 기대)": "{:.0%}", "연 변동성 (%)": "{:.1f}", "PC1 분산 기여": "{:.0%}", "PC1 시장 설명력": "{:.0%}", "유효 요인 수": "{:.1f}"}), use_container_width=True)
+        st.caption("Spectral(주파수) 분해 = 각 품목 수익을 푸리에 변환해 주기 8주 미만(단기 수급 충격 · 급등락) · 8~26주(경기 · 수요 순환) · 26주 이상(구조적 변화)으로 나눈 뒤, 같은 비중으로 기간별 분산과 PC1 몫을 계산. "
+                   "분산 몫이 '무작위 기대'와 비슷하면 특정 기간에 위험이 몰리지 않은 것(자기상관이 거의 없음). 장기 성분은 주파수 칸 수가 적어 불확실성이 큽니다 — 진단용이며 투자 기간별 최적 포트폴리오를 구성한 것은 아닙니다.")
+    with T5:
+        _factor_risk_summary(res, nm)
+    st.caption("방법론: 요인 모형(PCA · 관측 요인 · FAVAR 요인 · 주파수 분해)을 '비중을 짜는 데'가 아니라 '위험을 읽는 데' 쓴 것 — 비중 설계 시험은 앞 서브탭(미채택). 섹터별 VaR 기여는 ◆ 리스크 › 포트폴리오 VaR.")
+
+
+def _factor_risk_summary(res: dict, nm):
+    """⑤ 종합 진단: 4개 렌즈의 숫자를 한 문단 해석으로."""
+    st.markdown("##### 지금 위험을 요인 모형으로 읽으면")
+    rows = []
+    if "dyn" in res:
+        now, pr, D = res["dyn"]
+        rows.append(("동적 PCA", f"PC1 분산 기여 {now['pc1_pf']:.0%} (역사 백분위 {pr:.0%}), 유효 요인 수 {now['enb']:.1f}",
+                     "공통 원자재 요인에 쏠림이 " + ("역사적으로 높은 편" if pr >= 0.67 else "평균 수준" if pr >= 0.33 else "낮은 편")))
+    if "named" in res:
+        o = res["named"]; t = o["table"]; top = t["분산 기여"].abs().idxmax()
+        rows.append(("관측 요인", f"4개 요인 설명 {o['r2']:.0%} · 최대 {t.loc[top, '요인']} {t.loc[top, '분산 기여']:+.0%} · 품목 고유 {o['resid']:.0%}",
+                     "위험의 대부분이 '원자재 전체 방향'(시장)이면 품목을 더 담아도 분산이 안 됨" if top == "MKT" and t.loc[top, "분산 기여"] > 0.5 else "특정 상대 요인(모멘텀 · 가치 등)에 노출"))
+    if "macro" in res:
+        o = res["macro"]; t = o["table"]; k = t["분산 기여"].idxmax()
+        rows.append(("거시 요인", f"거시 요인 설명 {o['r2']:.0%} · 최대 {k}: {t.loc[k, '의미 (적재 상위 변수)']}",
+                     "거시 환경으로 설명되는 위험은 작음 — 대부분 원자재 고유 · 수급 요인" if o["r2"] < 0.2 else "거시 환경에 상당히 노출"))
+    if "spec" in res:
+        o = res["spec"]; t = o["table"]; i = t["분산 몫"].idxmax(); j = t["PC1 분산 기여"].idxmax()
+        rows.append(("주파수별", f"분산 몫 최대 {i} {t.loc[i, '분산 몫']:.0%} · PC1 쏠림 최대 {j} {t.loc[j, 'PC1 분산 기여']:.0%}",
+                     "분산 몫이 무작위 기대와 비슷 → 특정 기간에 위험이 몰리진 않음" if (t["분산 몫"] - t["주파수 몫(무작위 기대)"]).abs().max() < 0.05 else "특정 투자 기간에 위험이 몰림"))
+    st.dataframe(pd.DataFrame(rows, columns=["렌즈", "지금 숫자", "읽는 법"]), hide_index=True, use_container_width=True)
+    st.caption("해석 문구는 숫자 규칙에 따른 자동 문장입니다(백분위 · 비율 기준). 이 진단은 '현재 비중이 과거 구조에서 어땠나'이며 미래 위험의 보장이 아닙니다.")
+
+
 def page_factor():
-    a, b, c = subtabs(["주성분 · 스필오버 · TVP-VAR", "FAVAR (요인 충격의 전파)", "요인 → 포트폴리오 (위험 분해 · 비중 설계 검증)"])
+    a, b, c, d = subtabs(["주성분 · 스필오버 · TVP-VAR", "FAVAR (요인 충격의 전파)", "요인 → 포트폴리오 (위험 분해 · 비중 설계 검증)", "요인별 위험 진단 (요인 의미 · 변동성 기여)"])
     with a:
         tab_factor()
     with b:
         tab_favar()
     with c:
         _factor_portfolio_section()
+    with d:
+        _factor_risk_section()
 
 
 def page_vol():

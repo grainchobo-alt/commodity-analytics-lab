@@ -256,6 +256,15 @@ def g_factor_regime(at, A):
     at.radio(key="fp_init").set_value("직접 고른 품목 (기본 5%씩)").run(); check(at, "요인 → 포트폴리오: 직접 고른 품목")
     for k_ in (1, 2, 3, 4):
         at.selectbox(key="fp_pick").set_value(at.selectbox(key="fp_pick").options[k_]).run(); check(at, f"요인 → 포트폴리오: 결과 묶음 {k_}")
+    # v1.71.0 ①+ 요인 › 요인별 위험 진단 (동적 PCA · 관측 요인 · 거시 요인 · 주파수별 · 종합)
+    assert at.scan(lambda at: any(m.key == "fr_win" for m in at.selectbox))
+    assert at.scan(lambda at: any("PC1 분산 기여 (지금)" in m.label for m in at.metric))
+    assert at.scan(lambda at: any("4개 요인이 설명하는 분산" in m.label for m in at.metric))
+    assert at.scan(lambda at: any("거시 요인이 설명하는 분산" in m.label for m in at.metric))
+    for key_, val_ in [("fr_win", 260), ("fr_n2", 520), ("fr_n3", 156), ("fr_n4", 780)]:
+        at.selectbox(key=key_).set_value(val_).run(); check(at, f"요인별 위험 진단: {key_}={val_}")
+    at.slider(key="fr_k3").set_value(5).run(); check(at, "요인별 위험 진단: 거시 요인 5개")
+    at.radio(key="fr_init").set_value("직접 고른 품목 (기본 5%씩)").run(); check(at, "요인별 위험 진단: 직접 고른 품목")
 
 
 def g_mvgarch(at, A):
