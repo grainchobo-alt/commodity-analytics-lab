@@ -249,6 +249,13 @@ def g_factor_regime(at, A):
     at.radio(key="rv_fq").set_value("주간 (선물, 2000–)").run()
     for kind in ["EGARCH", "GARCH"]:
         at.selectbox(key="g_kind").set_value(kind).run(); check(at, f"{kind} 모형")
+    assert at.scan(lambda at: any(m.key == "fp_pick" for m in at.selectbox))                                      # v1.70.0 ①+ 요인 › 요인 → 포트폴리오 서브탭
+    assert at.scan(lambda at: any("유효 요인 수" in m.label for m in at.metric))
+    at.slider(key="fp_k").set_value(5).run(); check(at, "요인 → 포트폴리오: 요인 5개")
+    at.selectbox(key="fp_win").set_value(260).run(); check(at, "요인 → 포트폴리오: 창 260주")
+    at.radio(key="fp_init").set_value("직접 고른 품목 (기본 5%씩)").run(); check(at, "요인 → 포트폴리오: 직접 고른 품목")
+    for k_ in (1, 2, 3, 4):
+        at.selectbox(key="fp_pick").set_value(at.selectbox(key="fp_pick").options[k_]).run(); check(at, f"요인 → 포트폴리오: 결과 묶음 {k_}")
 
 
 def g_mvgarch(at, A):

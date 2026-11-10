@@ -5019,12 +5019,117 @@ def page_structure():
     tab_comove()
 
 
+@st.cache_data(show_spinner=False)
+def _fp_results() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """요인 → 포트폴리오 검증 결과 표(strategy_factor_portfolio_compare.csv) · 일간 수익 대신 주간 수익 시계열(parquet, 목표 변동성 10%)."""
+    f1, f2 = A.DATA / "strategy_factor_portfolio_compare.csv", A.DATA / "strategy_factor_portfolio_weekly.parquet"
+    return (pd.read_csv(f1, encoding="utf-8-sig") if f1.exists() else pd.DataFrame(), pd.read_parquet(f2) if f2.exists() else pd.DataFrame())
+
+
+def _factor_portfolio_section():
+    """① 요인 모형 › 요인 → 포트폴리오: 내 포트폴리오의 PCA 요인 위험 분해(라이브) + 요인으로 비중을 짜는 방법들의 백테스트 결과(고정)."""
+    import factor_portfolio as FP
+    import ls_strategies as LS
+    import procurement as PR
+    st.subheader("요인 → 포트폴리오 — 내 포트폴리오의 요인 위험 분해 · 요인 기반 비중 설계 검증")
+    st.caption("앞의 PCA · FAVAR는 요인을 '설명'하는 데서 끝났습니다. 여기서는 ① 내 포트폴리오의 위험이 어떤 요인(PC)에 얼마나 몰려 있는지(라이브 계산) "
+               "② 요인으로 비중을 짜는 방법 4가지(공분산 · PC 포트폴리오 · 잠재 요인 평균-분산 · 거시 요인 기대수익)를 같은 틀로 백테스트한 결과를 봅니다.")
+    ids_all = [i for i in LS.BASKET if i in NAME]
+    nm = lambda i: PR.BUY_IDS.get(i, short(i))                                            # noqa: E731
+    cur = _pf_curr_w()
+    st.markdown("##### ① 내 포트폴리오의 요인 위험 분해")
+    a1, a2, a3 = st.columns([1.4, 1, 1])
+    init = a1.radio("시작 비중", ["기본 혼합 50/25/25 지금 비중", "직접 고른 품목 (기본 5%씩)"], key="fp_init", horizontal=True)
+    K = a2.slider("요인 수 K", 1, 6, 3, key="fp_k")
+    win = a3.selectbox("추정 창 (주)", [52, 104, 156, 260], 1, key="fp_win", help="최근 몇 주의 주간 수익률로 PCA를 추정할지")
+    base_mix = init.startswith("기본")
+    d_ids = [i for i in cur.index if i in ids_all] if base_mix else [i for i in ["yf:ZC=F", "yf:ZS=F", "yf:ZW=F", "yf:CL=F", "yf:GC=F", "yf:LE=F"] if i in ids_all]
+    sel = st.multiselect("포트폴리오 품목", ids_all, d_ids, format_func=nm, key="fp_ids_b" if base_mix else "fp_ids_c")
+    if len(sel) < 3:
+        st.info("품목을 3개 이상 고르세요.")
+    else:
+        dfw = pd.DataFrame({"품목": [nm(i) for i in sel], "비중 (% 자본, + 롱 / − 숏)": [round(float(cur[i]) * 100, 2) if (base_mix and i in cur.index) else 5.0 for i in sel]})
+        ed = st.data_editor(dfw, hide_index=True, disabled=["품목"], key="fp_w_" + str(abs(hash((base_mix, tuple(sel))))), use_container_width=True)
+        w = pd.Series(ed["비중 (% 자본, + 롱 / − 숏)"].values / 100.0, index=sel); w = w[w.abs() > 1e-9]
+        if len(w) >= 3:
+            Rw = LS._ret(LS.weekly(_levels(extra_bytes, ROLL), list(w.index), "2001-01-01"))
+            o = FP.risk_decomposition(Rw, w, int(K), int(win))
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("PC1 분산 기여 (포트폴리오)", f"{o['pc1_share']:.0%}", f"시장 전체 설명력 {o['pc1_market']:.0%}", delta_color="off")
+            m2.metric(f"상위 {o['K']}개 요인 몫", f"{o['top_share']:.0%}", f"고유 변동 {1 - o['top_share']:.0%}", delta_color="off")
+            m3.metric("유효 요인 수 (ENB)", f"{o['enb']:.1f}", f"품목 {o['n']}개 중", delta_color="off")
+            m4.metric("연 변동성 (요인 모형)", f"{o['vol'] * np.sqrt(52):.1f}%", f"최근 {o['nobs']}주", delta_color="off")
+            T_ = o["table"]
+            fb = go.Figure([go.Bar(name="시장 전체 설명력", x=list(T_.index), y=T_["시장 설명력"] * 100, marker_color=PAL[0]), go.Bar(name="내 포트폴리오 분산 기여", x=list(T_.index), y=T_["분산 기여"] * 100, marker_color=PAL[7])])
+            fb.update_layout(barmode="group")
+            b1, b2 = st.columns([1, 1.1])
+            b1.plotly_chart(fig_layout(fb, 320, title="요인별 시장 설명력 vs 내 포트폴리오 분산 기여 (%)", hovermode="x", legend=dict(orientation="h", y=-0.3)), key="fp_bar")
+            Ld = o["loadings"].copy(); Ld.index = [nm(i) for i in Ld.index]
+            b2.plotly_chart(heat(Ld.T, "적재값 — 각 요인이 어느 품목의 움직임인가", h=320, text_max=30), key="fp_load")
+            st.dataframe(T_.style.format({"시장 설명력": "{:.0%}", "포트폴리오 노출 e": "{:+.3f}", "분산 기여": "{:.0%}"}, na_rep="–"), use_container_width=True)
+            flag = ("공통 원자재 요인(PC1)에 시장 평균보다 크게 몰려 있음 — 원자재가 한꺼번에 급락하면 분산이 안 됨" if o["pc1_share"] > 1.5 * o["pc1_market"] else "PC1 쏠림이 크지 않음")
+            st.info(f"PC1(적재값이 대부분 +인 '공통 원자재 요인')이 시장 전체 변동의 {o['pc1_market']:.0%}를 설명하는데 내 포트폴리오 분산의 {o['pc1_share']:.0%}를 만듭니다 → {flag}. "
+                    f"위험이 퍼진 정도(유효 요인 수)는 {o['enb']:.1f}개 — 품목 {o['n']}개를 담아도 독립적인 위험은 이 정도입니다.")
+            st.caption("e = 포트폴리오의 요인 노출 (w∘σ를 요인 방향에 투영), 분산 기여 = e² × 요인 분산 ÷ 전체 (합 100%). 요인 부호 = 적재값 합이 양수인 방향. "
+                       "PC2 이후의 경제적 의미(에너지 대 농산물 등)는 적재값을 보고 해석 — 추정 창에 따라 달라질 수 있습니다. 수익 예측이 아니라 '지금 위험 구조'를 보는 도구입니다. "
+                       "섹터별 VaR 기여는 ◆ 리스크 › 포트폴리오 VaR 서브탭.")
+    # ② 요인으로 비중을 짜는 방법 — 백테스트
+    st.markdown("##### ② 요인으로 비중을 짜 보면? — 4가지 길의 백테스트 (고정 결과)")
+    TT, WK = _fp_results()
+    if TT.empty:
+        st.info("결과 파일(data/strategy_factor_portfolio_compare.csv)이 없습니다 — `strategy_factor_portfolio.py`를 실행하세요.")
+        return
+    st.markdown(
+        "| 길 | 하는 일 | 대응 연구 |\n|---|---|---|\n"
+        "| A 공분산 | 표본 공분산 대신 PCA 요인 구조 Σ = ΛΣ_FΛ′ + Σ_ε로 최소분산 | PCA 기반 공분산 추정 (고차원 포트폴리오) |\n"
+        "| B PC 포트폴리오 | PCA 고유벡터 자체를 포트폴리오로 (w = v/σ) | Severini (2022) 등 |\n"
+        "| C 잠재 요인 평균-분산 | 요인 공간에서 μ_f/σ_f²로 비중, 평균을 반영한 RP-PCA 포함 | Lettau-Pelger (2020) |\n"
+        "| D 거시 요인 → 기대수익 | 거시 변수 PCA 요인(FAVAR-lite)으로 품목 기대수익 예측 → 순위 롱숏 | FAVAR · Dynamic Factor |")
+    CV = pd.read_csv(A.DATA / "strategy_cov_factor_compare.csv", encoding="utf-8-sig") if (A.DATA / "strategy_cov_factor_compare.csv").exists() else pd.DataFrame()
+    rows = []
+    if len(CV):
+        M_ = CV[(CV["실험"].astype(str).str.startswith("M")) & (CV["창(주)"] == 104)]
+        for _, x in M_.iterrows():
+            if x["구성"].startswith(("표본", "Ledoit", "PCA", "FF식")):
+                rows.append({"묶음": "A 공분산 (MinVar 축)", "구성": x["구성"], "학습 2008–16": x["Sharpe 학습 2008–16"], "시험 2017–": x["Sharpe 시험 2017–"], "시험 차이 t": x["시험 차이 t"],
+                             "혼합 시험": x["혼합 시험"], "위약 p (시험)": np.nan, "비고": f"위험 예측 편향 {x['위험 예측 편향 시험']:.2f} (1 = 정확)"})
+    for _, x in TT.iterrows():
+        fam = {"F1": "B PC 포트폴리오", "F2": "C 잠재 요인 평균-분산", "F3": "D 거시 요인 → 기대수익"}[x["묶음"][:2]]
+        rows.append({"묶음": fam, "구성": x["구성"], "학습 2008–16": x["Sharpe 학습 2008–16"], "시험 2017–": x["Sharpe 시험 2017–"], "시험 차이 t": x["시험 차이 t"], "혼합 시험": x["혼합 시험"],
+                     "위약 p (시험)": x.get("위약 p (시험)", np.nan), "비고": ("학습 최고 ←" if x.get("학습 최고") == "←" else "") + (f" · 순위 IC {x['순위 IC']:+.3f}" if pd.notna(x.get("순위 IC")) else "")})
+    FR = pd.DataFrame(rows); groups = ["요약 (묶음별 학습 최고)"] + list(dict.fromkeys(FR["묶음"]))
+    pk = st.selectbox("묶음", groups, key="fp_pick")
+    SH = FR[FR["비고"].str.contains("←") | FR["구성"].str.startswith("Ledoit")] if pk == groups[0] else FR[FR["묶음"] == pk]
+    st.dataframe(SH.reset_index(drop=True).style.format({"학습 2008–16": "{:+.2f}", "시험 2017–": "{:+.2f}", "시험 차이 t": "{:+.2f}", "혼합 시험": "{:.2f}", "위약 p (시험)": "{:.2f}"}, na_rep="–"),
+                 use_container_width=True, height=min(36 * (len(SH) + 1) + 4, 520))
+    st.caption("Sharpe는 주간 순수익(편도 5bp, 목표 변동성 10%). 시험 차이 t는 3축 혼합 50/25/25(학습 0.61 · 시험 1.07) 대비, '혼합 시험'은 MinVar 50 + 모멘텀 25 + 이 전략 25(가치 자리에 대체). "
+               "A는 MinVar 축 공분산만 교체한 결과(차이 t = 같은 창 Ledoit-Wolf 대비, 혼합 시험 = 3축 혼합). 위약 = 비중(신호) 순서를 13주 블록으로 섞은 100회.")
+    st.success("결론: 4가지 길 모두 3축 혼합을 개선하지 못했습니다(미채택). ① PC1 포트폴리오 = 공통 원자재 요인 ≈ 바스켓 롱(시험 0.49) ② PC2 · PC3은 부호가 임의라 학습 +0.76 → 시험 −0.85처럼 뒤집힘 "
+               "③ 평균을 반영한 RP-PCA(γ=20)가 일반 PCA보다 시험이 높지만(0.44~0.64 vs 0.39~0.51) 학습 개선이 작고 위약 p 0.3 ④ 거시 요인 → 기대수익은 순위 IC 0.004로 신호 없음. "
+               "따라서 요인 모형은 비중을 짜는 도구보다 ①의 '위험 구조 진단'으로 쓰는 것이 맞습니다.")
+    if not WK.empty:
+        dflt = [c for c in WK.columns if c.startswith("F1 PC 포트폴리오|PC1")][:1] + [c for c in WK.columns if "RP-PCA γ=20 · 요인 3개" in c][:1] + [c for c in WK.columns if c.startswith("F3")][:1]
+        sel2 = st.multiselect("누적 수익 비교 (주간, 목표 변동성 10%)", list(WK.columns), dflt, format_func=lambda c: c.replace("|", " · ")[:60], key="fp_cum")
+        if sel2:
+            fc = go.Figure([go.Scatter(x=WK.index, y=WK[c].fillna(0).cumsum(), name=c.replace("|", " · ")[:50], line=dict(width=1.6, color=PAL[j % 8])) for j, c in enumerate(sel2)])
+            st.plotly_chart(shade(fig_layout(fc, 340, title="누적 수익 (%, 로그 합)", hovermode="x", legend=dict(orientation="h", y=-0.3, font=dict(size=10))), WK.index), key="fp_cum_fig")
+    with st.expander("FAVAR → 포트폴리오로 이어지는 전체 구조와 우리 구현 범위", expanded=False):
+        st.markdown(
+            "고차원 거시 변수 → **PCA / Dynamic Factor로 잠재 거시 요인 추출** → **FAVAR로 요인·거시 환경 예측** → **기대수익 · 공분산 예측** → 포트폴리오 최적화(평균-분산 · 최소분산 · 리스크 패리티)\n\n"
+            "- FAVAR 자체는 최적화 모형이 아니라 예측치를 만드는 상위 틀입니다.\n"
+            "- 구현 · 시험한 부분: 거시 변수 약 20개(VIX · 금리 · 스프레드 · 달러 · 환율 · 금융여건)의 주간 변화 → 확장창 PCA 3요인 → 품목별 릿지 → 기대수익 순위 롱숏(길 D). 월간 거시 통계(CPI · 산업생산 · 고용 등 100~150개)는 공표 지연 · 개정 때문에 넣지 않았고, "
+            "FAVAR-SV로 공분산을 예측하는 부분은 시험하지 않았습니다.\n"
+            "- 요인 충격이 품목 가격에 미치는 경로(FAVAR IRF · FEVD)는 이 탭 'FAVAR' 서브탭에서 볼 수 있습니다 — 설명 도구로는 유효하지만 예측력(순위 IC ≈ 0)은 확인되지 않았습니다.")
+
+
 def page_factor():
-    a, b = subtabs(["주성분 · 스필오버 · TVP-VAR", "FAVAR (요인 충격의 전파)"])
+    a, b, c = subtabs(["주성분 · 스필오버 · TVP-VAR", "FAVAR (요인 충격의 전파)", "요인 → 포트폴리오 (위험 분해 · 비중 설계 검증)"])
     with a:
         tab_factor()
     with b:
         tab_favar()
+    with c:
+        _factor_portfolio_section()
 
 
 def page_vol():
