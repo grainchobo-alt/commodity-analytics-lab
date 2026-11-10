@@ -3780,11 +3780,154 @@ def _alpha_alert():
         st.caption("✅ 전략 우위 유지 — " + txt)
 
 
+@st.cache_data(show_spinner=False)
+def _pf_curr_w() -> pd.Series:
+    """기본 혼합(MinVar 50 · 모멘텀 25 · 가치 25)의 지금 품목별 순비중(자본 대비, + 롱 / − 숏) — stress_portfolio.current_weights, 고정 저장."""
+    import stress_portfolio as SP
+    return _frozen("pf_current_weights", lambda: SP.current_weights(_levels_frozen(True))[0])
+
+
+@st.cache_data(show_spinner=False)
+def _pf_inputs(ids: tuple, sigma: str, roll: bool, extra_bytes):
+    """포트폴리오 VaR 입력: 일간 수익률(%) · σ²(%²). EWMA λ=0.94(빠름) 또는 GARCH(1,1)(품목당 약 10초, ◆ 리스크 단일 품목 VaR와 같은 σ)."""
+    import portfolio_var as PV
+    if sigma.startswith("EWMA"):
+        return PV.ewma_inputs(_levels(extra_bytes, roll), list(ids))
+    OO = {i: _risk_vm(i, ("GARCH(1,1)",), roll, extra_bytes) for i in ids}
+    R = pd.DataFrame({i: OO[i]["r"] for i in ids}).dropna()
+    S = pd.DataFrame({i: OO[i]["S"]["GARCH(1,1)"] for i in ids}).reindex(R.index).dropna()
+    return R.loc[S.index], S
+
+
+def _portfolio_var_section():
+    """◆ 리스크 › 포트폴리오 VaR · 섹터 기여 · 비중 조절 — 곡물 상한 25%(로그 G · I)를 어떤 품목 · 섹터 조합에도 쓸 수 있게 일반화."""
+    import ls_extra as LX
+    import ls_strategies as LS
+    import portfolio_var as PV
+    import procurement as PR
+    st.subheader("포트폴리오 VaR — 최근 추세 · 섹터별 위험 기여 · 섹터 비중 조절 권고")
+    st.caption("품목과 비중을 골라 ① 최근 가격 추세 · 변동성 상태 ② 포트폴리오 VaR · ES와 섹터별 위험 기여 ③ 섹터 비중을 줄였을 때 VaR · 변동성 변화 ④ 자동 권고를 봅니다. "
+               "곡물 상한 25%(백테스트 로그 G · I)에서 '변동성은 목표로 맞춰 거의 같은데 VaR · 곡물 위험 몫은 줄었다'는 결과를 어떤 섹터에도 쓸 수 있게 일반화한 화면입니다. "
+               "지금 시점의 위험 측정이며 백테스트가 아닙니다(수익 영향은 반영하지 않음).")
+    ids_all = [i for i in LS.BASKET if i in NAME]
+    nm = lambda i: PR.BUY_IDS.get(i, short(i))                                            # noqa: E731
+    cur = _pf_curr_w()
+    k1, k2 = st.columns([1.2, 1])
+    init = k1.radio("시작 비중", ["기본 혼합 50/25/25 지금 비중 (2026-10-26)", "직접 고른 품목 (기본 5%씩)"], key="pv_init",
+                    help="기본 혼합 = 대시보드 기준 전략의 지금 품목별 순비중(혼합 배율 포함, 총 노출 약 84%). 비중은 자본 대비 %, + 롱 / − 숏.")
+    capital = k2.number_input("자본 (USD)", 100_000, 1_000_000_000, 10_000_000, 1_000_000, key="pv_cap")
+    base_mix = init.startswith("기본")
+    d_ids = [i for i in cur.index if i in ids_all] if base_mix else [i for i in ["yf:ZC=F", "yf:ZS=F", "yf:ZW=F", "yf:CL=F", "yf:GC=F", "yf:LE=F"] if i in ids_all]
+    sel = st.multiselect("포트폴리오 품목", ids_all, d_ids, format_func=nm, key="pv_ids_b" if base_mix else "pv_ids_c")
+    if len(sel) < 2:
+        st.info("품목을 2개 이상 고르세요.")
+        return
+    dfw = pd.DataFrame({"품목": [nm(i) for i in sel], "비중 (% 자본, + 롱 / − 숏)": [round(float(cur[i]) * 100, 2) if (base_mix and i in cur.index) else 5.0 for i in sel]})
+    ed = st.data_editor(dfw, hide_index=True, disabled=["품목"], key="pv_w_" + str(abs(hash((base_mix, tuple(sel))))), use_container_width=True)
+    w = pd.Series(ed["비중 (% 자본, + 롱 / − 숏)"].values / 100.0, index=sel); w = w[w.abs() > 1e-9]
+    if len(w) < 2:
+        st.warning("비중이 0이 아닌 품목이 2개 이상 필요합니다.")
+        return
+    p1, p2, p3 = st.columns(3)
+    alpha = p1.selectbox("신뢰수준", [0.95, 0.99], 1, format_func=lambda x: f"{x:.0%}", key="pv_alpha")
+    h = p2.selectbox("기간 (영업일)", [5, 10, 20, 60], 2, key="pv_h")
+    sg_ = p3.selectbox("σ 모형", ["EWMA λ=0.94 (빠름 · 곡물 상한 분석과 같음)", "GARCH(1,1) (품목당 약 10초)"], 0, key="pv_sigma")
+    with st.spinner("변동성 · 상관 계산 중…"):
+        R, S = _pf_inputs(tuple(w.index), sg_, ROLL, extra_bytes)
+    sector_of = {i: LX.SECTOR.get(i, "기타") for i in w.index}
+    o = PV.measure(R, S, w, float(capital), alpha, int(h))
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("총 노출", f"${o['gross'] * capital:,.0f}", f"자본의 {o['gross']:.0%} · 순 {o['net']:+.0%}", delta_color="off")
+    m2.metric("연 변동성", f"{o['ann_vol']:.1f}%")
+    m3.metric(f"{h}일 {alpha:.0%} VaR (정규)", f"${o['var_normal']:,.0f}", f"자본의 {o['var_normal_pct']:.2f}%", delta_color="off")
+    m4.metric(f"{h}일 {alpha:.0%} VaR (FHS)", f"${o['var_fhs']:,.0f}", f"자본의 {o['var_fhs_pct']:.2f}% · ES {o['es_fhs_pct']:.2f}%", delta_color="off")
+    m5.metric("분산 효과", f"${o['undiversified'] - o['var_normal']:,.0f}", f"단순 합 ${o['undiversified']:,.0f}", delta_color="off")
+    # ① 최근 가격 추세 · 변동성 상태
+    st.markdown("##### ① 최근 가격 추세 · 변동성 상태 (롤 보정 가격)")
+    L_ = _levels(extra_bytes, ROLL)
+    TT = PV.trend_table(L_, list(w.index), w)
+    if len(TT):
+        TT["VaR 기여 비중"] = o["table"]["기여 비중"].reindex(TT.index)
+        TT.insert(0, "섹터", [sector_of.get(i, "기타") for i in TT.index]); TT.insert(1, "비중 (%)", (w.reindex(TT.index) * 100).values)
+        TTd = TT.rename(index=nm)
+        num = [c for c in TTd.columns if c not in ("섹터", "추세", "변동성 상태", "포지션", "추세와 포지션", "주의")]
+        TTd[num] = TTd[num].astype(float)
+        st.dataframe(TTd.style.format({**{c: "{:+.1f}" for c in num if "수익" in c or "대비" in c or c == "비중 (%)"}, "20일 변동성 (%, 연)": "{:.1f}", "1년 변동성 (%, 연)": "{:.1f}", "변동성 배수": "{:.2f}", "VaR 기여 비중": "{:.0%}"}, na_rep="–"),
+                     use_container_width=True, height=min(36 * (len(TTd) + 1) + 4, 460))
+        st.caption("추세 = 60일 · 120일 수익이 모두 + 이면 상승, 모두 − 이면 하락, 아니면 혼조. 변동성 배수 = 20일 변동성 ÷ 1년 변동성(1.3 초과 = 확대, 0.8 미만 = 진정). "
+                   "'역행'(롱인데 하락 추세 · 숏인데 상승 추세) + 변동성 확대는 단기 손실 위험이 큰 조합입니다. 추세는 방향 참고용이고 VaR는 변동성 · 상관으로 계산합니다.")
+        ids_c = list(TT.index)
+        fp = go.Figure([go.Scatter(x=L_[i].dropna().iloc[-252:].index, y=L_[i].dropna().iloc[-252:] / float(L_[i].dropna().iloc[-252]) * 100, name=nm(i), line=dict(width=1.5, color=PAL[j % 8])) for j, i in enumerate(ids_c)])
+        st.plotly_chart(fig_layout(fp, 320, title="최근 1년 가격 (시작 = 100)", hovermode="x", legend=dict(orientation="h", y=-0.3, font=dict(size=10))), key="pv_trend_fig")
+    # ② 섹터별 VaR 기여
+    st.markdown("##### ② 섹터별 VaR 기여 — 노출 비중보다 위험을 더 만드는 섹터는?")
+    ST = PV.sector_table(o, sector_of, w)
+    s1, s2 = st.columns([1.1, 1])
+    s1.dataframe(ST.style.format({"노출 비중": "{:.0%}", "순비중 (% 자본)": "{:+.1f}", "VaR 기여 ($)": "{:,.0f}", "VaR 기여 비중": "{:.0%}", "위험/비중 배수": "{:.2f}", "품목 수": "{:.0f}"}), use_container_width=True)
+    fs = go.Figure([go.Bar(name="노출 비중", x=list(ST.index), y=ST["노출 비중"] * 100, marker_color=PAL[0]), go.Bar(name="VaR 기여 비중", x=list(ST.index), y=ST["VaR 기여 비중"] * 100, marker_color=PAL[7])])
+    fs.update_layout(barmode="group")
+    s2.plotly_chart(fig_layout(fs, 280, title="섹터별 노출 비중 vs VaR 기여 비중 (%)", hovermode="x", legend=dict(orientation="h", y=-0.25)), key="pv_sec_fig")
+    ti = o["table"].copy(); ti.index = [nm(i) for i in ti.index]; ti = ti.sort_values("VaR 기여 ($, 정규)")
+    fi = go.Figure(go.Bar(x=ti["VaR 기여 ($, 정규)"], y=list(ti.index), orientation="h", marker_color=[PAL[7] if v > 0 else PAL[2] for v in ti["VaR 기여 ($, 정규)"]]))
+    st.plotly_chart(fig_layout(fi, 60 + 26 * len(ti), title="품목별 VaR 기여 ($, 정규 · 합 = 정규 VaR)", hovermode="y"), key="pv_item_fig")
+    st.caption("위험/비중 배수 > 1이면 그 섹터는 노출 비중보다 위험을 더 만듭니다(같은 방향으로 크게 움직이는 품목이 몰려 분산이 안 되는 경우). 기여도는 오일러 분해 — 합 = 정규 VaR. "
+               "음수 기여는 다른 품목의 위험을 상쇄하는 헤지 역할.")
+    # ③ 섹터 비중 조절 시뮬레이션
+    secs = [s for s in ST.index if s != "기타"]
+    st.markdown("##### ③ 섹터 비중 조절 시뮬레이션 — 상한을 걸면 VaR · 변동성이 어떻게 변하나")
+    q1, q2, q3 = st.columns([1, 1.3, 1.7])
+    sec = q1.selectbox("조절할 섹터", secs, 0, key="pv_sector")
+    cur_sh = float(ST["노출 비중"].get(sec, 0.0))
+    cap_p = q2.slider("섹터 노출 비중 상한 (%)", 5, 60, int(min(60, max(5, round(cur_sh * 75 / 5) * 5))), 5, key="pv_cap_sh", help=f"지금 {sec} 노출 비중 {cur_sh:.0%} — 상한이 이보다 크면 변화 없음")
+    mode = q3.radio("조절 방식", list(PV.MODES), 2, format_func=lambda k: PV.MODES[k], key="pv_mode")
+    w2 = PV.cap_sector(w, sector_of, sec, cap_p / 100.0, mode, R, S, float(capital), alpha, int(h))
+    if np.allclose(w2.values, w.values):
+        st.info(f"{sec}의 노출 비중({cur_sh:.0%})이 상한({cap_p}%) 이하라 변화가 없습니다. 상한을 낮춰 보세요.")
+    else:
+        CM = PV.compare(R, S, w, w2, float(capital), alpha, int(h))
+        ST2 = PV.sector_table(PV.measure(R, S, w2, float(capital), alpha, int(h)), sector_of, w2)
+        c1, c2 = st.columns([1.3, 1])
+        c1.dataframe(CM.style.format({"조절 전": "{:.2f}", "조절 후": "{:.2f}", "변화": "{:+.2f}", "변화율 (%)": "{:+.1f}"}, na_rep="–"), use_container_width=True)
+        c2.dataframe(pd.DataFrame({"조절 전 VaR 기여": ST["VaR 기여 비중"], "조절 후 VaR 기여": ST2["VaR 기여 비중"]}).style.format("{:.0%}", na_rep="–"), use_container_width=True)
+        dv, ds = CM.loc[f"{h}일 VaR FHS (% 자본)", "변화율 (%)"], CM.loc["연 변동성 (%)", "변화율 (%)"]
+        st.success(f"{sec} 노출 {cur_sh:.0%} → {cap_p}% ({PV.MODES[mode].split(' (')[0]}): 연 변동성 {ds:+.1f}% · {h}일 VaR(FHS) {dv:+.1f}% · {sec}의 VaR 기여 {ST['VaR 기여 비중'].get(sec, 0):.0%} → {ST2['VaR 기여 비중'].get(sec, 0):.0%}.")
+        caps_ = [c for c in (50, 40, 35, 30, 25, 20, 15, 10, 5) if c < cur_sh * 100 - 0.5]
+        if caps_:
+            SW = PV.sweep(R, S, w, sector_of, sec, [c / 100 for c in caps_], mode, float(capital), alpha, int(h))
+            fw = go.Figure([go.Scatter(x=SW["상한 (%)"].fillna(cur_sh * 100), y=SW[c], name=c.replace(" 지수", ""), mode="lines+markers", line=dict(width=2, color=PAL[j])) for j, c in enumerate(["σ 지수", "VaR 정규 지수", "VaR FHS 지수"])])
+            fw.update_xaxes(autorange="reversed", title=f"{sec} 노출 비중 상한 (%, 왼쪽 = 더 낮음)"); fw.update_yaxes(title="조절 전 = 100")
+            st.plotly_chart(fig_layout(fw, 300, title=f"{sec} 상한별 σ · VaR 지수 ({PV.MODES[mode].split(' (')[0]})", hovermode="x", legend=dict(orientation="h", y=-0.3)), key="pv_sweep_fig")
+            st.caption("'목표 변동성 유지'에서는 σ · 정규 VaR가 100으로 같고 FHS(꼬리) VaR만 줄어듭니다 — 곡물 상한 25%에서 본 현상(변동성은 그대로, 위험 쏠림 · 꼬리 손실은 감소)입니다. "
+                       "'그 섹터만 줄임'은 전체 노출이 줄어 σ · VaR가 함께 크게 내려갑니다(줄인 몫만큼 덜 투자).")
+    # ④ 자동 권고
+    st.markdown("##### ④ 자동 권고 — 위험 몫이 노출 몫보다 8%p 넘게 큰 섹터")
+    RC = PV.recommend(R, S, w, sector_of, float(capital), alpha, int(h))
+    if len(RC):
+        st.dataframe(RC.set_index("섹터").style.format({"현재 노출 비중": "{:.0%}", "VaR 기여 비중": "{:.0%}", "위험/비중 배수": "{:.2f}", "권고 상한": "{:.0%}", "σ 변화 (%)": "{:+.1f}", "VaR 정규 변화 (%)": "{:+.1f}",
+                                                        "VaR FHS 변화 (%)": "{:+.1f}", "조정 후 섹터 VaR 기여": "{:.0%}"}), use_container_width=True)
+        for _, r_ in RC.iterrows():
+            st.markdown(f"- **{r_['섹터']}** 노출 {r_['현재 노출 비중']:.0%}가 VaR의 {r_['VaR 기여 비중']:.0%}를 만듭니다 → 노출 비중 상한 **{r_['권고 상한']:.0%}** 권고 "
+                        f"(목표 변동성 유지 시 {h}일 VaR FHS {r_['VaR FHS 변화 (%)']:+.1f}%, 그 섹터 VaR 기여 {r_['조정 후 섹터 VaR 기여']:.0%}).")
+    else:
+        st.info("위험 몫이 노출 몫보다 8%p 넘게 큰 섹터가 없습니다 — 지금 구성은 섹터 쏠림이 크지 않습니다.")
+    st.caption("권고 상한 = 그 섹터의 VaR 기여 비중이 '현재 노출 비중' 수준까지 내려오는 상한(이분법, 목표 변동성 유지 방식). 최소 노출 10% 이상 섹터만 대상. "
+               "⚠ 수익 영향은 포함하지 않습니다 — 백테스트 로그 G · I에서 곡물 25% 상한은 시험 Sharpe 손실이 없었지만(주간 1.07 → 1.09, 일간 1.33 → 1.30) 축산 상한은 학습 Sharpe를 깎았으므로 섹터마다 확인이 필요합니다. "
+               "상관은 직전 500일 표준화 잔차 기준 — 위기 때 상관이 올라가면 위험이 더 커질 수 있습니다(스트레스 테스트는 로그 '2. 스트레스 테스트' 참조).")
+
+
 def tab_risk():
-    import risk as RK
-    st.subheader("리스크 — VaR/ES · 꼬리 위험 · 구매·보유 물량 위험")
+    st.subheader("리스크 — VaR/ES · 꼬리 위험 · 구매·보유 물량 위험 · 포트폴리오 VaR")
     _ar_alert()
     _alpha_alert()
+    ra, rb = subtabs(["품목별 VaR · 꼬리 · 구매·보유 물량", "포트폴리오 VaR · 섹터 기여 · 비중 조절"])
+    with ra:
+        _risk_single()
+    with rb:
+        _portfolio_var_section()
+
+
+def _risk_single():
+    import risk as RK
     st.caption("모든 예측은 walk-forward (매년 1월 그 이전 데이터로만 재추정, 시점 t의 예측은 t−1 종가까지의 정보). 수익률 = 롤 보정 가격의 일간 로그수익률(%). "
                "구매자에게 위험은 '가격 상승'(매입 예정 물량 = 숏 노출), 재고 보유자에게는 '가격 하락' — 두 방향을 모두 평가.")
     ids_r = [i for i in COMMOD_IDS if GROUP.get(i) not in ("Freight",)]
