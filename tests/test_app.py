@@ -167,6 +167,9 @@ def g_buy(at, A):
     at.multiselect(key="cu_sel_일간 실험 결과_d").set_value([]).run()
     assert at.scan(lambda at: any(m.key == "dly_pick" for m in at.selectbox))                                   # F 서브탭: 일간 백테스트 결과
     at.selectbox(key="dly_pick").set_value(at.selectbox(key="dly_pick").options[1]).run(); check(at, "⑤ F 서브탭: 일간 백테스트 결과 묶음 선택")
+    assert at.scan(lambda at: any(s.key == "dly_near_thr" for s in at.slider))                                  # v1.73.0 기준 1.32 부근 변주 모음
+    at.slider(key="dly_near_thr").set_value(1.33).run(); check(at, "⑤ F 서브탭: 1.32 부근 변주 하한 1.33")
+    at.slider(key="dly_near_thr").set_value(1.22).run(); check(at, "⑤ F 서브탭: 1.32 부근 변주 하한 1.22")
     at.radio(key="cu_freq").set_value("주간 (고정 결과 — 롱숏 · 대안 시계열 · 멀티모달 재료 포함)").run(); check(at, "⑤ Customization: 데이터 주기 주간으로 복귀")
     assert at.scan(lambda at: any("롱숏 전략 2년 롤링 알파" in x.value for x in list(at.warning) + list(at.info) + list(at.caption)))   # 리스크 탭 전략 우위 경고
     assert at.scan(lambda at: any(str(i).startswith("⑩ 혼합 후보") for d in at.dataframe for i in getattr(d.value, "index", [])))   # ⑩ 혼합 후보 행
