@@ -4279,7 +4279,7 @@ def ex_signal_tests():
     st.success("**결론** — ① 신호로 비중을 바꾸는 방법(갈아타기 · 메타 예측 · 적응형 비중 · 현금 피신 · 목표 변동성 조절 · 상관↑ 추세 집중 · 짧은 추세)은 모두 시험 기간(2017–26) Sharpe가 "
                "고정 50/25/25(1.07)를 유의하게 넘지 못해 **미채택** ② 쓸 만한 것은 위험 관리: **곡물 합계 비중 상한 25%**(수익 그대로 · VaR 2.87 → 2.25%, ⑤ Portfolio Customization에 반영)와 "
                "**손실 한도 경보**(`risk_alert.py`, 비중은 그대로 두고 담당자에게 알림)")
-    doc = next(SIG_DIR.glob("*.docx"), None)
+    doc = next(SIG_DIR.glob("3축_*.docx"), None)
     if doc:
         st.download_button("📄 요약 문서 내려받기 (Word, 5쪽)", doc.read_bytes(), file_name=doc.name, key="ex_sig_doc",
                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
@@ -4311,6 +4311,47 @@ def ex_signal_tests():
     fig("f5_graincap.png", "곡물 합계 비중 상한 — 수익은 그대로, VaR 중 곡물 몫 62% → 34%")
     st.caption("재현: strategy_switch · strategy_meta · strategy_adaptive · strategy_cash · strategy_voltgt_dyn · strategy_crisis_mom · strategy_short_trend · strategy_mom_lookback · "
                "strategy_graincap · strategy_groupcap · stress_portfolio · risk_alert (*.py). 모든 실험 기록: docs/백테스트_로그.md")
+
+
+DAILY_SEC = "🧪 일간 포트폴리오 성과 Backtest (2026-11)"
+
+
+def ex_daily_tests():
+    """같은 3축 전략 · 신호 실험을 일간 자료로 다시 돌린 결과 요약 — docs/실험요약 '일간 백테스트 전략 쉬운 설명' 워드 문서와 같은 내용 · 그림. 전체 후보 표는 ⑤ 포트폴리오 › F(일간)."""
+    st.markdown("#### 일간 포트폴리오 성과 Backtest 요약 (2026-11-10, 자료 기준일 2026-10-26)")
+    st.success("**결론** — 3축 혼합 50/25/25는 일간 자료에서도 유지됩니다(주간 1.07 → 일간 1.32, 주 단위로 합산하면 1.24). 신호로 비중이나 투자 규모를 바꾸는 방법(현금 피신 · 적응형 비중 · 갈아타기 · 메타 레이어 · "
+               "동적 목표 변동성 · 상관 급등 추세 집중 · 짧은 추세 · 멀티모달 갈래)은 일간에서도 모두 기준을 의미 있게 넘지 못해 **미채택** — 주간 결과와 같은 결론입니다.")
+    doc = next(SIG_DIR.glob("일간_백테스트*.docx"), None)
+    if doc:
+        st.download_button("📄 요약 문서 내려받기 (Word, 쉬운 설명 · 전략별 세부 설정 포함)", doc.read_bytes(), file_name=doc.name, key="ex_daily_doc",
+                           mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    fig = lambda n, cap: st.image(str(SIG_DIR / "figs_daily" / n), caption=cap, use_container_width=True) if (SIG_DIR / "figs_daily" / n).exists() else None   # noqa: E731
+    fig("f01_structure.png", "기준 전략의 구조 — 신호 전략은 '섞는 비중' 또는 '투자 규모'를 바꾸려는 시도 (일간 3축 고정 50/25/25: 학습 0.61 · 시험 1.32)")
+    fig("f04_summary.png", "시험 Sharpe 비교(각 실험에서 학습 구간으로 고른 설정) — 기준을 눈에 띄게 넘은 것은 B 메타 레이어(1.37) 하나이고 그것도 우연 범위")
+    st.markdown("""
+| 실험 | 일간 결과 (학습 → 시험 · 기준 0.61 → 1.32) | 판정 |
+|---|---|---|
+| 3축 혼합 주간 vs 일간 | 주간 합산 시험 1.07 → 1.24(차이 t 1.57) | 유지 |
+| D 현금 피신 | 신호 8종 −0.51 ~ +0.04, 최악은 변동성 · HMM. 1.33~1.36은 현금 구간이 거의 없거나 노출이 낮아진 몫 | 미채택 |
+| C 환경 적응형 비중 | 관점별 차이 t −2.0 ~ −0.7, 일간 0.97~1.19 | 미채택 |
+| A 연도별 갈아타기 · 트리거 | 접점 1.14~1.21, 위기 · 모멘텀 트리거는 낙폭 −45~−60% | 미채택 |
+| B 메타 레이어 | κ=0.05가 0.63 → 1.37(t 1.52) · 1등 축 적중률 학습 30% · 시험 21%(무작위 33%) | 미채택 |
+| E 동적 목표 변동성 | 1.21~1.31 | 미채택 |
+| F 상관 급등기 추세 집중 | 트리거가 시험 기간에 거의 안 켜짐, 대조군(늘 켜 두기) 모두 기준 아래 | 미채택 |
+| J · K 짧은 추세 · 모멘텀 기간 | 짧을수록 나쁨, 260일(기준)이 시험 1위 | 미채택 |
+| G · I 품목군 비중 상한 | 곡물 25%: 1.33 → 1.30 (VaR는 일간에서 미측정) | Sharpe 중립 |
+| 멀티모달 갈래 | 혼합 0.69~1.17, 16개 모두 기준 미만 | 미채택 |
+""")
+    st.caption("전체 후보(194개) 표 · 누적 수익 비교 · 변주 지도는 ⑤ 포트폴리오 › F. 롱숏 전략 Backtest · 일간 자료. 일간 신호를 대시보드에서 직접 섞어 보려면 ⑤ A. Portfolio Customization › 일간 주기.")
+    for n, cap in [("f03_axes.png", "세 축과 혼합 전략의 누적 수익 (모두 목표 변동성 10%)"), ("f05_freq.png", "주 단위로 환산한 시험 Sharpe — 일간 자료로 바꿔도 떨어지지 않음"),
+                   ("f06_cash.png", "D. (왼쪽) 신호별 시험 Sharpe (오른쪽) VIX 신호 예 — 빨간 구간이 현금으로 피한 기간"), ("f07_adaptive.png", "C. 주간(회색) · 일간(파랑) 시험 Sharpe — 점선은 각 기준"),
+                   ("f08_switch.png", "A. 시험 Sharpe(왼쪽)와 최대 낙폭(오른쪽) — T2 · T3 트리거는 낙폭이 크게 깊어짐"), ("f09_meta.png", "B. (왼쪽) κ별 시험 Sharpe (오른쪽) 1등 축을 맞힌 비율"),
+                   ("f10_dyn.png", "E. 설정별 시험 Sharpe"), ("f11_corr.png", "F. (왼쪽) 늘 켜 두면 모두 기준 아래 (오른쪽) 트리거가 켜진 날은 전체의 2~7%뿐"),
+                   ("f12_lookback.png", "K. 모멘텀 관찰 기간별 혼합 Sharpe — 260일(기준)이 시험 1위"), ("f13_cap.png", "G · I. 상한별 시험(왼쪽) · 학습(오른쪽) Sharpe"),
+                   ("f14_mm.png", "멀티모달 갈래별 혼합 시험 Sharpe (부호 롤링)"), ("f15_signals.png", "일간 신호의 흐름과 기본 문턱(빨간 점선) — 빨간 영역이 '위험' 신호가 켜진 때"),
+                   ("f16_overlay.png", "오버레이 예 — (왼쪽) VIX 분위 0.9 · 전부 현금 (오른쪽) 낙폭 손절 5% · 절반 현금")]:
+        fig(n, cap)
+    st.caption("재현: strategy_daily_freq · strategy_daily_signals · strategy_daily_more · strategy_daily_multimodal (*.py), 그림: docs/실험요약/make_daily_doc.py. 모든 실험 기록: docs/백테스트_로그.md (R · S · T)")
 
 
 def ex_runs():
@@ -4446,7 +4487,7 @@ def tab_experiments():
     st.subheader("실험 결과 — 설정을 바꿔가며 같은 백테스트 엔진으로 비교한 결과")
     st.caption("모든 실험은 미래정보 차단(다음 거래일 체결·walk-forward)·같은 비용 가정. 데이터가 갱신되면 '재실행'으로 최신화. "
                "주의: 표에서 가장 좋은 설정을 골라 쓰면 과적합 — 여러 조건에서 일관되게 좋은 설정을 고를 것.")
-    sec = st.radio("실험", ["📋 한눈에 보기", "📂 내 실행 기록", SIG_SEC,"구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 상대가치 재검증 (2008~)", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "미루기 권고 (재고 무관 · 1~4주)", "재고 기반 반복 구매 (학습/시험 · 예측)", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)",
+    sec = st.radio("실험", ["📋 한눈에 보기", "📂 내 실행 기록", SIG_SEC, DAILY_SEC, "구매 타이밍 (프리셋 · 단계별)", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 상대가치 재검증 (2008~)", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "미루기 권고 (재고 무관 · 1~4주)", "재고 기반 반복 구매 (학습/시험 · 예측)", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)",
                           "모멘텀 기간", "거래 규칙", "변동성 사이징"],
                    horizontal=True, key="ex_sec")
     pct = lambda cols: {c: "{:.2%}" for c in cols}
@@ -4457,6 +4498,8 @@ def tab_experiments():
         ex_runs(); return
     if sec == SIG_SEC:
         ex_signal_tests(); return
+    if sec == DAILY_SEC:
+        ex_daily_tests(); return
     if sec == "구매 타이밍 (프리셋 · 단계별)":
         pc_view = st.radio("보기", ["단계별 고도화 (기준에서 한 가지씩)", "프리셋 · 신호 비교 (13·26주, 품목별)"], horizontal=True, key="ex_pc_view",
                            help="두 실험 모두 곡물 6품목 · 같은 백테스트 엔진. 단계별 = '추천' 프리셋이 나온 근거, 프리셋 비교 = 최종 프리셋과 단순 신호의 기간별 비교")
@@ -6956,9 +6999,9 @@ DAILY_BASE_TE = 1.32                                                    # 일간
 def _daily_near_baseline_section(T: pd.DataFrame):
     """F(일간) 아래 — 기준 일간 시험 Sharpe 1.32 부근으로 50/25/25에 변주를 준 백테스트 결과 모음(고정): 변주 지도 · 1.32 부근/초과 전부 · 묶음별 주간 vs 일간 요약."""
     st.markdown("---")
-    st.subheader("기준 1.32 부근 변주 모음 — 일간 50/25/25에 변주를 준 백테스트 요약")
-    st.caption(f"일간 기준(고정 50/25/25) 학습 0.61 → 시험 {DAILY_BASE_TE:.2f}. 아래는 위 표(전체 후보)를 시험 Sharpe가 기준 부근이거나 넘는 것 위주로 다시 모은 요약입니다 — 같은 CSV에서 계산(`strategy_daily_*_compare.csv`). "
-               "시험 Sharpe가 기준을 넘어도 학습에서 고른 설정이 아니거나 차이 t가 유의하지 않으면 채택하지 않습니다.")
+    st.subheader("변주 지도 — 일간 50/25/25 변주 전체를 한 그림으로")
+    st.caption(f"위 표의 모든 후보(대조군 · 기준 행 제외)를 학습 · 시험 Sharpe 평면에 찍은 그림입니다(표의 숫자와 같은 값이라 표는 다시 싣지 않음). 일간 기준(고정 50/25/25) 학습 0.61 → 시험 {DAILY_BASE_TE:.2f}. "
+               "묶음별 요약 그림 · 표는 ⑥ 실험 결과 › '일간 포트폴리오 성과 Backtest'.")
     V = T[(T["묶음"] != "3축 혼합 — 주간 vs 일간") & (T["판정"] != "기준") & ~T["규칙"].astype(str).str.contains("대조군|기준")].copy()
     V["시험−기준"] = V["시험 2017–"] - DAILY_BASE_TE
     # ① 변주 지도
@@ -6966,63 +7009,13 @@ def _daily_near_baseline_section(T: pd.DataFrame):
     fm_ = go.Figure()
     for g, d_ in V.groupby("묶음", sort=False):
         fm_.add_trace(go.Scatter(x=d_["학습 2008–16"], y=d_["시험 2017–"], mode="markers", name=g[:30], marker=dict(size=7, color=grp_col[g], opacity=0.75), text=d_["규칙"].str[:60], hovertemplate="%{text}<br>학습 %{x:.2f} → 시험 %{y:.2f}<extra></extra>"))
+    Bst = V[V["학습 최고"] == "←"]
+    fm_.add_trace(go.Scatter(x=Bst["학습 2008–16"], y=Bst["시험 2017–"], mode="markers", name="★ 학습 최고 설정(←)", marker=dict(size=13, symbol="star", color="black", line=dict(width=1, color="white")),
+                             text=(Bst["묶음"].str[:14] + " · " + Bst["규칙"].str[:40]), hovertemplate="%{text}<br>학습 %{x:.2f} → 시험 %{y:.2f}<extra>학습 최고</extra>"))
     fm_.add_hline(y=DAILY_BASE_TE, line=dict(color="black", dash="dash", width=1), annotation_text=f"기준 시험 {DAILY_BASE_TE:.2f}", annotation_position="top left")
     fm_.add_vline(x=0.61, line=dict(color="gray", dash="dot", width=1))
     st.plotly_chart(fig_layout(fm_, 420, title="변주 지도 — 학습 Sharpe(가로) vs 시험 Sharpe(세로), 점 하나 = 변주 하나", hovermode="closest", legend=dict(orientation="h", y=-0.3, font=dict(size=10))), key="dly_near_map")
     st.caption("기준선(점선) 위에 있어도 가로로 기준 학습(0.61, 점선)보다 오른쪽인지가 중요 — 학습에서 좋았던 것이 시험에서도 좋았는지를 봅니다. 기준선을 넘는 점은 있지만(최대 약 1.45) 시험이 기준을 넘는 변주 중 차이 t가 +2를 넘는 것은 없습니다(최대 +1.52, B 메타 레이어).")
-    # ② 1.32 부근·초과 전부
-    thr = st.slider("시험 Sharpe 하한 (기준 1.32)", 1.20, 1.45, 1.33, 0.01, key="dly_near_thr")
-    N = V[V["시험 2017–"] >= thr].sort_values("시험 2017–", ascending=False).copy()
-    N["비고"] = [("학습 최고 설정" if b == "←" else "학습 최고 아님") + ("" if pd.notna(t) and abs(t) >= 2 else " · 차이 t 유의하지 않음") + (f" · 위약 p {p:.2f}" if pd.notna(p) else "") for b, t, p in zip(N["학습 최고"], N["시험 차이 t"], N["위약 p (시험)"])]
-    st.markdown(f"**시험 Sharpe ≥ {thr:.2f}인 변주 {len(N)}개** (기준 {DAILY_BASE_TE:.2f}, 일간 3축 혼합 제외)")
-    st.dataframe(N[["묶음", "규칙", "학습 2008–16", "시험 2017–", "시험−기준", "주간 합산 시험", "시험 차이 t", "최대 낙폭 (%)", "판정", "비고"]].reset_index(drop=True)
-                 .style.format({"학습 2008–16": "{:+.2f}", "시험 2017–": "{:+.2f}", "시험−기준": "{:+.2f}", "주간 합산 시험": "{:+.2f}", "시험 차이 t": "{:+.2f}", "최대 낙폭 (%)": "{:.1f}"}, na_rep="–"),
-                 use_container_width=True, height=min(36 * (len(N) + 1) + 4, 520))
-    # ③ 묶음별 주간 vs 일간 요약
-    st.markdown("**묶음별 요약 — 주간 vs 일간 (학습 최고 설정, 학습 → 시험 Sharpe)**")
-    rd_ = lambda n: pd.read_csv(A.DATA / n, encoding="utf-8-sig") if (A.DATA / n).exists() else pd.DataFrame()      # noqa: E731
-    sg, cw, aw, mm = rd_("strategy_daily_signals_compare.csv"), rd_("strategy_cash_compare.csv"), rd_("strategy_adaptive_compare.csv"), rd_("strategy_daily_multimodal_compare.csv")
-    t1, t2, t3, t4 = st.tabs(["D 현금 피신", "C 환경 적응형 비중", "A·B·E·F·J·K·G·I 요약", "멀티모달 갈래 (일간 vs 주간)"])
-    with t1:
-        if len(sg) and len(cw):
-            rows = []
-            for k, nm in [("HMM", "HMM"), ("변동성", "변동성 국면"), ("동조성", "DCC 동조성"), ("흡수비율", "흡수비율"), ("VIX", "VIX"), ("뉴스", "뉴스"), ("낙폭", "낙폭 손절"), ("칼만", "칼만 평균 < 0")]:
-                dd = sg[(sg["실험"].str.startswith("D")) & (sg["학습 최고"] == "←") & sg["신호"].astype(str).str.startswith(k)]
-                ww = cw[(cw["기본"] == "고정 50/25/25") & (cw["학습 최고"] == "←") & cw["신호"].astype(str).str.startswith(k)] if "학습 최고" in cw else pd.DataFrame()
-                if len(dd) and len(ww):
-                    d0, w0 = dd.iloc[0], ww.iloc[0]
-                    rows.append({"신호": nm, "주간 (학습 → 시험)": f"{w0['Sharpe 학습 2008–16']:.2f} → {w0['Sharpe 시험 2017–']:.2f}", "일간 (학습 → 시험)": f"{d0['Sharpe 학습 2008–16']:.2f} → {d0['Sharpe 시험 2017–']:.2f}",
-                                 "일간 시험 − 기준": d0["Sharpe 시험 2017–"] - DAILY_BASE_TE, "일간 위약 p": d0.get("위약 p (시험)", np.nan)})
-            st.dataframe(pd.DataFrame(rows).style.format({"일간 시험 − 기준": "{:+.2f}", "일간 위약 p": "{:.2f}"}, na_rep="–"), hide_index=True, use_container_width=True)
-            st.caption("일간 기준(고정 50/25/25) 0.61 → 1.32, 주간 기준 0.61 → 1.07. 흡수비율 · VIX · 뉴스 · 낙폭 손절의 시험 1.33~1.36은 현금 구간이 거의 없거나(흡수비율 2.7%) 평균 노출이 낮아진 몫이며 차이 t는 0 근처.")
-    with t2:
-        if len(sg) and len(aw):
-            rows = []
-            for k, nm in [("K", "칼만"), ("H", "HMM"), ("N", "뉴스"), ("C", "DCC 동조성"), ("ALL", "4개 평균")]:
-                dd = sg[(sg["실험"].str.startswith("C")) & (sg["학습 최고"] == "←") & sg["신호"].astype(str).str.startswith(k)]
-                ww = aw[(aw["학습 최고"] == "←") & aw["규칙"].astype(str).str.startswith(k)]
-                if len(dd) and len(ww):
-                    d0, w0 = dd.iloc[0], ww.iloc[0]
-                    rows.append({"관점": nm, "주간 (학습 → 시험)": f"{w0['Sharpe 학습 2008–16']:.2f} → {w0['Sharpe 시험 2017–']:.2f} (t {w0['시험 차이 t']:+.2f})", "일간 (학습 → 시험)": f"{d0['Sharpe 학습 2008–16']:.2f} → {d0['Sharpe 시험 2017–']:.2f} (t {d0['시험 차이 t']:+.2f})"})
-            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
-            st.caption("어떤 관점으로 비중을 바꿔도 일간 시험 1.32(기준)를 넘지 못함. DCC 위험 균등(고정 비중 변주)은 일간 0.74 → 1.30으로 기준과 같은 수준.")
-    with t3:
-        st.dataframe(pd.DataFrame([
-            ["A 연도별 갈아타기 · 트리거", "접점 0.26~0.49 → 1.14~1.21, 위기 트리거 0.52 → 0.98(낙폭 −44.7%), 전략 모멘텀 0.16 → 0.79(낙폭 −59.9%)", "미채택"],
-            ["B 메타 레이어", "κ=0.05가 0.63 → 1.37(t 1.52). 1등 축 적중률 학습 30%, 시험 21%(무작위 33%)", "미채택"],
-            ["E 동적 목표 변동성", "0.64~0.67 → 1.21~1.30", "미채택"],
-            ["F 상관 급등 추세 집중", "학습 최고 0.86 → 1.32(기준과 같음, 위약 p 0.14)", "미채택"],
-            ["J 짧은 추세", "최고 0.46 → 1.00, 낙폭 −38.7%", "미채택"],
-            ["K 모멘텀 기간", "260일(기준) 0.61 → 1.32가 시험 1위, 짧을수록 나쁨", "미채택"],
-            ["G · I 품목군 상한", "곡물 25%가 1.33 → 1.30. 주간의 Sharpe 이득이 재현되지 않음", "해당 없음"]], columns=["실험", "일간 결과 (학습 → 시험)", "판정"]), hide_index=True, use_container_width=True)
-        st.caption("위 '전체 후보' 표의 묶음별 학습 최고 설정을 요약한 값(백테스트 로그 S · T). 기준 일간 0.61 → 1.32.")
-    with t4:
-        if len(mm):
-            X_ = mm[mm["신호"].astype(str).str.contains("부호 롤링") & ~mm["신호"].astype(str).str.contains("전체 평균")].copy()
-            X_["갈래"] = X_["신호"].astype(str).str.replace("갈래 ", "", regex=False).str.replace(" (부호 롤링)", "", regex=False)
-            X_ = X_[["갈래", "단독 2008–", "주간 실행 단독 Sharpe (참고, 2007–)", "혼합 시험", "혼합 시험 차이 t"]].rename(columns={"단독 2008–": "일간 단독 Sharpe", "주간 실행 단독 Sharpe (참고, 2007–)": "주간 단독 Sharpe", "혼합 시험": "일간 혼합 시험"})
-            st.dataframe(X_.style.format({"일간 단독 Sharpe": "{:+.2f}", "주간 단독 Sharpe": "{:+.2f}", "일간 혼합 시험": "{:.2f}", "혼합 시험 차이 t": "{:+.2f}"}, na_rep="–"), hide_index=True, use_container_width=True)
-            st.caption("멀티모달 갈래 혼합(MinVar 50 + 모멘텀 25 + 갈래 25)은 16개 모두 기준 1.32 미만 — 가장 높은 것은 COT(롱링) 1.17(t −1.00), 가장 낮은 것은 금융 0.69(t −3.47). 일간과 주간의 단독 Sharpe는 거의 같음(일간화로 새 정보가 생기지 않음).")
 
 
 def page_portfolio():

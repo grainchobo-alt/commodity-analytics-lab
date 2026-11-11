@@ -167,9 +167,7 @@ def g_buy(at, A):
     at.multiselect(key="cu_sel_일간 실험 결과_d").set_value([]).run()
     assert at.scan(lambda at: any(m.key == "dly_pick" for m in at.selectbox))                                   # F 서브탭: 일간 백테스트 결과
     at.selectbox(key="dly_pick").set_value(at.selectbox(key="dly_pick").options[1]).run(); check(at, "⑤ F 서브탭: 일간 백테스트 결과 묶음 선택")
-    assert at.scan(lambda at: any(s.key == "dly_near_thr" for s in at.slider))                                  # v1.73.0 기준 1.32 부근 변주 모음
-    at.slider(key="dly_near_thr").set_value(1.33).run(); check(at, "⑤ F 서브탭: 1.32 부근 변주 하한 1.33")
-    at.slider(key="dly_near_thr").set_value(1.22).run(); check(at, "⑤ F 서브탭: 1.32 부근 변주 하한 1.22")
+    assert at.scan(lambda at: any("변주 지도" in c.value for c in at.subheader))                                    # v1.73.0 F 일간: 변주 지도(산점도)
     at.radio(key="cu_freq").set_value("주간 (고정 결과 — 롱숏 · 대안 시계열 · 멀티모달 재료 포함)").run(); check(at, "⑤ Customization: 데이터 주기 주간으로 복귀")
     assert at.scan(lambda at: any("롱숏 전략 2년 롤링 알파" in x.value for x in list(at.warning) + list(at.info) + list(at.caption)))   # 리스크 탭 전략 우위 경고
     assert at.scan(lambda at: any(str(i).startswith("⑩ 혼합 후보") for d in at.dataframe for i in getattr(d.value, "index", [])))   # ⑩ 혼합 후보 행
@@ -224,7 +222,7 @@ def g_risk(at, A):
 
 def g_exp(at, A):
     """⑥ 실험 결과 — 섹션 전부"""
-    for sec in ["📋 한눈에 보기", "🧪 3축 신호 · 위험 한도 실험 (2026-11)", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 상대가치 재검증 (2008~)", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "미루기 권고 (재고 무관 · 1~4주)", "재고 기반 반복 구매 (학습/시험 · 예측)", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍 (프리셋 · 단계별)"]:
+    for sec in ["📋 한눈에 보기", "🧪 3축 신호 · 위험 한도 실험 (2026-11)", "🧪 일간 포트폴리오 성과 Backtest (2026-11)", "철강 원료·구리 상대가치", "전 품목 구매 타이밍 (단일 vs 다변량)", "곡물 상대가치 재검증 (2008~)", "벌크(일괄) 구매 — 문턱 · 가격 위치 창", "미루기 권고 (재고 무관 · 1~4주)", "재고 기반 반복 구매 (학습/시험 · 예측)", "리스크 모형", "모델 선택 메타 전략", "최신 시계열 모델 · 예측 목표", "전략 비교 (리스크 버짓)", "모멘텀 기간", "거래 규칙", "변동성 사이징", "구매 타이밍 (프리셋 · 단계별)"]:
         at.radio(key="ex_sec").set_value(sec).run(); check(at, f"실험 결과: {sec}")
     at.radio(key="ex_sec").set_value("전 품목 구매 타이밍 (단일 vs 다변량)").run()
     at.radio(key="ex_pa_view").set_value("단일 vs 다변량 요약").run(); check(at, "실험 결과: 전 품목 단일 vs 다변량 요약")
